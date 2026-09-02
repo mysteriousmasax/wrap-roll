@@ -450,20 +450,6 @@ export default function HomePage() {
               Freshly grilled proteins, crisp garden greens, and homemade signature sauces rolled to perfection in Dar es Salaam.
             </p>
 
-            <div className="flex flex-wrap items-center gap-4 pt-2">
-              <button
-                className="px-7 py-3.5 rounded-2xl bg-[#ae002a] hover:bg-[#c90231] text-white font-bold text-sm shadow-xl transition-transform active:scale-[0.98] inline-flex items-center gap-2.5"
-                onClick={() => scrollTo('menu')}
-              >
-                Explore Full Menu <ArrowRight size={17} />
-              </button>
-              <button
-                className="px-7 py-3.5 rounded-2xl bg-white/15 hover:bg-white/25 backdrop-blur-md text-white font-bold text-sm transition-colors inline-flex items-center gap-2.5 border border-white/30"
-                onClick={() => scrollTo('visit')}
-              >
-                <MapPin size={16} /> Find Location
-              </button>
-            </div>
           </div>
         </div>
       </section>
