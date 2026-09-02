@@ -1,10 +1,31 @@
 import jwt from 'jsonwebtoken';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import { fileURLToPath } from 'url';
 
-const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'wrap-roll-pos-secret-key-2026');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET must be set in production');
+function getJwtSecret() {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  const secretPath = path.resolve(__dirname, '../db/pos-jwt-secret.txt');
+  try {
+    if (fs.existsSync(secretPath)) {
+      const existing = fs.readFileSync(secretPath, 'utf8').trim();
+      if (existing) return existing;
+    }
+    const generated = crypto.randomBytes(32).toString('hex');
+    try {
+      fs.mkdirSync(path.dirname(secretPath), { recursive: true });
+      fs.writeFileSync(secretPath, generated, 'utf8');
+    } catch {}
+    return generated;
+  } catch {
+    return 'wrap-roll-pos-secret-key-2026';
+  }
 }
+
+const JWT_SECRET = getJwtSecret();
 
 export function authMiddleware(req, res, next) {
   const header = req.headers.authorization;
