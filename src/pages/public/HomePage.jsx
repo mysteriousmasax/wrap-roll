@@ -441,11 +441,8 @@ export default function HomePage() {
         </div>
 
         {/* Hero Content */}
-        <div className="relative z-10 max-w-7xl mx-auto px-6 sm:px-12 py-16 sm:py-24 w-full">
+        <div className="relative z-10 max-w-7xl mx-auto px-6 sm:px-12 py-20 sm:py-28 w-full">
           <div className="max-w-2xl space-y-6">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-[#ffc72c] text-xs font-bold uppercase tracking-wider">
-              <Sparkles size={14} className="text-[#ffc72c]" /> Fresh, Fast &amp; Delicious
-            </div>
             <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold font-display text-white leading-[1.06] tracking-tight drop-shadow-sm">
               Craving Authentic <span className="text-[#ffc72c]">Wraps &amp; Rolls?</span>
             </h1>
@@ -466,19 +463,6 @@ export default function HomePage() {
               >
                 <MapPin size={16} /> Find Location
               </button>
-            </div>
-
-            {/* Quick trust metrics */}
-            <div className="pt-6 border-t border-white/15 flex flex-wrap items-center gap-6 text-xs font-semibold text-white/75">
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-[#ffc72c]"></span> 100% Fresh Daily
-              </span>
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-[#ffc72c]"></span> Fast &amp; Hot Preparation
-              </span>
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-[#ffc72c]"></span> Dine-In &amp; Takeaway
-              </span>
             </div>
           </div>
         </div>
