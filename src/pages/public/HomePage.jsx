@@ -427,50 +427,58 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Hero Section */}
-      <section className="py-12 px-6 sm:px-12 max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-10 items-center" id="home">
-        <div className="hero-copy space-y-5">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#fde8d7] text-[#ae002a] text-xs font-bold uppercase tracking-wider">
-            <Sparkles size={14} className="text-[#e6ac29]" /> Fresh, Fast &amp; Delicious
-          </div>
-          <h1 className="text-4xl sm:text-6xl font-bold font-display text-[#1f1d1b] leading-[1.08] tracking-tight">
-            Craving Authentic <em className="not-italic text-[#ae002a]">Wraps &amp; Rolls?</em>
-          </h1>
-          <p className="hero-intro text-base sm:text-lg text-[#6f6861] leading-relaxed max-w-lg">
-            Freshly grilled proteins, crisp garden greens, and homemade signature sauces rolled to perfection in Dar es Salaam.
-          </p>
-
-          <div className="hero-actions flex flex-wrap items-center gap-3 pt-2">
-            <button
-              className="px-6 py-3.5 rounded-2xl bg-[#ae002a] hover:bg-[#920023] text-white font-bold text-sm shadow-md transition-transform active:scale-[0.98] inline-flex items-center gap-2"
-              onClick={() => scrollTo('menu')}
-            >
-              Explore Full Menu <ArrowRight size={17} />
-            </button>
-            <button
-              className="px-6 py-3.5 rounded-2xl bg-[#faeee2] hover:bg-[#f6e0cd] text-[#ae002a] font-bold text-sm transition-colors inline-flex items-center gap-2 border border-[#ebdccb]"
-              onClick={() => scrollTo('visit')}
-            >
-              <MapPin size={16} /> Find Location
-            </button>
-          </div>
+      {/* Hero Section with Full Background Image */}
+      <section className="relative min-h-[580px] sm:min-h-[640px] flex items-center overflow-hidden" id="home">
+        {/* Background Image with Dark Contrast Gradient Overlay */}
+        <div className="absolute inset-0 z-0">
+          <img
+            src="https://wrapandrolltz.com/uploads/banner_section/08228d971ba94c79229271c56a738ca5.jpg"
+            alt="Wrap & Roll Banner"
+            className="w-full h-full object-cover object-center"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/80 to-black/40 sm:to-transparent" />
+          <div className="absolute inset-0 bg-black/30" />
         </div>
 
-        <div className="hero-food-banner relative">
-          <div className="relative overflow-hidden rounded-3xl shadow-2xl border-4 border-white aspect-[4/3]">
-            <img
-              src="https://wrapandrolltz.com/uploads/banner_section/08228d971ba94c79229271c56a738ca5.jpg"
-              alt="Fresh Wrap and Roll Meal"
-              className="w-full h-full object-cover"
-            />
-          </div>
-          <div className="absolute -bottom-4 -left-4 bg-[#fffdfa] border border-[#ebdccb] p-3.5 rounded-2xl shadow-xl flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#e6ac29] text-[#24211e] flex items-center justify-center font-black">
-              ★
+        {/* Hero Content */}
+        <div className="relative z-10 max-w-7xl mx-auto px-6 sm:px-12 py-16 sm:py-24 w-full">
+          <div className="max-w-2xl space-y-6">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-[#ffc72c] text-xs font-bold uppercase tracking-wider">
+              <Sparkles size={14} className="text-[#ffc72c]" /> Fresh, Fast &amp; Delicious
             </div>
-            <div>
-              <p className="text-xs font-bold text-[#1f1d1b]">100% Fresh Daily</p>
-              <p className="text-[10px] text-[#746e67]">Made fresh to order in minutes</p>
+            <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold font-display text-white leading-[1.06] tracking-tight drop-shadow-sm">
+              Craving Authentic <span className="text-[#ffc72c]">Wraps &amp; Rolls?</span>
+            </h1>
+            <p className="text-base sm:text-lg text-white/85 leading-relaxed max-w-xl font-medium drop-shadow-sm">
+              Freshly grilled proteins, crisp garden greens, and homemade signature sauces rolled to perfection in Dar es Salaam.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-4 pt-2">
+              <button
+                className="px-7 py-3.5 rounded-2xl bg-[#ae002a] hover:bg-[#c90231] text-white font-bold text-sm shadow-xl transition-transform active:scale-[0.98] inline-flex items-center gap-2.5"
+                onClick={() => scrollTo('menu')}
+              >
+                Explore Full Menu <ArrowRight size={17} />
+              </button>
+              <button
+                className="px-7 py-3.5 rounded-2xl bg-white/15 hover:bg-white/25 backdrop-blur-md text-white font-bold text-sm transition-colors inline-flex items-center gap-2.5 border border-white/30"
+                onClick={() => scrollTo('visit')}
+              >
+                <MapPin size={16} /> Find Location
+              </button>
+            </div>
+
+            {/* Quick trust metrics */}
+            <div className="pt-6 border-t border-white/15 flex flex-wrap items-center gap-6 text-xs font-semibold text-white/75">
+              <span className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[#ffc72c]"></span> 100% Fresh Daily
+              </span>
+              <span className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[#ffc72c]"></span> Fast &amp; Hot Preparation
+              </span>
+              <span className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[#ffc72c]"></span> Dine-In &amp; Takeaway
+              </span>
             </div>
           </div>
         </div>
