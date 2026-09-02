@@ -429,27 +429,26 @@ export default function HomePage() {
 
       {/* Hero Section with Full Background Image */}
       <section className="relative min-h-[580px] sm:min-h-[640px] flex items-center overflow-hidden" id="home">
-        {/* Background Image with Dark Contrast Gradient Overlay */}
+        {/* Background Image with Gentle Soft Contrast Overlay */}
         <div className="absolute inset-0 z-0">
           <img
             src="https://wrapandrolltz.com/uploads/banner_section/08228d971ba94c79229271c56a738ca5.jpg"
             alt="Wrap & Roll Banner"
-            className="w-full h-full object-cover object-center"
+            className="w-full h-full object-cover object-center brightness-[0.92]"
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/80 to-black/40 sm:to-transparent" />
-          <div className="absolute inset-0 bg-black/30" />
+          {/* Subtle soft dark tint so the food details, colors, and textures remain fully visible */}
+          <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/35 to-black/15" />
         </div>
 
         {/* Hero Content */}
         <div className="relative z-10 max-w-7xl mx-auto px-6 sm:px-12 py-20 sm:py-28 w-full">
           <div className="max-w-2xl space-y-6">
-            <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold font-display text-white leading-[1.06] tracking-tight drop-shadow-sm">
+            <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold font-display text-white leading-[1.06] tracking-tight drop-shadow-[0_4px_14px_rgba(0,0,0,0.85)]">
               Craving Authentic <span className="text-[#ffc72c]">Wraps &amp; Rolls?</span>
             </h1>
-            <p className="text-base sm:text-lg text-white/85 leading-relaxed max-w-xl font-medium drop-shadow-sm">
+            <p className="text-base sm:text-lg text-white leading-relaxed max-w-xl font-medium drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]">
               Freshly grilled proteins, crisp garden greens, and homemade signature sauces rolled to perfection in Dar es Salaam.
             </p>
-
           </div>
         </div>
       </section>
