@@ -22,7 +22,7 @@ import calendarRoutes from './routes/calendar.js';
 import loyaltyRoutes from './routes/loyalty.js';
 
 const PORT = Number(process.env.PORT || 3000);
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' || process.env.PORT || process.env.RAILWAY_ENVIRONMENT ? '0.0.0.0' : '127.0.0.1');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const clientDist = path.resolve(__dirname, '../dist');
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
