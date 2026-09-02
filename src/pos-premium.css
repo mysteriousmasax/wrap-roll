@@ -1,0 +1,202 @@
+/* Premium POS customer-facing interface */
+.pos-toolbar-premium {
+  animation: toolbar-rise .5s cubic-bezier(.2,.75,.25,1) both;
+}
+
+.pos-item-count {
+  animation: count-scale .3s cubic-bezier(.2,1,.4,1) both;
+}
+
+.pos-product-animate {
+  animation: product-grid-in .4s cubic-bezier(.2,.75,.25,1) both;
+}
+
+.pos-empty-state-premium {
+  animation: empty-state-float .6s ease both;
+}
+
+.pos-cart-panel-premium {
+  animation: cart-panel-slide .45s cubic-bezier(.2,.75,.25,1) both;
+}
+
+.pos-product-card {
+  animation: product-card-entrance .4s cubic-bezier(.2,.75,.25,1) both !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.pos-product-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent 30%, rgba(255,255,255,.1) 50%, transparent 70%);
+  transform: translateX(-100%);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.pos-product-card:hover::before {
+  animation: shine .6s ease-in-out;
+}
+
+.pos-product-card:hover {
+  transform: translateY(-8px) scale(1.03);
+  box-shadow: 0 20px 40px rgba(217, 119, 6, 0.15) !important;
+}
+
+.pos-order-hint {
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.foh-cart-thumb {
+  border-radius: 12px;
+}
+
+.pos-empty-cart {
+  background: linear-gradient(135deg, rgba(255,255,255,0.6), rgba(248,245,241,0.4));
+}
+
+.pos-empty-cart-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(217, 119, 6, 0.1), rgba(220, 38, 38, 0.1));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #d97706;
+  margin-bottom: 16px;
+  animation: empty-icon-bounce .8s ease-in-out infinite;
+}
+
+.pos-empty-cart-title {
+  font-size: 1.25rem;
+  font-weight: 900;
+  color: #1f2937;
+  margin-bottom: 8px;
+}
+
+.pos-empty-cart-copy {
+  font-size: 0.875rem;
+  color: #64748b;
+  margin-bottom: 12px;
+}
+
+.pos-empty-cart-rule {
+  width: 40px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #d97706, transparent);
+  margin: 12px 0;
+}
+
+.pos-empty-cart-note {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+@keyframes toolbar-rise {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes count-scale {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+
+@keyframes product-grid-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes product-card-entrance {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes shine {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes empty-state-float {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cart-panel-slide {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes empty-icon-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes bounce-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes slide-up-premium {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-bounce-slow {
+  animation: bounce-slow 2s infinite;
+}
+
+.animate-slide-up-premium {
+  animation: slide-up-premium .35s cubic-bezier(.2,.75,.25,1) both;
+}
+
+.animate-fade-in {
+  animation: fade-in .2s ease;
+}

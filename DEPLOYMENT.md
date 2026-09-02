@@ -1,0 +1,44 @@
+# Deployment
+
+The app runs as one Node service on the POS computer. Express serves the built frontend and the `/api` and `/ws` endpoints, while FOH and KDS use separate browser windows against the same local service and database.
+
+## Required environment
+
+Copy `.env.example` to `.env` and set:
+
+- `JWT_SECRET`: a long random value. This is required when `NODE_ENV=production`.
+- `CORS_ORIGIN`: comma-separated frontend origins. The local POS launcher sets this automatically.
+- `PORT`: the port supplied by the hosting provider, when applicable.
+- `DB_PATH`: an optional persistent path for `wraproll.db`. Use persistent storage; the database is created and migrated on startup.
+
+For a separately hosted frontend, set `VITE_API_BASE_URL` to the API URL ending in `/api` and `VITE_WS_URL` to the API WebSocket URL ending in `/ws` before building.
+
+## Build and run
+
+```bash
+npm ci
+npm run build
+NODE_ENV=production npm start
+```
+
+The service listens on `PORT` and serves the frontend from `dist`. Client-side routes fall back to `index.html`, while `/api/health` can be used as the deployment health check.
+
+## Windows POS installation
+
+1. Copy the project to a simple path such as `C:\WrapRollPOS`.
+2. Run PowerShell and execute `Set-ExecutionPolicy -Scope Process Bypass`.
+3. Run `npm install` once, then `npm run build`.
+4. Start the local service by running `start-pos.ps1` from the installation folder.
+5. In a second PowerShell window, run `launch-displays.ps1`. The default assumes the KDS monitor begins at x=1920; pass `-KdsX` for another monitor layout.
+
+The FOH window opens at `/pos` and the kitchen window opens at `/kds`. Sign in once in each window with the appropriate staff account. Separate browser profiles keep FOH and KDS sessions independent, while both windows receive order updates through the local WebSocket connection.
+
+For automatic startup, create shortcuts to `start-pos.ps1` and `launch-displays.ps1` in the POS Windows startup folder. Keep the service window running during operations. The database is stored under `server/db/wraproll.db`; back it up before maintenance.
+
+## Database persistence
+
+Back up the configured SQLite database before redeploying. Do not use an ephemeral filesystem for production data.
+
+## Reverse proxy
+
+Terminate TLS at the hosting provider or reverse proxy and forward both HTTP requests and WebSocket upgrades to the Node service. Set `CORS_ORIGIN` to the exact public origin rather than `*`.

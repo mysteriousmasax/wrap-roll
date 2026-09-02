@@ -1,0 +1,73 @@
+.text-rotate {
+  display: inline-flex;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.text-rotate-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.text-rotate-track {
+  display: inline-flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  animation: rotating-text-in 650ms cubic-bezier(.2, .75, .25, 1) both;
+}
+
+.text-rotate-lines {
+  flex-direction: column;
+  width: 100%;
+}
+
+.text-rotate-words {
+  column-gap: 0.25em;
+}
+
+.text-rotate-element-wrap {
+  display: inline-flex;
+  overflow: hidden;
+  padding-bottom: 0.08em;
+  white-space: pre;
+}
+
+.text-rotate-element {
+  display: inline-block;
+  max-width: 100%;
+  animation: rotating-text-element-in 650ms cubic-bezier(.2, .75, .25, 1) both;
+}
+
+@media (max-width: 600px) {
+  .text-rotate-track,
+  .text-rotate-element {
+    animation-duration: 850ms;
+    animation-timing-function: cubic-bezier(.22, .8, .24, 1);
+  }
+}
+
+@keyframes rotating-text-in {
+  from { opacity: 0; transform: translateY(0.4em); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes rotating-text-element-in {
+  from { opacity: 0; transform: translateY(100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .text-rotate-track,
+  .text-rotate-element { animation: none; }
+}

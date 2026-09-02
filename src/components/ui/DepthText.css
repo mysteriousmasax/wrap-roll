@@ -1,0 +1,22 @@
+.depth-text-modern {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: var(--depth-face, #ffffff);
+  font-size: var(--depth-size, inherit);
+  font-weight: var(--depth-weight, inherit);
+  line-height: 1.2;
+}
+
+.depth-text-modern .depth-text-content {
+  display: inline-block;
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.depth-text-modern.has-shadow .depth-text-content {
+  text-shadow: 0 2px 4px rgba(36, 33, 30, 0.25);
+}
+
+.depth-text-modern:hover .depth-text-content {
+  transform: translateY(-1px);
+}

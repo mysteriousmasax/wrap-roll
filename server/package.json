@@ -1,0 +1,21 @@
+{
+  "name": "wrap-roll-api",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch index.js",
+    "start": "node index.js",
+    "start:production": "NODE_ENV=production node index.js",
+    "seed": "node db/seed.js",
+    "seed:business": "node scripts/loadBusinessData.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.3.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.0",
+    "jsonwebtoken": "^9.0.2",
+    "ws": "^8.18.0"
+  }
+}
