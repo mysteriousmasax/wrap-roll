@@ -428,7 +428,7 @@ export default function HomePage() {
       )}
 
       {/* Hero Section */}
-      <section className="hero py-12 px-6 sm:px-12 max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-10 items-center" id="home">
+      <section className="py-12 px-6 sm:px-12 max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-10 items-center" id="home">
         <div className="hero-copy space-y-5">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#fde8d7] text-[#ae002a] text-xs font-bold uppercase tracking-wider">
             <Sparkles size={14} className="text-[#e6ac29]" /> Fresh, Fast &amp; Delicious
@@ -516,7 +516,7 @@ export default function HomePage() {
       </section>
 
       {/* Menu Section */}
-      <section className="menu-section py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="menu">
+      <section className="py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="menu">
         <div className="text-center max-w-xl mx-auto mb-10 space-y-2">
           <p className="text-xs font-bold uppercase tracking-wider text-[#ae002a]">Online Menu</p>
           <h2 className="text-3xl sm:text-4xl font-bold font-display text-[#1f1d1b]">Choose Your Favorite Dish</h2>
@@ -544,7 +544,7 @@ export default function HomePage() {
         </div>
 
         {/* Food Grid */}
-        <div className="food-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
           {(menuByCategory[activeCategory]?.items || publicMenu).map((item) => (
             <article
               key={item.id}
@@ -710,7 +710,7 @@ export default function HomePage() {
       )}
 
       {/* Location / Visit Section */}
-      <section className="visit-section py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="visit">
+      <section className="w-full py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="visit">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
           <div className="map-copy space-y-4">
             <p className="text-xs font-bold uppercase tracking-wider text-[#ae002a]">Dine In &amp; Takeaway</p>
@@ -840,7 +840,7 @@ export default function HomePage() {
       )}
 
       {/* Footer */}
-      <footer className="public-footer bg-[#1f1d1b] text-white py-12 px-6 sm:px-12 border-t border-white/10 mt-16" id="contact">
+      <footer className="w-full bg-[#1f1d1b] text-white py-14 px-6 sm:px-12 border-t border-white/10 mt-16" id="contact">
         <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
           <div className="space-y-3">
             <BrandLogo variant="dark" />
