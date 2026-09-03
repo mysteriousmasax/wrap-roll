@@ -432,7 +432,7 @@ export default function HomePage() {
         {/* Background Image with Gentle Soft Contrast Overlay */}
         <div className="absolute inset-0 z-0">
           <img
-            src="https://wrapandrolltz.com/uploads/banner_section/08228d971ba94c79229271c56a738ca5.jpg"
+            src="/hero-food.jpg"
             alt="Wrap & Roll Banner"
             className="w-full h-full object-cover object-center brightness-[0.92]"
           />
@@ -458,7 +458,7 @@ export default function HomePage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
           <div className="relative overflow-hidden rounded-3xl shadow-xl border-4 border-white aspect-video lg:aspect-square">
             <img
-              src="https://wrapandrolltz.com/uploads/photo_gallery/c24c7b3e15ad597021def8b940058a69.jpg"
+              src="/craft-story.jpg"
               alt="Handcrafted wraps"
               className="w-full h-full object-cover"
             />
@@ -853,4 +853,4 @@ export default function HomePage() {
       </footer>
     </main>
   );
-}
+}
