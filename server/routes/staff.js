@@ -15,11 +15,14 @@ function mapStaff(row) {
     clockIn: row.clock_in,
     avatar: row.avatar,
     phone: row.phone,
+    userId: row.user_id,
+    username: row.username,
+    email: row.email,
   };
 }
 
 router.get('/', authMiddleware, (req, res) => {
-  res.json(db.prepare('SELECT * FROM staff ORDER BY name').all().map(mapStaff));
+  res.json(db.prepare('SELECT staff.*, users.username, users.email FROM staff LEFT JOIN users ON users.id = staff.user_id ORDER BY staff.name').all().map(mapStaff));
 });
 
 router.post('/', authMiddleware, requireRole('admin'), async (req, res) => {
@@ -38,10 +41,10 @@ router.post('/', authMiddleware, requireRole('admin'), async (req, res) => {
     return { staffId: result.lastInsertRowid, userId: userResult.lastInsertRowid };
   });
   const { staffId } = createRecords();
-  res.status(201).json(mapStaff(db.prepare('SELECT * FROM staff WHERE id = ?').get(staffId)));
+  res.status(201).json(mapStaff(db.prepare('SELECT staff.*, users.username, users.email FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.id = ?').get(staffId)));
 });
 
-router.put('/:id', authMiddleware, (req, res) => {
+router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
   const existing = db.prepare('SELECT * FROM staff WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Staff not found' });
   const { name, role, shift, status, clockIn, phone, avatar } = req.body;
@@ -57,22 +60,23 @@ router.put('/:id', authMiddleware, (req, res) => {
     avatar ?? existing.avatar,
     req.params.id
   );
-  res.json(mapStaff(db.prepare('SELECT * FROM staff WHERE id = ?').get(req.params.id)));
+  res.json(mapStaff(db.prepare('SELECT staff.*, users.username, users.email FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.id = ?').get(req.params.id)));
 });
 
 router.patch('/:id/credentials', authMiddleware, requireRole('admin'), async (req, res) => {
-  const staff = db.prepare('SELECT name FROM staff WHERE id = ?').get(req.params.id);
+  const staff = db.prepare('SELECT user_id, name FROM staff WHERE id = ?').get(req.params.id);
   if (!staff) return res.status(404).json({ error: 'Staff not found' });
   const { username, email, password } = req.body;
   if (password && String(password).length < 8) return res.status(400).json({ error: 'A password of at least 8 characters is required' });
-  const user = db.prepare('SELECT id FROM users WHERE name = ?').get(staff.name);
+  const user = staff.user_id ? db.prepare('SELECT id FROM users WHERE id = ?').get(staff.user_id) : db.prepare('SELECT id FROM users WHERE name = ?').get(staff.name);
   if (!user) return res.status(404).json({ error: 'Login account not found' });
   const updates = { username: username?.trim().toLowerCase(), email: email?.trim().toLowerCase(), password: password ? await hashPin(password) : undefined };
   db.prepare('UPDATE users SET username = COALESCE(?, username), email = COALESCE(?, email), password = COALESCE(?, password) WHERE id = ?').run(updates.username || null, updates.email || null, updates.password || null, user.id);
+  db.prepare('UPDATE staff SET user_id = ? WHERE id = ?').run(user.id, req.params.id);
   res.json({ ok: true });
 });
 
-router.patch('/:id/clock', authMiddleware, (req, res) => {
+router.patch('/:id/clock', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
   const existing = db.prepare('SELECT * FROM staff WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Staff not found' });
   const { action } = req.body;
@@ -85,7 +89,7 @@ router.patch('/:id/clock', authMiddleware, (req, res) => {
   } else {
     db.prepare('UPDATE staff SET status = ?, clock_in = NULL WHERE id = ?').run('off-clock', req.params.id);
   }
-  res.json(mapStaff(db.prepare('SELECT * FROM staff WHERE id = ?').get(req.params.id)));
+  res.json(mapStaff(db.prepare('SELECT staff.*, users.username, users.email FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.id = ?').get(req.params.id)));
 });
 
 export default router;

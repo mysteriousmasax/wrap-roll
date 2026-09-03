@@ -1,5 +1,48 @@
 import { create } from 'zustand';
 import { api } from '../api/client';
+import { enqueueOrder, getQueuedOrders, removeQueuedOrder, getQueuedOrderCount } from '../offline/orderQueue';
+
+let queueSyncInProgress = false;
+
+function notifyQueueChanged(count) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('offline-orders-updated', { detail: { count } }));
+  }
+}
+
+export async function syncQueuedOrders() {
+  if (queueSyncInProgress || typeof window === 'undefined') return 0;
+  queueSyncInProgress = true;
+  let synced = 0;
+
+  try {
+    const queuedOrders = await getQueuedOrders();
+    for (const queuedOrder of queuedOrders) {
+      try {
+        const order = await api.createOrder(queuedOrder.payload);
+        await removeQueuedOrder(queuedOrder.queueId);
+        useOrderStore.setState((state) => ({ orders: [order, ...state.orders] }));
+        synced += 1;
+      } catch (error) {
+        if (error.status === 0) break;
+        console.error('Offline order could not sync:', error);
+        break;
+      }
+    }
+  } catch (error) {
+    console.error('Could not read offline orders:', error);
+  } finally {
+    queueSyncInProgress = false;
+    notifyQueueChanged(await getQueuedOrderCount().catch(() => 0));
+  }
+
+  return synced;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', syncQueuedOrders);
+  syncQueuedOrders();
+}
 
 const useOrderStore = create((set, get) => ({
   orders: [],
@@ -18,9 +61,21 @@ const useOrderStore = create((set, get) => ({
   },
 
   createOrder: async (orderData) => {
-    const order = await api.createOrder(orderData);
-    set((state) => ({ orders: [order, ...state.orders] }));
-    return order;
+    try {
+      const order = await api.createOrder(orderData);
+      set((state) => ({ orders: [order, ...state.orders] }));
+      return order;
+    } catch (error) {
+      if (error.status !== 0) throw error;
+      const queuedOrder = await enqueueOrder(orderData);
+      notifyQueueChanged(await getQueuedOrderCount());
+      return {
+        id: queuedOrder.queueId,
+        offline: true,
+        status: 'queued',
+        createdAt: queuedOrder.createdAt,
+      };
+    }
   },
 
   updateOrderStatus: async (orderId, status) => {

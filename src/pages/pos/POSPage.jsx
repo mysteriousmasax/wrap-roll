@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Search,
   ShoppingCart,
@@ -22,6 +22,8 @@ import ProductCard from '../../components/ui/ProductCard';
 import Button from '../../components/ui/Button';
 import ItemCustomization from './ItemCustomization';
 import OrderTypeSelector from './OrderTypeSelector';
+import { syncQueuedOrders } from '../../store/useOrderStore';
+import { getQueuedOrderCount } from '../../offline/orderQueue';
 
 const categories = [
   { id: 'all', label: 'All Items' },
@@ -508,9 +510,29 @@ export default function POSPage() {
   const [menuItems, setMenuItems] = useState([]);
   const [modifiers, setModifiers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [offlineOrderCount, setOfflineOrderCount] = useState(0);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
 
   const { items, addItem, addCustomItem, getTotal, getItemCount } = useCartStore();
+  const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const refreshOfflineCount = () => getQueuedOrderCount().then(setOfflineOrderCount).catch(() => {});
+    const updateOnlineState = () => {
+      setIsOnline(navigator.onLine);
+      refreshOfflineCount();
+    };
+    refreshOfflineCount();
+    window.addEventListener('online', updateOnlineState);
+    window.addEventListener('offline', updateOnlineState);
+    window.addEventListener('offline-orders-updated', refreshOfflineCount);
+    return () => {
+      window.removeEventListener('online', updateOnlineState);
+      window.removeEventListener('offline', updateOnlineState);
+      window.removeEventListener('offline-orders-updated', refreshOfflineCount);
+    };
+  }, []);
 
   useEffect(() => {
     Promise.all([api.getMenu(), api.getModifiers()])
@@ -570,6 +592,18 @@ export default function POSPage() {
     <div className="pos-page flex flex-1 h-[calc(100vh-3.5rem)] overflow-hidden bg-[#faf7f2]">
       {/* Main Catalog Area */}
       <div className="pos-catalog flex-1 flex flex-col min-w-0">
+        {location.state?.offlineQueued && (
+          <div className="mx-3 mt-3 flex items-start justify-between gap-3 rounded-2xl border border-[#f5d777] bg-[#fff9ed] px-4 py-3 text-xs text-[#775a00]">
+            <p><strong>Order saved offline.</strong> It will sync automatically when the connection returns.</p>
+            <button type="button" onClick={() => navigate('/pos', { replace: true, state: {} })} className="font-bold underline">Dismiss</button>
+          </div>
+        )}
+        {offlineOrderCount > 0 && (
+          <div className="mx-3 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#f5d777] bg-[#fff9ed] px-4 py-3 text-xs text-[#775a00]">
+            <p><strong>{offlineOrderCount} offline order{offlineOrderCount === 1 ? '' : 's'}</strong> waiting to sync {isOnline ? 'now' : 'until the connection returns'}.</p>
+            {isOnline && <button type="button" onClick={() => syncQueuedOrders()} className="font-bold underline">Retry now</button>}
+          </div>
+        )}
         {/* Top Filter & Search Toolbar */}
         <div className="pos-toolbar p-3.5 border border-[#ebdccb] bg-white rounded-2xl mx-3 mt-3 space-y-3 shadow-sm">
           <div className="flex items-center justify-between gap-3">
@@ -652,7 +686,7 @@ export default function POSPage() {
       </div>
 
       {/* PERMANENTLY OPEN Cart Panel on Desktop & Tablet (Never Hidden) */}
-      <div className="pos-cart-panel w-80 xl:w-96 flex-shrink-0 flex flex-col bg-white border border-[#ebdccb] hidden sm:flex rounded-2xl shadow-sm my-3 mr-3 overflow-hidden">
+      <div className="pos-cart-panel w-80 xl:w-96 flex-shrink-0 flex flex-col bg-white border border-[#ebdccb] hidden lg:flex rounded-2xl shadow-sm my-3 mr-3 overflow-hidden">
         {/* Cart Header */}
         <div className="p-3.5 border-b border-[#eee4d5] bg-gradient-to-r from-[#fff9f0] to-white flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -677,7 +711,7 @@ export default function POSPage() {
       </div>
 
       {/* Mobile Sticky Floating Cart Bar (Always Visible on Mobile) */}
-      <div className="sm:hidden fixed bottom-3 left-3 right-3 z-30 flex items-center gap-2 bg-[#1f1d1b] text-white p-2 rounded-2xl shadow-2xl border border-white/10">
+      <div className="lg:hidden fixed bottom-3 left-3 right-3 z-30 flex items-center gap-2 bg-[#1f1d1b] text-white p-2 rounded-2xl shadow-2xl border border-white/10">
         <button
           type="button"
           onClick={() => setShowMobileCart(true)}
@@ -711,7 +745,7 @@ export default function POSPage() {
 
       {/* Mobile Drawer Modal */}
       {showMobileCart && (
-        <div className="sm:hidden fixed inset-0 z-40 flex flex-col justify-end animate-fade-in">
+        <div className="lg:hidden fixed inset-0 z-40 flex flex-col justify-end animate-fade-in">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowMobileCart(false)} />
           <div className="relative bg-white rounded-t-3xl max-h-[85vh] flex flex-col shadow-2xl animate-slide-up border-t border-[#ebdccb]">
             <div className="p-4 border-b border-[#eee4d5] flex items-center justify-between">

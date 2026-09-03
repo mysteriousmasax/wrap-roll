@@ -40,7 +40,10 @@ export default function PaymentPage() {
         setPaymentMethods(methods);
         setLoading(false);
       } catch (err) {
-        setError('Failed to load payment methods');
+        setPaymentMethods([
+          { id: 'cash', label: 'Cash', description: 'Accept cash and queue the order if the connection is unavailable.' },
+        ]);
+        setError('Online payment methods are unavailable. Cash orders can still be recorded offline.');
         setLoading(false);
       }
     };
@@ -122,6 +125,15 @@ export default function PaymentPage() {
         paymentMethod: selectedMethod,
         orderSource,
       });
+
+      if (order.offline) {
+        clearCart();
+        navigate('/pos', {
+          replace: true,
+          state: { offlineQueued: true },
+        });
+        return;
+      }
 
       // Initiate payment
       const paymentResponse = await PaymentClient.initiatePayment({

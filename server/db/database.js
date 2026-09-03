@@ -98,6 +98,7 @@ export async function initDatabase() {
 
     CREATE TABLE IF NOT EXISTS staff (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
       name TEXT NOT NULL,
       role TEXT,
       shift TEXT,
@@ -206,6 +207,21 @@ export async function initDatabase() {
       staff_id INTEGER,
       FOREIGN KEY (staff_id) REFERENCES users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS order_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      status TEXT,
+      actor_user_id INTEGER,
+      occurred_at TEXT NOT NULL,
+      metadata TEXT DEFAULT '{}',
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (actor_user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events(order_id, occurred_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_order_events_actor ON order_events(actor_user_id, occurred_at DESC);
 
     CREATE TABLE IF NOT EXISTS order_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -323,6 +339,24 @@ function migrateSchema(db) {
   if (!userCols.some((col) => col.name === 'username')) db.exec('ALTER TABLE users ADD COLUMN username TEXT');
   if (!userCols.some((col) => col.name === 'email')) db.exec('ALTER TABLE users ADD COLUMN email TEXT');
   if (!userCols.some((col) => col.name === 'password')) db.exec('ALTER TABLE users ADD COLUMN password TEXT');
+  const staffCols = db.prepare('PRAGMA table_info(staff)').all();
+  if (!staffCols.some((col) => col.name === 'user_id')) db.exec('ALTER TABLE staff ADD COLUMN user_id INTEGER REFERENCES users(id)');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS order_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      status TEXT,
+      actor_user_id INTEGER,
+      occurred_at TEXT NOT NULL,
+      metadata TEXT DEFAULT '{}',
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (actor_user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events(order_id, occurred_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_order_events_actor ON order_events(actor_user_id, occurred_at DESC);
+  `);
+  db.prepare('UPDATE staff SET user_id = (SELECT id FROM users WHERE users.name = staff.name) WHERE user_id IS NULL').run();
 
   const tableCols = db.prepare('PRAGMA table_info(tables)').all();
   if (!tableCols.some((col) => col.name === 'tag_id')) db.exec('ALTER TABLE tables ADD COLUMN tag_id TEXT');

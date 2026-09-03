@@ -53,6 +53,7 @@ function createOrderRecord({ items, orderType, tableNumber, customerName, custom
     INSERT INTO order_items (order_id, menu_item_id, name, qty, price, prep_time_minutes, modifiers, special_instructions)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  const insertEvent = db.prepare('INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata) VALUES (?, ?, ?, ?, ?, ?)');
   const tx = db.transaction(() => {
     if (customerName?.trim()) {
       const existingCustomer = customerPhone ? db.prepare('SELECT * FROM customers WHERE phone = ?').get(customerPhone.trim()) : null;
@@ -78,6 +79,7 @@ function createOrderRecord({ items, orderType, tableNumber, customerName, custom
     }
     insertOrder.run(id, orderType || 'delivery', tableNumber || null, customerName || null, customerPhone || null, customerEmail || null, deliveryAddress || null, scheduledFor || null, subtotal, tax, total, paymentMethod || 'lipa_namba', paymentTiming === 'pay-later' ? 'unpaid' : 'paid', orderSource || 'foh', paymentReference || null, now, now, staffId);
     for (const item of priced.items) insertItem.run(id, item.menuItemId, item.name, item.qty, item.price, item.prepTimeMinutes || 8, JSON.stringify(item.modifiers), item.specialInstructions);
+    insertEvent.run(id, 'created', 'pending', staffId, now, JSON.stringify({ source: orderSource || 'foh' }));
     if (tableNumber) db.prepare('UPDATE tables SET status = ?, current_order_id = ? WHERE number = ?').run('occupied', id, tableNumber);
   });
   tx();
@@ -161,6 +163,8 @@ router.patch('/:id/status', authMiddleware, (req, res) => {
 
   const now = new Date().toISOString();
   db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(status, now, req.params.id);
+  db.prepare('INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(req.params.id, 'status_changed', status, req.user.id, now, JSON.stringify({ previousStatus: existing.status }));
 
   if (status === 'completed' && existing.table_number) {
     db.prepare('UPDATE tables SET status = ?, current_order_id = NULL WHERE number = ?').run('cleaning', existing.table_number);

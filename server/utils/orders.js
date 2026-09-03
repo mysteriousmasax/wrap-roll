@@ -6,6 +6,23 @@ export function formatOrder(row, items) {
     menuImages.set(item.id, item.image);
     menuImages.set(item.name, item.image);
   });
+  const events = db.prepare(`
+    SELECT events.id, events.event_type, events.status, events.occurred_at, events.metadata,
+           events.actor_user_id, users.name AS actor_name, users.role AS actor_role
+    FROM order_events events
+    LEFT JOIN users ON users.id = events.actor_user_id
+    WHERE events.order_id = ? ORDER BY events.occurred_at ASC, events.id ASC
+  `).all(row.id).map((event) => ({
+    id: event.id,
+    type: event.event_type,
+    status: event.status,
+    actorUserId: event.actor_user_id,
+    actorName: event.actor_name || 'System',
+    actorRole: event.actor_role || 'system',
+    occurredAt: event.occurred_at,
+    metadata: JSON.parse(event.metadata || '{}'),
+  }));
+  const creator = row.staff_id ? db.prepare('SELECT name, role FROM users WHERE id = ?').get(row.staff_id) : null;
   return {
     id: row.id,
     type: row.order_type,
@@ -35,6 +52,9 @@ export function formatOrder(row, items) {
     paymentReference: row.payment_reference,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    createdBy: creator ? { userId: row.staff_id, name: creator.name, role: creator.role } : null,
+    servedBy: creator ? { userId: row.staff_id, name: creator.name, role: creator.role } : null,
+    events,
   };
 }
 
