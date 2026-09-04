@@ -5,13 +5,6 @@ import useAuthStore from '../../store/useAuthStore';
 import { ApiError } from '../../api/client';
 import BrandLogo from '../../components/brand/BrandLogo';
 
-const demoAccounts = [
-  { label: 'Admin', value: 'adila.ismail', pin: '1234' },
-  { label: 'Manager', value: 'emmanuel.makaya', pin: '4567' },
-  { label: 'FOH', value: 'grace.kimaro', pin: '2345' },
-  { label: 'Kitchen', value: 'david.ochieng', pin: '3456' },
-];
-
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -66,26 +59,6 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
-            <p className="mb-4 text-xs font-semibold uppercase tracking-[0.22em] text-[#f5d777]">Demo accounts</p>
-            <div className="space-y-2 text-sm text-[#f7f0e7]">
-              {demoAccounts.map((account) => (
-                <button
-                  key={account.label}
-                  type="button"
-                  onClick={() => {
-                    setIdentifier(account.value);
-                    setPassword(account.pin);
-                    setError('');
-                  }}
-                  className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-transparent px-3 py-2 text-left transition hover:bg-white/5"
-                >
-                  <span>{account.label}</span>
-                  <span className="text-[#f5d777]">{account.value} / {account.pin}</span>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         <div className="flex w-full items-center justify-center bg-[#fffdf9] p-6 sm:p-10 lg:w-1/2">

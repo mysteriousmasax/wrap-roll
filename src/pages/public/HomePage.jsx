@@ -805,7 +805,7 @@ export default function HomePage() {
       {/* Floating Cart Button */}
       {cartCount > 0 && (
         <button
-          className="fixed bottom-6 right-6 z-40 px-4 py-3 rounded-full bg-[#ae002a] text-white font-bold shadow-2xl flex items-center gap-2.5 hover:scale-105 transition-transform"
+          className="public-order-trigger fixed right-0 top-1/2 -translate-y-1/2 z-40 px-4 py-3 rounded-l-full bg-[#ae002a] text-white font-bold shadow-2xl flex items-center gap-2.5 transition-transform"
           onClick={() => setCartOpen(true)}
         >
           <ShoppingBag size={18} />

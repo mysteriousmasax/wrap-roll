@@ -5,7 +5,7 @@ import Button from '../../components/ui/Button';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
-import { api } from '../../api/client';
+import { api, ApiError } from '../../api/client';
 import { Search, UserPlus, Phone, Clock, ShieldCheck, BriefcaseBusiness } from 'lucide-react';
 
 export default function StaffListPage() {
@@ -13,6 +13,7 @@ export default function StaffListPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [editStaff, setEditStaff] = useState(null);
   const [form, setForm] = useState({ name: '', role: 'foh', shift: 'Morning', phone: '', username: '', email: '', password: '' });
+  const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -21,11 +22,23 @@ export default function StaffListPage() {
   useEffect(() => { load(); }, []);
 
   const handleAdd = async () => {
-    if (!form.name || form.password.length < 8) return;
-    await api.createStaff(form);
-    setShowAdd(false);
-    setForm({ name: '', role: 'foh', shift: 'Morning', phone: '', username: '', email: '', password: '' });
-    load();
+    setFormError('');
+    if (!form.name) {
+      setFormError('Enter the staff member’s name.');
+      return;
+    }
+    if (form.password.length < 8) {
+      setFormError('Use a password with at least 8 characters.');
+      return;
+    }
+    try {
+      await api.createStaff(form);
+      setShowAdd(false);
+      setForm({ name: '', role: 'foh', shift: 'Morning', phone: '', username: '', email: '', password: '' });
+      load();
+    } catch (error) {
+      setFormError(error instanceof ApiError ? error.message : 'Unable to add staff member. Please try again.');
+    }
   };
 
   const handleEdit = async () => {
@@ -63,6 +76,7 @@ export default function StaffListPage() {
       {!editStaff && <Input label="Login Password" type="password" minLength={8} placeholder="At least 8 characters" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />}
       {!editStaff && <p className="text-xs text-surface-on-variant">Give the staff member their username and password privately.</p>}
       {editStaff && <Input label="Reset Password (optional)" type="password" minLength={8} placeholder="Leave blank to keep current password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />}
+      {formError && <p className="rounded-xl border border-error/20 bg-error/5 px-3 py-2 text-sm text-error">{formError}</p>}
       <Button onClick={onSave} className="w-full">{label}</Button>
     </div>
   );

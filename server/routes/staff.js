@@ -32,12 +32,16 @@ router.post('/', authMiddleware, requireRole('admin'), async (req, res) => {
   const userRole = ['admin', 'foh', 'kitchen', 'manager', 'executive'].includes(role) ? role : 'foh';
   const initials = avatar || name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
   const accountName = String(username || name.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, ''));
-  const existingUsername = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?').get(accountName.toLowerCase(), email?.trim().toLowerCase() || '');
+  const normalizedUsername = accountName.toLowerCase();
+  const normalizedEmail = email?.trim().toLowerCase() || '';
+  const existingUsername = normalizedEmail
+    ? db.prepare('SELECT id FROM users WHERE username = ? OR email = ?').get(normalizedUsername, normalizedEmail)
+    : db.prepare('SELECT id FROM users WHERE username = ?').get(normalizedUsername);
   if (existingUsername) return res.status(409).json({ error: 'That username or email is already in use' });
   const hashedPassword = await hashPin(password);
   const createRecords = db.transaction(() => {
-    const userResult = db.prepare('INSERT INTO users (name, role, pin, avatar, username, email, password) VALUES (?, ?, ?, ?, ?, ?, ?)').run(name, userRole, '', initials, accountName.toLowerCase(), email?.trim().toLowerCase() || '', hashedPassword);
-    const result = db.prepare('INSERT INTO staff (name, role, shift, status, avatar, phone) VALUES (?, ?, ?, ?, ?, ?)').run(name, userRole, shift || 'Morning', 'off-clock', initials, phone || '');
+    const userResult = db.prepare('INSERT INTO users (name, role, pin, avatar, username, email, password) VALUES (?, ?, ?, ?, ?, ?, ?)').run(name, userRole, '', initials, normalizedUsername, normalizedEmail, hashedPassword);
+    const result = db.prepare('INSERT INTO staff (user_id, name, role, shift, status, avatar, phone) VALUES (?, ?, ?, ?, ?, ?, ?)').run(userResult.lastInsertRowid, name, userRole, shift || 'Morning', 'off-clock', initials, phone || '');
     return { staffId: result.lastInsertRowid, userId: userResult.lastInsertRowid };
   });
   const { staffId } = createRecords();

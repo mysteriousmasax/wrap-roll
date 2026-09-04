@@ -6,6 +6,7 @@ import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import { api } from '../../api/client';
 import { formatCurrency } from '../../utils/format';
+import importPhoto from '../../utils/importPhoto';
 import {
   Plus,
   Edit3,
@@ -20,6 +21,7 @@ import {
   Zap,
   Tag,
   FolderPlus,
+  Upload,
 } from 'lucide-react';
 
 const DEFAULT_CATEGORIES = ['wraps', 'salads', 'rolls', 'pizzas', 'burgers', 'combos', 'sides', 'coffee', 'cold-drinks', 'soft-drinks'];
@@ -196,6 +198,18 @@ export default function MenuEditorPage() {
       active: true,
     });
 
+  const handlePhotoChange = async (event) => {
+    try {
+      const image = await importPhoto(event.target.files?.[0]);
+      setForm((current) => ({ ...current, image }));
+      setLoadError('');
+    } catch (error) {
+      setLoadError(error.message);
+    } finally {
+      event.target.value = '';
+    }
+  };
+
   const FormFields = ({ onSave, saveLabel }) => (
     <div className="space-y-4">
       <Input
@@ -254,12 +268,13 @@ export default function MenuEditorPage() {
         </select>
       </div>
 
-      <Input
-        label="Image URL"
-        placeholder="https://..."
-        value={form.image}
-        onChange={(e) => setForm({ ...form, image: e.target.value })}
-      />
+      <div className="space-y-1.5">
+        <label className="block text-xs font-bold uppercase tracking-wider text-[#746e67]">Food Image</label>
+        <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#ebdccb] px-4 py-3 text-sm font-semibold text-[#ae002a] hover:bg-[#ae002a]/5">
+          <Upload size={16} /> {form.image ? 'Replace photo' : 'Upload image'}
+          <input type="file" accept="image/*" className="sr-only" onChange={handlePhotoChange} />
+        </label>
+      </div>
       {form.image && (
         <div className="rounded-2xl border border-[#ebdccb] bg-[#fbf6ee] p-2">
           <p className="mb-2 text-xs font-bold text-[#746e67]">Photo Preview</p>

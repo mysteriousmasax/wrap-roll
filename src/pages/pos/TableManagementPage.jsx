@@ -5,7 +5,8 @@ import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import { api } from '../../api/client';
-import { Users, Clock, MapPin, Wifi, Camera, NotebookPen } from 'lucide-react';
+import importPhoto from '../../utils/importPhoto';
+import { Users, Clock, MapPin, Wifi, Camera, NotebookPen, Upload, X } from 'lucide-react';
 
 const defaultTableImage = 'https://images.unsplash.com/photo-1559339352-11d035aa65de?w=800&h=600&fit=crop';
 
@@ -14,9 +15,22 @@ export default function TableManagementPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ number: '', seats: '4', tagId: '', zone: 'Main Dining', imageUrl: '', note: '' });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const load = () => api.getTables().then(setTables).finally(() => setLoading(false));
   useEffect(() => { load(); }, []);
+
+  const handlePhotoChange = async (event) => {
+    try {
+      const imageUrl = await importPhoto(event.target.files?.[0]);
+      setForm((current) => ({ ...current, imageUrl }));
+      setError('');
+    } catch (uploadError) {
+      setError(uploadError.message);
+    } finally {
+      event.target.value = '';
+    }
+  };
 
   const stats = {
     available: tables.filter((t) => t.status === 'available').length,
@@ -98,11 +112,19 @@ export default function TableManagementPage() {
 
       <Modal isOpen={showAdd} onClose={() => setShowAdd(false)} title="Add Table">
         <div className="space-y-4">
+          {error && <div className="flex items-center justify-between rounded-xl border border-error/20 bg-error/5 p-3 text-sm text-error"><span>{error}</span><button type="button" onClick={() => setError('')}><X size={16} /></button></div>}
           <Input label="Table Number" type="number" value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value })} />
           <Input label="Seats" type="number" value={form.seats} onChange={(e) => setForm({ ...form, seats: e.target.value })} />
           <Input label="NFC Tag ID" value={form.tagId} onChange={(e) => setForm({ ...form, tagId: e.target.value })} placeholder="WR-T01" />
           <Input label="Zone" value={form.zone} onChange={(e) => setForm({ ...form, zone: e.target.value })} placeholder="Main Dining" />
-          <Input label="Table Image URL" value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} placeholder="https://..." />
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-surface-on-variant">Table Image</label>
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-outline-variant px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5">
+              <Upload size={16} /> {form.imageUrl ? 'Replace photo' : 'Upload image'}
+              <input type="file" accept="image/*" className="sr-only" onChange={handlePhotoChange} />
+            </label>
+            {form.imageUrl && <img src={form.imageUrl} alt="Table preview" className="h-28 w-full rounded-xl object-cover" />}
+          </div>
           <Input label="Table Note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Tap NFC tag to identify guest table" />
           <Button onClick={handleAdd} className="w-full">Add Table</Button>
         </div>
