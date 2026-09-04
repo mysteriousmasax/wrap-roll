@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { animate, stagger, splitText } from 'animejs';
 import { useParams } from 'react-router-dom';
 import {
   ArrowRight,
@@ -93,6 +94,7 @@ export default function HomePage() {
   const [mealQuantity, setMealQuantity] = useState(1);
   const [mealInstructions, setMealInstructions] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
+  const menuHeadingRef = useRef(null);
 
   const lipaNambaNumber = useSettingsStore((state) => state.settings.lipa_namba_number || '123456');
   const lipaNambaAccountsValue = useSettingsStore((state) => state.settings.lipa_namba_accounts || '');
@@ -127,6 +129,32 @@ export default function HomePage() {
         useSettingsStore.setState((state) => ({ settings: { ...state.settings, ...settings } }))
       )
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const heading = menuHeadingRef.current;
+    if (!heading || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
+
+    const splitter = splitText(heading, { words: false, chars: true });
+    const animation = animate(splitter.chars, {
+      y: [
+        { to: '-2.75rem', ease: 'outExpo', duration: 600 },
+        { to: 0, ease: 'outBounce', duration: 800, delay: 100 },
+      ],
+      rotate: {
+        from: '-1turn',
+        delay: 0,
+      },
+      delay: stagger(50),
+      ease: 'inOutCirc',
+      loopDelay: 1000,
+      loop: true,
+    });
+
+    return () => {
+      animation.revert();
+      splitter.revert();
+    };
   }, []);
 
   useEffect(() => {
@@ -496,7 +524,7 @@ export default function HomePage() {
       <section className="py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="menu">
         <div className="text-center max-w-xl mx-auto mb-10 space-y-2">
           <p className="text-xs font-bold uppercase tracking-wider text-[#ae002a]">Online Menu</p>
-          <h2 className="text-3xl sm:text-4xl font-bold font-display text-[#1f1d1b]">Choose Your Favorite Dish</h2>
+          <h2 ref={menuHeadingRef} className="menu-heading-animation text-3xl sm:text-4xl font-bold font-display text-[#1f1d1b]">Choose Your Favorite Dish</h2>
           <p className="text-xs sm:text-sm text-[#746e67]">
             Select an item to customize your order or pick bulk quantities for your group.
           </p>

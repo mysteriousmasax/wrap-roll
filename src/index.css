@@ -79,6 +79,7 @@
 .public-site .site-button, .public-site .category-row button, .public-site .outlet-picker > button { border-radius: 8px; }
 .public-site .hero-food { border-radius: 46% 46% 18px 18px; }
 .public-site button:focus-visible, .public-site a:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+.menu-heading-animation .char { display: inline-block; transform-origin: 50% 100%; }
 .hero-copy, .story-copy, .section-heading { animation: public-rise .7s ease both; }
 .public-scroll-reveal { opacity: 0; transform: translateY(1.25rem) scale(.98); }
 .hero-food { animation: public-reveal .9s .1s ease both; }
