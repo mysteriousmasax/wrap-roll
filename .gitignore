@@ -29,9 +29,6 @@ Thumbs.db
 # Node version manager
 .node/
 
-# Cloudflare binary
-cloudflared.exe
-
 # IDE
 .vscode/
 .idea/

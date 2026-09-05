@@ -32,12 +32,7 @@ const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
 const isAllowedOrigin = (origin) => {
   if (!origin) return true;
   if (allowedOrigins.includes(origin)) return true;
-  try {
-    const url = new URL(origin);
-    return url.protocol === 'https:' && url.hostname.endsWith('.trycloudflare.com');
-  } catch {
-    return false;
-  }
+  return false;
 };
 
 await ensureDatabase();
@@ -47,7 +42,7 @@ const server = createServer(app);
 
 app.set('trust proxy', 1);
 app.use(cors({ origin: (origin, callback) => callback(null, isAllowedOrigin(origin)), credentials: true }));
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '8mb' }));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

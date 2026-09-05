@@ -1,13 +1,13 @@
-# Deployment
+# Railway Deployment
 
-The app runs as one Node service on the POS computer. Express serves the built frontend and the `/api` and `/ws` endpoints, while FOH and KDS use separate browser windows against the same local service and database.
+Railway runs the app as one Node service. Express serves the frontend and the `/api` and `/ws` endpoints from the same domain, while FOH and KDS use separate browser windows against the same service and database.
 
 ## Required environment
 
 Copy `.env.example` to `.env` and set:
 
 - `JWT_SECRET`: a long random value. This is required when `NODE_ENV=production`.
-- `CORS_ORIGIN`: comma-separated frontend origins. The local POS launcher sets this automatically.
+- `CORS_ORIGIN`: comma-separated frontend origins. Set this to `https://wrapandrolltz.com` when the frontend uses the Railway custom domain.
 - `PORT`: the port supplied by the hosting provider, when applicable.
 - `DB_PATH`: the path to `wraproll.db` on persistent storage. For Docker deployments use `/data/wraproll.db` and mount `/data` to a named volume or host directory.
 
@@ -23,6 +23,18 @@ NODE_ENV=production npm start
 
 The service listens on `PORT` and serves the frontend from `dist`. Client-side routes fall back to `index.html`, while `/api/health` can be used as the deployment health check.
 
+## Railway setup
+
+The repository is connected to Railway service `wrap-roll` on the `main` branch. Railway deploys automatically after every push.
+
+1. Add a Railway Volume to service `wrap-roll` mounted at `/data`.
+2. Set `DB_PATH=/data/wraproll.db`.
+3. Set `JWT_SECRET` to a long random value.
+4. Set `CORS_ORIGIN=https://wrapandrolltz.com`.
+5. Deploy and confirm `/api/health` returns `{ "ok": true }`.
+
+The `railway.toml` file configures the Docker build, health check, and restart policy. Do not remove the `/data` volume: SQLite data is not retained by Railway deployments without it.
+
 ## Windows POS installation
 
 1. Copy the project to a simple path such as `C:\WrapRollPOS`.
@@ -33,7 +45,7 @@ The service listens on `PORT` and serves the frontend from `dist`. Client-side r
 
 The FOH window opens at `/pos` and the kitchen window opens at `/kds`. Sign in once in each window with the appropriate staff account. Separate browser profiles keep FOH and KDS sessions independent, while both windows receive order updates through the local WebSocket connection.
 
-For automatic startup, create shortcuts to `start-pos.ps1` and `launch-displays.ps1` in the POS Windows startup folder. Keep the service window running during operations. The launchers keep the database at `%LOCALAPPDATA%\WrapRollPOS\wraproll.db`, outside the deployed project folder, and migrate the old `server/db/wraproll.db` there on first launch. Back up this file before maintenance.
+For local automatic startup, create shortcuts to `start-pos.ps1` and `launch-displays.ps1` in the POS Windows startup folder. Keep the service window running during operations. The launchers keep the local database at `%LOCALAPPDATA%\WrapRollPOS\wraproll.db`.
 
 ## Database persistence
 
@@ -48,6 +60,6 @@ docker run -d --name wrap-roll-pos -p 3000:3000 -v wrap-roll-data:/data wrap-rol
 
 If your hosting provider offers persistent disks, attach one to `/data` and set `DB_PATH=/data/wraproll.db`. Do not deploy this service on an ephemeral filesystem without either a persistent disk or an external database. Back up the configured SQLite database before redeploying.
 
-## Reverse proxy
+## Railway volume and migration
 
-Terminate TLS at the hosting provider or reverse proxy and forward both HTTP requests and WebSocket upgrades to the Node service. Set `CORS_ORIGIN` to the exact public origin rather than `*`.
+Before the first Railway deployment with the volume attached, copy the existing local database to the Railway volume as `wraproll.db`. Use the Railway volume file tools or a one-time migration job. Never deploy with an empty ephemeral `/data` path if the live local database contains orders.
