@@ -162,15 +162,13 @@ export default function HomePage() {
     const splitter = splitText(heading, { words: true, chars: true });
     const animation = animate(splitter.chars, {
       y: [
-        { to: '-0.35rem', ease: 'outExpo', duration: 500 },
-        { to: 0, ease: 'outBounce', duration: 700, delay: 100 },
+        { to: '-2.75rem', ease: 'outExpo', duration: 600 },
+        { to: 0, ease: 'outBounce', duration: 800, delay: 100 },
       ],
-      rotate: [
-        { to: '-0.04turn', ease: 'outSine', duration: 350 },
-        { to: 0, ease: 'inOutSine', duration: 450 },
-      ],
-      delay: stagger(55),
-      loopDelay: 1200,
+      rotate: { from: '-1turn', delay: 0 },
+      delay: stagger(50),
+      ease: 'inOutCirc',
+      loopDelay: 1000,
       loop: true,
     });
 
