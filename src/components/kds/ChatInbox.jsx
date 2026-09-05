@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { CheckCheck, MessageCircle, Send, UserRound } from 'lucide-react';
+import { CheckCheck, MessageCircle, Send, UserRound, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 
-export default function ChatInbox() {
+export default function ChatInbox({ onClose }) {
   const [conversations, setConversations] = useState([]);
   const [drafts, setDrafts] = useState({});
 
@@ -29,7 +29,7 @@ export default function ChatInbox() {
 
   return (
     <section className="kds-chat-inbox">
-      <div className="kds-chat-inbox-heading"><div className="flex items-center gap-3"><div className="kds-chat-inbox-icon"><MessageCircle size={17} /></div><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Customer support</p><h2 className="font-display text-base font-bold">Live customer messages</h2></div></div><span className="kds-chat-online"><span /> Online</span></div>
+      <div className="kds-chat-inbox-heading"><div className="flex items-center gap-3"><div className="kds-chat-inbox-icon"><MessageCircle size={17} /></div><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Customer support</p><h2 className="font-display text-base font-bold">Live customer messages</h2></div></div><div className="flex items-center gap-3"><span className="kds-chat-online"><span /> Online</span>{onClose && <button className="kds-chat-close" onClick={onClose} aria-label="Close customer support"><X size={17} /></button>}</div></div>
       {conversations.length === 0 ? <p className="text-xs text-surface-on-variant">No customer messages yet.</p> : conversations.slice(0, 6).map((conversation) => {
         const lastMessage = conversation.messages[conversation.messages.length - 1];
         const needsReply = lastMessage?.from === 'customer';

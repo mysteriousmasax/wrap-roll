@@ -195,7 +195,7 @@ export default function KDSPage() {
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
   const [activeStation, setActiveStation] = useState('all');
-  const [activePanel, setActivePanel] = useState('tickets');
+  const [supportOpen, setSupportOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const prevCountRef = useRef(0);
 
@@ -336,17 +336,8 @@ export default function KDSPage() {
         </div>
       </div>
 
-      <div className="kds-view-switcher" role="tablist" aria-label="Kitchen workspace">
-        <button className={activePanel === 'tickets' ? 'is-active' : ''} onClick={() => setActivePanel('tickets')} role="tab" aria-selected={activePanel === 'tickets'}>
-          <Flame size={15} /> Production tickets <span>{active.length}</span>
-        </button>
-        <button className={activePanel === 'support' ? 'is-active' : ''} onClick={() => setActivePanel('support')} role="tab" aria-selected={activePanel === 'support'}>
-          <MessageCircle size={15} /> Customer support <span>Live</span>
-        </button>
-      </div>
-
-      <div className={`kds-workspace ${activePanel === 'support' ? 'is-support' : 'is-tickets'}`}>
-        {activePanel === 'tickets' ? <div className="kds-ticket-board">
+      <div className="kds-workspace is-tickets">
+        <div className="kds-ticket-board">
         {/* Lane 1: New Orders */}
         <div className="kds-lane kds-lane-new space-y-3 overflow-y-auto rounded-3xl p-3 bg-white/70 border border-[#ebdccb] md:col-span-5 shadow-sm">
           <div className="flex items-center justify-between px-1 sticky top-0 bg-white/90 backdrop-blur-sm py-1 z-10">
@@ -403,10 +394,10 @@ export default function KDSPage() {
             <p className="text-center py-10 text-xs text-[#746e67]">No orders waiting for pickup.</p>
           )}
         </div>
-        </div> : <aside className="kds-support-column">
-          <ChatInbox />
-        </aside>}
+        </div>
       </div>
+      <button className="kds-support-fab" onClick={() => setSupportOpen(true)} aria-label="Open customer support"><MessageCircle size={19} /><span>Customer chats</span></button>
+      {supportOpen && <aside className="kds-support-drawer"><ChatInbox onClose={() => setSupportOpen(false)} /></aside>}
     </div>
   );
 }
