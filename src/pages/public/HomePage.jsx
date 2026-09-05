@@ -195,6 +195,9 @@ export default function HomePage() {
     localStorage.setItem('wraproll_customer_phone', customerPhone);
   }, [customerPhone]);
   useEffect(() => {
+    localStorage.setItem('wraproll_customer_name', customerName);
+  }, [customerName]);
+  useEffect(() => {
     localStorage.setItem('wraproll_customer_email', customerEmail);
   }, [customerEmail]);
   useEffect(() => {

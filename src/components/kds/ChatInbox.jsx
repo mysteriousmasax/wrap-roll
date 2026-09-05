@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCheck, MessageCircle, Send, UserRound, X } from 'lucide-react';
+import { CheckCheck, Mail, MessageCircle, Phone, Send, UserRound, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 
@@ -45,14 +45,14 @@ export default function ChatInbox({ onClose }) {
             const lastMessage = conversation.messages[conversation.messages.length - 1];
             return <button className={`kds-chat-list-item ${selectedConversation?.id === conversation.id ? 'is-selected' : ''}`} key={conversation.id} onClick={() => setSelectedConversationId(conversation.id)}>
               <span className="kds-chat-avatar"><UserRound size={15} /></span>
-              <span className="kds-chat-list-copy"><strong>{conversation.customer_name || 'Website customer'}</strong><small>{lastMessage?.text || 'Start a conversation'}</small></span>
+              <span className="kds-chat-list-copy"><strong>{conversation.customer_name || 'Website customer'}</strong><small>{conversation.customer_phone || conversation.customer_email || lastMessage?.text || 'Start a conversation'}</small></span>
               <span className="kds-chat-list-time">{formatTime(lastMessage?.createdAt)}</span>
             </button>;
           })}
         </div>
         <div className="kds-chat-active">
           {selectedConversation && <>
-            <div className="kds-chat-active-header"><span className="kds-chat-avatar"><UserRound size={15} /></span><div><strong>{selectedConversation.customer_name || 'Website customer'}</strong><small>Website chat · Online</small></div></div>
+            <div className="kds-chat-active-header"><span className="kds-chat-avatar"><UserRound size={15} /></span><div><strong>{selectedConversation.customer_name || 'Website customer'}</strong><small>Website chat · Online</small></div><div className="kds-chat-contact"><span><Phone size={12} /> {selectedConversation.customer_phone || 'Phone not provided'}</span><span><Mail size={12} /> {selectedConversation.customer_email || 'Email not provided'}</span></div></div>
             <div className="kds-chat-active-thread">
               {selectedMessages.length === 0 && <p className="kds-chat-empty">No messages yet. Reply to start the conversation.</p>}
               {selectedMessages.map((message) => <div className={`kds-chat-bubble-row ${message.from === 'customer' ? 'from-customer' : 'from-staff'}`} key={message.id}><p className={message.from === 'customer' ? 'customer-message' : 'agent-message'}><span>{message.text}</span><small>{message.from === 'staff' && <CheckCheck size={12} />}{formatTime(message.createdAt)}</small></p></div>)}
