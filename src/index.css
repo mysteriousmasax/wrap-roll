@@ -79,7 +79,6 @@
 .public-site .site-button, .public-site .category-row button, .public-site .outlet-picker > button { border-radius: 8px; }
 .public-site .hero-food { border-radius: 46% 46% 18px 18px; }
 .public-site button:focus-visible, .public-site a:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
-.menu-heading-animation .char { display: inline-block; transform-origin: 50% 100%; }
 .hero-copy, .story-copy, .section-heading { animation: public-rise .7s ease both; }
 .public-scroll-reveal { opacity: 0; transform: translateY(1.25rem) scale(.98); }
 .hero-food { animation: public-reveal .9s .1s ease both; }
@@ -1328,6 +1327,7 @@ button, input, select, textarea { max-width: 100%; }
 }
 
 .menu-viewport { overflow: hidden; }
+.menu-heading-animation [data-char] { display: inline-block; transform-origin: 50% 100%; }
 .menu-page { animation: menu-page-in .42s cubic-bezier(.2,.75,.25,1) both; }
 .menu-carousel-controls { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 24px; color: #746e67; font-size: 12px; font-weight: 700; }
 .menu-carousel-controls button { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid #ebdccb; border-radius: 50%; background: #fff; color: #ae002a; cursor: pointer; transition: background .2s ease, color .2s ease, transform .2s ease; }
