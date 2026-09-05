@@ -98,6 +98,7 @@ export default function HomePage() {
   const menuHeadingRef = useRef(null);
 
   const lipaNambaNumber = useSettingsStore((state) => state.settings.lipa_namba_number || '123456');
+  const publicSettings = useSettingsStore((state) => state.settings);
   const lipaNambaAccountsValue = useSettingsStore((state) => state.settings.lipa_namba_accounts || '');
   const lipaNambaAccounts = (() => {
     try {
@@ -118,6 +119,16 @@ export default function HomePage() {
     if (items.length > 0) acc[cat.filter] = { ...cat, items };
     return acc;
   }, {});
+
+  const displayHours = (() => {
+    try {
+      const schedule = JSON.parse(publicSettings.weekly_hours || '{}');
+      const today = schedule[new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: publicSettings.timezone || 'Africa/Dar_es_Salaam' }).format(new Date()).toLowerCase()];
+      if (today?.closed) return 'Closed today';
+      if (today?.periods?.length) return today.periods.map((period) => `${period.open} - ${period.close}`).join(' · ');
+    } catch {}
+    return publicSettings.operating_hours || '7:00 AM - 11:00 PM';
+  })();
 
   useEffect(() => {
     api.getPublicMenu().then(setPublicMenu).catch(() => {});
@@ -740,16 +751,16 @@ export default function HomePage() {
             <p className="text-xs font-bold uppercase tracking-wider text-[#ae002a]">Dine In &amp; Takeaway</p>
             <h2 className="text-3xl sm:text-4xl font-bold font-display text-[#1f1d1b]">Visit Our Restaurant</h2>
             <p className="text-sm text-[#6f6861] leading-relaxed">
-              {restaurantLocation.label}, Dar es Salaam, Tanzania. Open daily for breakfast, lunch, dinner, and late cravings.
+              {publicSettings.branch_location || restaurantLocation.label}. Check today’s hours before visiting.
             </p>
             <div className="space-y-2 text-xs font-semibold text-[#554e46]">
-              <p className="flex items-center gap-2"><Clock size={16} className="text-[#ae002a]" /> Daily: 7:00 AM &ndash; 11:00 PM</p>
-              <p className="flex items-center gap-2"><Phone size={16} className="text-[#ae002a]" /> +255 746 222 889</p>
-              <p className="flex items-center gap-2"><Mail size={16} className="text-[#ae002a]" /> info@wrapandrolltz.com</p>
+              <p className="flex items-center gap-2"><Clock size={16} className="text-[#ae002a]" /> Today: {displayHours}</p>
+              <p className="flex items-center gap-2"><Phone size={16} className="text-[#ae002a]" /> {publicSettings.phone || '+255 746 222 889'}</p>
+              <p className="flex items-center gap-2"><Mail size={16} className="text-[#ae002a]" /> {publicSettings.email || 'info@wrapandrolltz.com'}</p>
             </div>
             <a
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ae002a] text-white font-bold text-xs shadow-md hover:bg-[#920023] transition-colors"
-              href={restaurantLocation.mapsUrl}
+              href={publicSettings.google_maps_url || restaurantLocation.mapsUrl}
               target="_blank"
               rel="noreferrer"
             >

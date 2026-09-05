@@ -16,6 +16,19 @@ const sections = [
   { id: 'security', label: 'Security', icon: Shield },
 ];
 
+const WEEKDAYS = [
+  ['monday', 'Monday'], ['tuesday', 'Tuesday'], ['wednesday', 'Wednesday'],
+  ['thursday', 'Thursday'], ['friday', 'Friday'], ['saturday', 'Saturday'], ['sunday', 'Sunday'],
+];
+
+function parseWeeklyHours(value) {
+  try {
+    const parsed = JSON.parse(value || '{}');
+    if (parsed && typeof parsed === 'object' && Object.keys(parsed).length) return parsed;
+  } catch {}
+  return Object.fromEntries(WEEKDAYS.map(([key]) => [key, { closed: false, periods: [{ open: '07:00', close: '23:00' }] }]));
+}
+
 function readLipaAccounts(value, fallback = '123456') {
   try {
     const parsed = JSON.parse(value || '[]');
@@ -31,6 +44,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [lipaAccounts, setLipaAccounts] = useState([]);
+  const [weeklyHours, setWeeklyHours] = useState(parseWeeklyHours(''));
   const [chatFaqs, setChatFaqs] = useState([]);
   const [faqForm, setFaqForm] = useState({ question: '', keywords: '', answer: '' });
   const [editingFaqId, setEditingFaqId] = useState(null);
@@ -40,6 +54,7 @@ export default function SettingsPage() {
     if (loaded) {
       setForm({ ...settings });
       setLipaAccounts(readLipaAccounts(settings.lipa_namba_accounts, settings.lipa_namba_number));
+      setWeeklyHours(parseWeeklyHours(settings.weekly_hours));
     }
   }, [loaded, settings]);
 
@@ -48,6 +63,21 @@ export default function SettingsPage() {
   }, [activeSection, loaded]);
 
   const update = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
+  const updateWeeklyHours = (day, patch) => {
+    const next = { ...weeklyHours, [day]: { ...weeklyHours[day], ...patch } };
+    setWeeklyHours(next);
+    update('weekly_hours', JSON.stringify(next));
+  };
+
+  const updatePeriod = (day, index, field, value) => {
+    const periods = (weeklyHours[day]?.periods || []).map((period, periodIndex) => periodIndex === index ? { ...period, [field]: value } : period);
+    updateWeeklyHours(day, { periods });
+  };
+
+  const addPeriod = (day) => updateWeeklyHours(day, { periods: [...(weeklyHours[day]?.periods || []), { open: '17:00', close: '22:00' }] });
+
+  const removePeriod = (day, index) => updateWeeklyHours(day, { periods: (weeklyHours[day]?.periods || []).filter((_, periodIndex) => periodIndex !== index) });
 
   const handleSave = async () => {
     setSaving(true);
@@ -133,11 +163,24 @@ export default function SettingsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input label="Restaurant Name" value={form.restaurant_name || ''} onChange={(e) => update('restaurant_name', e.target.value)} />
                 <Input label="Branch Location" value={form.branch_location || ''} onChange={(e) => update('branch_location', e.target.value)} />
+                <Input label="Google Maps URL" value={form.google_maps_url || ''} onChange={(e) => update('google_maps_url', e.target.value)} />
                 <Input label="Phone Number" value={form.phone || ''} onChange={(e) => update('phone', e.target.value)} />
                 <Input label="Email" value={form.email || ''} onChange={(e) => update('email', e.target.value)} />
                 <Input label="Operating Hours" value={form.operating_hours || ''} onChange={(e) => update('operating_hours', e.target.value)} />
                 <Input label="Timezone" value={form.timezone || ''} onChange={(e) => update('timezone', e.target.value)} />
                 <Input label="Lipa Namba Number" value={form.lipa_namba_number || ''} onChange={(e) => update('lipa_namba_number', e.target.value)} />
+              </div>
+              <div className="mt-6 border-t border-outline-variant pt-5">
+                <div className="mb-3"><h4 className="font-semibold text-sm">Opening hours by day</h4><p className="text-xs text-surface-on-variant">Set closed days and split hours for lunch breaks or evening service. These hours are stored with your business settings.</p></div>
+                <div className="space-y-2">
+                  {WEEKDAYS.map(([day, label]) => {
+                    const value = weeklyHours[day] || { closed: false, periods: [] };
+                    return <div key={day} className="rounded-lg border border-outline-variant p-3">
+                      <div className="flex items-center justify-between gap-3 mb-2"><span className="font-semibold text-sm">{label}</span><label className="inline-flex items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={Boolean(value.closed)} onChange={(event) => updateWeeklyHours(day, { closed: event.target.checked })} /> Closed</label></div>
+                      {!value.closed && <div className="space-y-2">{(value.periods || []).map((period, index) => <div className="flex items-end gap-2" key={`${day}-${index}`}><label className="flex-1 text-[10px] font-semibold uppercase text-surface-on-variant">Opens<input className="input-field mt-1" type="time" value={period.open || ''} onChange={(event) => updatePeriod(day, index, 'open', event.target.value)} /></label><label className="flex-1 text-[10px] font-semibold uppercase text-surface-on-variant">Closes<input className="input-field mt-1" type="time" value={period.close || ''} onChange={(event) => updatePeriod(day, index, 'close', event.target.value)} /></label>{(value.periods || []).length > 1 && <button type="button" className="mb-1 px-2 py-2 text-xs font-semibold text-error" onClick={() => removePeriod(day, index)}>Remove</button>}</div>)}<button type="button" className="text-xs font-semibold text-primary" onClick={() => addPeriod(day)}>+ Add another period</button></div>}
+                    </div>;
+                  })}
+                </div>
               </div>
             </Card>
           )}

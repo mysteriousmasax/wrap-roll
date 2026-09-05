@@ -35,6 +35,8 @@ The repository is connected to Railway service `wrap-roll` on the `main` branch.
 
 The `railway.toml` file configures the Docker build, health check, and restart policy. Do not remove the `/data` volume: SQLite data is not retained by Railway deployments without it.
 
+Google Business Profile cannot be fetched automatically from only a public Maps URL. Automatic synchronization requires a Google Cloud project, OAuth consent screen, Business Profile APIs, and authorized manager credentials. Until those credentials are supplied, administrators can keep the public Maps URL, branch details, contact information, and weekly hours accurate from System Settings.
+
 ## Windows POS installation
 
 1. Copy the project to a simple path such as `C:\WrapRollPOS`.

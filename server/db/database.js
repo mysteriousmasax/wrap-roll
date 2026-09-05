@@ -350,6 +350,16 @@ export async function initDatabase() {
     ].forEach((faq) => insertFaq.run(...faq));
   }
 
+  db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run('weekly_hours', JSON.stringify({
+    monday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
+    tuesday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
+    wednesday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
+    thursday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
+    friday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
+    saturday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
+    sunday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
+  }));
+
   const { migratePlaintextPins, migrateUserCredentials } = await import('../utils/pins.js');
   await migratePlaintextPins(db);
   await migrateUserCredentials(db);

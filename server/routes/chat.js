@@ -26,6 +26,30 @@ function findAutoReply(message) {
   return faqs.find((faq) => faq.keywords.split(',').map((keyword) => keyword.trim().toLowerCase()).filter(Boolean).some((keyword) => normalized.includes(keyword)));
 }
 
+function formatWeeklyHours() {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('weekly_hours');
+  try {
+    const schedule = JSON.parse(row?.value || '{}');
+    const labels = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    return labels.map((day) => {
+      const entry = schedule[day];
+      if (!entry || entry.closed) return `${day[0].toUpperCase()}${day.slice(1)}: Closed`;
+      return `${day[0].toUpperCase()}${day.slice(1)}: ${(entry.periods || []).map((period) => `${period.open}-${period.close}`).join(', ') || 'Closed'}`;
+    }).join('; ');
+  } catch {
+    return db.prepare('SELECT value FROM settings WHERE key = ?').get('operating_hours')?.value || 'Daily from 7:00 AM to 11:00 PM';
+  }
+}
+
+function getAutoReplyText(faq) {
+  const question = faq.question.toLowerCase();
+  if (question.includes('opening') || question.includes('hours')) return `Our weekly opening hours are: ${formatWeeklyHours()}`;
+  if (question.includes('located') || question.includes('location')) {
+    return `We are located at ${db.prepare('SELECT value FROM settings WHERE key = ?').get('branch_location')?.value || 'Wikicha Tower, Mwai Kibaki Road, Dar es Salaam'}.`;
+  }
+  return faq.answer;
+}
+
 function ensureConversation(id, customerName = '', customerPhone = '', customerEmail = '') {
   const now = new Date().toISOString();
   const normalizedEmail = String(customerEmail || '').trim().toLowerCase();
@@ -63,7 +87,7 @@ router.post('/public/:conversationId/messages', (req, res) => {
   let autoReplyMessage = null;
   if (autoReply) {
     const replyResult = db.prepare('INSERT INTO chat_messages (conversation_id, sender_type, message, message_type, metadata, created_at) VALUES (?, \'staff\', ?, \'text\', ?, ?)')
-      .run(conversationId, autoReply.answer, JSON.stringify({ faqId: autoReply.id, automated: true }), new Date().toISOString());
+      .run(conversationId, getAutoReplyText(autoReply), JSON.stringify({ faqId: autoReply.id, automated: true }), new Date().toISOString());
     autoReplyMessage = mapMessage(db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(replyResult.lastInsertRowid));
     db.prepare('UPDATE chat_conversations SET updated_at = ? WHERE id = ?').run(autoReplyMessage.createdAt, conversationId);
     broadcast('chat:message', { conversationId, message: autoReplyMessage });

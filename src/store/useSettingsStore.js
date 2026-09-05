@@ -4,9 +4,11 @@ import { api } from '../api/client';
 const defaults = {
   restaurant_name: 'Wrap & Roll',
   branch_location: 'Mwai Kibaki Rd, Mikocheni (Wikicha Tower), Dar es Salaam',
+  google_maps_url: 'https://maps.app.goo.gl/gZqwfknocNK6FYNAA',
   phone: '+255 746 222 889',
   email: 'info@wrapandrolltz.com',
   operating_hours: '7:00 AM - 11:00 PM',
+  weekly_hours: '{}',
   timezone: 'Africa/Dar_es_Salaam',
   tax_rate: '8',
   vat_rate: '18',

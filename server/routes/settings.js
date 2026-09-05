@@ -5,6 +5,10 @@ import { authMiddleware, requireRole } from '../middleware/auth.js';
 const router = Router();
 
 const publicDefaults = {
+  branch_location: 'Wikicha Tower, Mwai Kibaki Road, Dar es Salaam',
+  google_maps_url: 'https://maps.app.goo.gl/gZqwfknocNK6FYNAA',
+  operating_hours: '7:00 AM - 11:00 PM',
+  weekly_hours: '{}',
   lipa_namba_number: '123456',
   lipa_namba_accounts: '[]',
   public_animation_enabled: 'true',
