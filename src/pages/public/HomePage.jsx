@@ -136,7 +136,7 @@ export default function HomePage() {
     const heading = menuHeadingRef.current;
     if (!heading || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
 
-    const splitter = splitText(heading, { words: false, chars: true });
+    const splitter = splitText(heading, { words: true, chars: true });
     const animation = animate(splitter.chars, {
       y: [
         { to: '-2.75rem', ease: 'outExpo', duration: 600 },
@@ -159,7 +159,7 @@ export default function HomePage() {
     const heading = heroHeadingRef.current;
     if (!heading || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
 
-    const splitter = splitText(heading, { words: false, chars: true });
+    const splitter = splitText(heading, { words: true, chars: true });
     const animation = animate(splitter.chars, {
       y: [
         { to: '-0.35rem', ease: 'outExpo', duration: 500 },
