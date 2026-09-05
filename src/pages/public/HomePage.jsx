@@ -111,7 +111,7 @@ export default function HomePage() {
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.qty, 0);
   const cartSubtotal = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const cartTax = cartSubtotal * 0.08;
+  const cartTax = cartSubtotal * (Number(publicSettings.tax_rate || 8) / 100);
 
   // Group menu items by category
   const menuByCategory = categories.reduce((acc, cat) => {

@@ -30,6 +30,7 @@ export default function PaymentPage() {
   const { items, getSubtotal, getTax, getTotal, orderType, tableNumber, customerName, deliveryAddress, orderSource, clearCart } = useCartStore();
   const createOrder = useOrderStore((s) => s.createOrder);
   const taxRate = useSettingsStore((s) => s.settings.tax_rate);
+  const currency = useSettingsStore((s) => s.settings.currency || 'TZS');
   const navigate = useNavigate();
 
   // Load available payment methods
@@ -139,7 +140,7 @@ export default function PaymentPage() {
       const paymentResponse = await PaymentClient.initiatePayment({
         orderId: order.id,
         amount: order.total,
-        currency: 'TZS',
+        currency,
         description: `Order ${order.id} - Wrap & Roll`,
         customerEmail,
         customerPhone,

@@ -350,7 +350,24 @@ export async function initDatabase() {
     ].forEach((faq) => insertFaq.run(...faq));
   }
 
-  db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run('weekly_hours', JSON.stringify({
+  const defaultSettings = {
+    restaurant_name: 'Wrap & Roll',
+    branch_location: 'Wikicha Tower, Mwai Kibaki Road, Dar es Salaam',
+    google_maps_url: 'https://maps.app.goo.gl/gZqwfknocNK6FYNAA',
+    phone: '+255 746 222 889',
+    email: 'info@wrapandrolltz.com',
+    operating_hours: '7:00 AM - 11:00 PM',
+    timezone: 'Africa/Dar_es_Salaam',
+    tax_rate: '8',
+    vat_rate: '18',
+    currency: 'TZS',
+    payment_card: 'true',
+    payment_mobile: 'true',
+    payment_cash: 'true',
+    lipa_namba_number: '123456',
+    lipa_namba_accounts: '[]',
+  };
+  const weeklyHours = {
     monday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
     tuesday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
     wednesday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
@@ -358,7 +375,10 @@ export async function initDatabase() {
     friday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
     saturday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
     sunday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
-  }));
+  };
+  defaultSettings.weekly_hours = JSON.stringify(weeklyHours);
+  const insertDefaultSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+  for (const [key, value] of Object.entries(defaultSettings)) insertDefaultSetting.run(key, value);
 
   const { migratePlaintextPins, migrateUserCredentials } = await import('../utils/pins.js');
   await migratePlaintextPins(db);

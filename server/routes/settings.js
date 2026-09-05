@@ -5,10 +5,20 @@ import { authMiddleware, requireRole } from '../middleware/auth.js';
 const router = Router();
 
 const publicDefaults = {
+  restaurant_name: 'Wrap & Roll',
   branch_location: 'Wikicha Tower, Mwai Kibaki Road, Dar es Salaam',
   google_maps_url: 'https://maps.app.goo.gl/gZqwfknocNK6FYNAA',
+  phone: '+255 746 222 889',
+  email: 'info@wrapandrolltz.com',
   operating_hours: '7:00 AM - 11:00 PM',
   weekly_hours: '{}',
+  timezone: 'Africa/Dar_es_Salaam',
+  tax_rate: '8',
+  vat_rate: '18',
+  currency: 'TZS',
+  payment_card: 'true',
+  payment_mobile: 'true',
+  payment_cash: 'true',
   lipa_namba_number: '123456',
   lipa_namba_accounts: '[]',
   public_animation_enabled: 'true',
