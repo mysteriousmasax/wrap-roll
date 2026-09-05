@@ -863,8 +863,8 @@
 .hero-dots button { width: 9px; height: 9px; padding: 0; border: 0; border-radius: 50%; background: #c7c1b9; cursor: pointer; }.hero-dots button.is-active { width: 25px; border-radius: 8px; background: #d9271c; }
 .story-section { padding-block: clamp(24px, 5vh, 64px); background: #fff; }
 .story-feature { width: min(900px, 100%); margin: 0 auto; }
-.story-feature-image { aspect-ratio: 2 / 1; max-height: min(450px, 56vh); }
-.story-feature-image img { display: block; }
+.story-feature-image { height: auto; }
+.story-feature-image img { display: block; width: 100%; height: auto; object-fit: contain; }
 .story-promo { display: grid; justify-items: center; gap: 7px; margin-top: -1px; padding: clamp(16px, 3vh, 24px) 18px clamp(18px, 3vh, 26px); border-radius: 0 0 8px 8px; background: #e00000; color: #fff; text-align: center; }
 .story-promo strong { font: 700 22px Georgia, serif; }
 .story-promo h3 { margin: 0; font: 800 22px Arial, sans-serif; text-transform: uppercase; }
