@@ -6,8 +6,12 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 export default function ChatInbox({ onClose }) {
   const [conversations, setConversations] = useState([]);
   const [drafts, setDrafts] = useState({});
+  const [selectedConversationId, setSelectedConversationId] = useState(null);
 
-  const loadConversations = () => api.getChatConversations().then(({ conversations: saved }) => setConversations(saved)).catch(() => {});
+  const loadConversations = () => api.getChatConversations().then(({ conversations: saved }) => {
+    setConversations(saved);
+    setSelectedConversationId((current) => current || saved[0]?.id || null);
+  }).catch(() => {});
   useEffect(() => { loadConversations(); }, []);
   useWebSocket((event, data) => {
     if (event !== 'chat:message') return;
@@ -27,27 +31,36 @@ export default function ChatInbox({ onClose }) {
     return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(value));
   };
 
+  const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId) || conversations[0];
+  const selectedMessages = selectedConversation?.messages || [];
+  const selectedDraft = selectedConversation ? drafts[selectedConversation.id] || '' : '';
+
   return (
     <section className="kds-chat-inbox">
       <div className="kds-chat-inbox-heading"><div className="flex items-center gap-3"><div className="kds-chat-inbox-icon"><MessageCircle size={17} /></div><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Customer support</p><h2 className="font-display text-base font-bold">Live customer messages</h2></div></div><div className="flex items-center gap-3"><span className="kds-chat-online"><span /> Online</span>{onClose && <button className="kds-chat-close" onClick={onClose} aria-label="Close customer support"><X size={17} /></button>}</div></div>
-      {conversations.length === 0 ? <p className="text-xs text-surface-on-variant">No customer messages yet.</p> : conversations.slice(0, 6).map((conversation) => {
-        const lastMessage = conversation.messages[conversation.messages.length - 1];
-        const needsReply = lastMessage?.from === 'customer';
-        const conversationStatus = !lastMessage ? 'New chat' : needsReply ? 'Needs reply' : 'Replied';
-        return <article className="kds-chat-conversation" key={conversation.id}>
-          <div className="kds-chat-meta">
-            <div className="kds-chat-customer"><span className="kds-chat-avatar"><UserRound size={15} /></span><div><strong>{conversation.customer_name || 'Website customer'}</strong><small>Website chat</small></div></div>
-            <span className={!lastMessage || needsReply ? 'kds-chat-status needs-reply' : 'kds-chat-status'}>{conversationStatus}</span>
-          </div>
-          <div className="kds-chat-thread">
-            {conversation.messages.length === 0 && <p className="kds-chat-empty">Conversation started. Waiting for the first message.</p>}
-            {conversation.messages.slice(-5).map((message) => <div className={`kds-chat-bubble-row ${message.from === 'customer' ? 'from-customer' : 'from-staff'}`} key={message.id}>
-              <p className={message.from === 'customer' ? 'customer-message' : 'agent-message'}><span>{message.text}</span><small>{message.from === 'staff' && <CheckCheck size={12} />}{formatTime(message.createdAt)}</small></p>
-            </div>)}
-          </div>
-          <form onSubmit={(event) => { event.preventDefault(); reply(conversation.id); }}><input value={drafts[conversation.id] || ''} onChange={(event) => setDrafts((current) => ({ ...current, [conversation.id]: event.target.value }))} placeholder="Write a reply..." /><button type="submit" aria-label="Send reply"><Send size={14} /></button></form>
-        </article>;
-      })}
+      {conversations.length === 0 ? <p className="text-xs text-surface-on-variant">No customer messages yet.</p> : <div className="kds-chat-layout">
+        <div className="kds-chat-list">
+          <div className="kds-chat-search">Search customer chats</div>
+          {conversations.slice(0, 12).map((conversation) => {
+            const lastMessage = conversation.messages[conversation.messages.length - 1];
+            return <button className={`kds-chat-list-item ${selectedConversation?.id === conversation.id ? 'is-selected' : ''}`} key={conversation.id} onClick={() => setSelectedConversationId(conversation.id)}>
+              <span className="kds-chat-avatar"><UserRound size={15} /></span>
+              <span className="kds-chat-list-copy"><strong>{conversation.customer_name || 'Website customer'}</strong><small>{lastMessage?.text || 'Start a conversation'}</small></span>
+              <span className="kds-chat-list-time">{formatTime(lastMessage?.createdAt)}</span>
+            </button>;
+          })}
+        </div>
+        <div className="kds-chat-active">
+          {selectedConversation && <>
+            <div className="kds-chat-active-header"><span className="kds-chat-avatar"><UserRound size={15} /></span><div><strong>{selectedConversation.customer_name || 'Website customer'}</strong><small>Website chat · Online</small></div></div>
+            <div className="kds-chat-active-thread">
+              {selectedMessages.length === 0 && <p className="kds-chat-empty">No messages yet. Reply to start the conversation.</p>}
+              {selectedMessages.map((message) => <div className={`kds-chat-bubble-row ${message.from === 'customer' ? 'from-customer' : 'from-staff'}`} key={message.id}><p className={message.from === 'customer' ? 'customer-message' : 'agent-message'}><span>{message.text}</span><small>{message.from === 'staff' && <CheckCheck size={12} />}{formatTime(message.createdAt)}</small></p></div>)}
+            </div>
+            <form className="kds-chat-active-form" onSubmit={(event) => { event.preventDefault(); reply(selectedConversation.id); }}><input value={selectedDraft} onChange={(event) => setDrafts((current) => ({ ...current, [selectedConversation.id]: event.target.value }))} placeholder="Type a message" /><button type="submit" aria-label="Send reply"><Send size={16} /></button></form>
+          </>}
+        </div>
+      </div>}
     </section>
   );
 }
