@@ -9,11 +9,13 @@ import importPhoto from '../../utils/importPhoto';
 import { Users, Clock, MapPin, Wifi, Camera, NotebookPen, Upload, X } from 'lucide-react';
 
 const defaultTableImage = 'https://images.unsplash.com/photo-1559339352-11d035aa65de?w=800&h=600&fit=crop';
+const emptyForm = { number: '', seats: '4', status: 'available', tagId: '', zone: 'Main Dining', imageUrl: '', reservation: '', note: '' };
 
 export default function TableManagementPage() {
   const [tables, setTables] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ number: '', seats: '4', tagId: '', zone: 'Main Dining', imageUrl: '', note: '' });
+  const [editTable, setEditTable] = useState(null);
+  const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -32,25 +34,62 @@ export default function TableManagementPage() {
     }
   };
 
+  const openAdd = () => {
+    setError('');
+    setForm(emptyForm);
+    setShowAdd(true);
+  };
+
+  const openEdit = (table) => {
+    setError('');
+    setForm({
+      number: String(table.number),
+      seats: String(table.seats),
+      status: table.status || 'available',
+      tagId: table.tagId || '',
+      zone: table.zone || 'Main Dining',
+      imageUrl: table.imageUrl || '',
+      reservation: table.reservation || '',
+      note: table.note || '',
+    });
+    setEditTable(table);
+  };
+
   const stats = {
     available: tables.filter((t) => t.status === 'available').length,
     occupied: tables.filter((t) => t.status === 'occupied').length,
     reserved: tables.filter((t) => t.status === 'reserved').length,
   };
 
-  const handleAdd = async () => {
-    if (!form.number || !form.seats) return;
-    await api.createTable({
-      number: parseInt(form.number),
-      seats: parseInt(form.seats),
+  const handleSave = async () => {
+    setError('');
+    if (!form.number || !form.seats) {
+      setError('Table number and seats are required.');
+      return;
+    }
+    const data = {
+      number: parseInt(form.number, 10),
+      seats: parseInt(form.seats, 10),
+      status: form.status,
       tagId: form.tagId || `WR-T${form.number.toString().padStart(2, '0')}`,
       zone: form.zone || 'Main Dining',
       imageUrl: form.imageUrl || defaultTableImage,
+      reservation: form.reservation || null,
       note: form.note || 'Tap NFC tag to identify the guest table',
-    });
-    setShowAdd(false);
-    setForm({ number: '', seats: '4', tagId: '', zone: 'Main Dining', imageUrl: '', note: '' });
-    load();
+    };
+    try {
+      if (editTable) {
+        await api.updateTable(editTable.id, data);
+        setEditTable(null);
+      } else {
+        await api.createTable(data);
+        setShowAdd(false);
+      }
+      setForm(emptyForm);
+      load();
+    } catch (saveError) {
+      setError(saveError.message || 'Unable to save table changes.');
+    }
   };
 
   if (loading) return <div className="p-6 text-sm text-surface-on-variant">Loading tables...</div>;
@@ -58,7 +97,7 @@ export default function TableManagementPage() {
   return (
     <div className="p-4 sm:p-6">
       <PageHeader title="Table Management" subtitle="Manage floor plan, NFC tagging, and live table assignments" actions={
-        <Button size="sm" onClick={() => setShowAdd(true)}>+ Add Table</Button>
+      <Button size="sm" onClick={openAdd}>+ Add Table</Button>
       } />
       <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
         <div className="card"><p className="text-xs font-semibold uppercase text-surface-on-variant">Available</p><p className="mt-1 text-2xl font-bold text-success">{stats.available}</p></div>
@@ -105,18 +144,21 @@ export default function TableManagementPage() {
                 <span className="inline-flex items-center gap-1.5"><Camera size={12} /> Table view</span>
                 <span className="font-semibold text-on-surface">{table.note || 'Tap NFC tag to identify guest table'}</span>
               </div>
+              <Button variant="ghost" size="sm" className="w-full" onClick={() => openEdit(table)}>Edit Table</Button>
             </div>
           </div>
         ))}
       </div>
 
-      <Modal isOpen={showAdd} onClose={() => setShowAdd(false)} title="Add Table">
+      <Modal isOpen={showAdd || !!editTable} onClose={() => { setShowAdd(false); setEditTable(null); }} title={editTable ? 'Edit Table' : 'Add Table'}>
         <div className="space-y-4">
           {error && <div className="flex items-center justify-between rounded-xl border border-error/20 bg-error/5 p-3 text-sm text-error"><span>{error}</span><button type="button" onClick={() => setError('')}><X size={16} /></button></div>}
           <Input label="Table Number" type="number" value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value })} />
           <Input label="Seats" type="number" value={form.seats} onChange={(e) => setForm({ ...form, seats: e.target.value })} />
+          {editTable && <div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-surface-on-variant">Status</label><select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="input-field"><option value="available">Available</option><option value="occupied">Occupied</option><option value="reserved">Reserved</option><option value="cleaning">Cleaning</option></select></div>}
           <Input label="NFC Tag ID" value={form.tagId} onChange={(e) => setForm({ ...form, tagId: e.target.value })} placeholder="WR-T01" />
           <Input label="Zone" value={form.zone} onChange={(e) => setForm({ ...form, zone: e.target.value })} placeholder="Main Dining" />
+          {editTable && <Input label="Reservation" value={form.reservation} onChange={(e) => setForm({ ...form, reservation: e.target.value })} placeholder="e.g. 6:30 PM" />}
           <div className="space-y-1.5">
             <label className="block text-xs font-semibold uppercase tracking-wide text-surface-on-variant">Table Image</label>
             <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-outline-variant px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5">
@@ -126,7 +168,7 @@ export default function TableManagementPage() {
             {form.imageUrl && <img src={form.imageUrl} alt="Table preview" className="h-28 w-full rounded-xl object-cover" />}
           </div>
           <Input label="Table Note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Tap NFC tag to identify guest table" />
-          <Button onClick={handleAdd} className="w-full">Add Table</Button>
+          <Button onClick={handleSave} className="w-full">{editTable ? 'Save Table Changes' : 'Add Table'}</Button>
         </div>
       </Modal>
     </div>

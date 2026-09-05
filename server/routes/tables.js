@@ -48,10 +48,13 @@ router.post('/', authMiddleware, (req, res) => {
 router.patch('/:id', authMiddleware, (req, res) => {
   const existing = db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Table not found' });
-  const { status, reservation, currentOrderId, tagId, imageUrl, zone, note } = req.body;
-  db.prepare(
-    'UPDATE tables SET status = ?, reservation = ?, current_order_id = ?, tag_id = ?, image_url = ?, zone = ?, note = ? WHERE id = ?'
-  ).run(
+  const { number, seats, status, reservation, currentOrderId, tagId, imageUrl, zone, note } = req.body;
+  try {
+    db.prepare(
+      'UPDATE tables SET number = ?, seats = ?, status = ?, reservation = ?, current_order_id = ?, tag_id = ?, image_url = ?, zone = ?, note = ? WHERE id = ?'
+    ).run(
+      number ?? existing.number,
+      seats ?? existing.seats,
     status ?? existing.status,
     reservation !== undefined ? reservation : existing.reservation,
     currentOrderId !== undefined ? currentOrderId : existing.current_order_id,
@@ -60,8 +63,11 @@ router.patch('/:id', authMiddleware, (req, res) => {
     zone !== undefined ? zone : existing.zone,
     note !== undefined ? note : existing.note,
     req.params.id
-  );
-  res.json(mapTable(db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id)));
+    );
+    res.json(mapTable(db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id)));
+  } catch {
+    res.status(409).json({ error: 'Table number already exists' });
+  }
 });
 
 export default router;
