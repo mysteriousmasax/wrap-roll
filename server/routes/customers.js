@@ -149,12 +149,13 @@ router.post('/', authMiddleware, (req, res) => {
 });
 
 router.patch('/:id/loyalty', authMiddleware, (req, res) => {
-  const { birthday, anniversary, customerSegment, nfcTagCode, nfcTagType, loyaltyNotes, preferredChannel, itemType, itemName, itemCode, status } = req.body;
+  const { tier, birthday, anniversary, customerSegment, nfcTagCode, nfcTagType, loyaltyNotes, preferredChannel, itemType, itemName, itemCode, status } = req.body;
   const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
   db.prepare(
     `UPDATE customers SET
+      tier = COALESCE(?, tier),
       birthday = COALESCE(?, birthday),
       anniversary = COALESCE(?, anniversary),
       customer_segment = COALESCE(?, customer_segment),
@@ -163,7 +164,7 @@ router.patch('/:id/loyalty', authMiddleware, (req, res) => {
       loyalty_notes = COALESCE(?, loyalty_notes),
       preferred_channel = COALESCE(?, preferred_channel)
     WHERE id = ?`
-  ).run(birthday ?? null, anniversary ?? null, customerSegment ?? null, nfcTagCode ?? null, nfcTagType ?? null, loyaltyNotes ?? null, preferredChannel ?? null, req.params.id);
+  ).run(tier ?? null, birthday ?? null, anniversary ?? null, customerSegment ?? null, nfcTagCode ?? null, nfcTagType ?? null, loyaltyNotes ?? null, preferredChannel ?? null, req.params.id);
 
   if (itemName || itemType || itemCode) {
     const now = new Date().toISOString();

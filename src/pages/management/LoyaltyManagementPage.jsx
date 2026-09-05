@@ -3,6 +3,7 @@ import PageHeader from '../../components/layout/PageHeader';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { api } from '../../api/client';
+import { formatCurrency } from '../../utils/format';
 import { Gift, Search, Save, Tag, Sparkles } from 'lucide-react';
 
 export default function LoyaltyManagementPage() {
@@ -10,6 +11,7 @@ export default function LoyaltyManagementPage() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
+  const [drafts, setDrafts] = useState({});
 
   const loadItems = async () => {
     try {
@@ -36,13 +38,16 @@ export default function LoyaltyManagementPage() {
     if (!customer) return;
 
     const payload = {
-      [field]: value,
+      tier: customer.tier || 'Regular',
+      birthday: customer.birthday || '',
+      anniversary: customer.anniversary || '',
       loyaltyNotes: customer.loyaltyNotes || '',
       preferredChannel: customer.preferredChannel || 'pos',
       customerSegment: customer.customerSegment || 'regular',
       nfcTagCode: customer.nfcTagCode || '',
       nfcTagType: customer.nfcTagType || 'key_holder',
     };
+    payload[field] = value;
 
     try {
       await api.updateCustomerLoyalty(customerId, payload);
@@ -52,6 +57,10 @@ export default function LoyaltyManagementPage() {
       setStatus(error.message || 'Unable to update loyalty item');
     }
   };
+
+  const draftValue = (customer, field) => drafts[customer.id]?.[field] ?? customer[field] ?? '';
+  const setDraft = (customerId, field, value) => setDrafts((current) => ({ ...current, [customerId]: { ...current[customerId], [field]: value } }));
+  const saveDraft = (customer, field) => updateItem(customer.id, field, draftValue(customer, field));
 
   if (loading) return <div className="p-6 text-sm text-surface-on-variant">Loading loyalty items...</div>;
 
@@ -70,27 +79,29 @@ export default function LoyaltyManagementPage() {
         </div>
       </Card>
 
-      <div className="grid gap-3">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {filtered.map((customer) => (
           <Card key={customer.id} className="p-4">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex min-w-0 items-start justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary text-sm">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 font-bold text-primary text-sm">
                   {customer.name.split(' ').map((n) => n[0]).join('')}
                 </div>
                 <div className="min-w-0">
-                  <p className="font-bold text-sm truncate">{customer.name}</p>
+                  <p className="truncate font-bold text-sm">{customer.name}</p>
                   <p className="text-xs text-surface-on-variant">{customer.phone || customer.email || 'No contact'}</p>
                 </div>
               </div>
 
               <div className="flex flex-wrap gap-2 md:justify-end">
-                <span className="rounded-full bg-primary/10 text-primary px-2 py-1 text-[10px] font-semibold">{customer.customerSegment || 'regular'}</span>
-                <span className="rounded-full bg-success/10 text-success px-2 py-1 text-[10px] font-semibold">{customer.loyaltyItems?.length || 0} item(s)</span>
+                <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary">{customer.tier || 'Regular'}</span>
+                <span className="rounded-full bg-success/10 px-2 py-1 text-[10px] font-semibold text-success">{customer.loyaltyItems?.length || 0} item(s)</span>
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="mt-4 grid grid-cols-2 gap-3 border-y border-outline-variant/60 py-3 text-xs"><div><p className="text-surface-on-variant">Visits</p><p className="mt-1 font-bold">{customer.visits || 0}</p></div><div><p className="text-surface-on-variant">Lifetime value</p><p className="mt-1 font-bold">{formatCurrency(customer.lifetimeValue || 0)}</p></div><div><p className="text-surface-on-variant">Last visit</p><p className="mt-1 font-semibold">{customer.lastVisit || 'Not recorded'}</p></div><div><p className="text-surface-on-variant">Segment</p><p className="mt-1 font-semibold capitalize">{customer.customerSegment || 'regular'}</p></div></div>
+
+            <div className="grid gap-3">
               <label className="block text-xs">
                 <span className="text-surface-on-variant mb-1 block">NFC tag code</span>
                 <input value={customer.nfcTagCode || ''} onChange={(e) => updateItem(customer.id, 'nfcTagCode', e.target.value)} className="input-field w-full" placeholder="WR-0001-123456" />
@@ -118,6 +129,15 @@ export default function LoyaltyManagementPage() {
                 </select>
               </label>
             </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <label className="block text-xs"><span className="mb-1 block text-surface-on-variant">Tier</span><select value={draftValue(customer, 'tier')} onChange={(e) => setDraft(customer.id, 'tier', e.target.value)} onBlur={() => saveDraft(customer, 'tier')} className="input-field w-full"><option>Regular</option><option>Gold</option><option>VIP</option></select></label>
+              <label className="block text-xs"><span className="mb-1 block text-surface-on-variant">Customer segment</span><select value={draftValue(customer, 'customerSegment')} onChange={(e) => setDraft(customer.id, 'customerSegment', e.target.value)} onBlur={() => saveDraft(customer, 'customerSegment')} className="input-field w-full"><option value="regular">Regular</option><option value="first_order">First order</option><option value="couples">Couples</option><option value="vip">VIP</option><option value="at_risk">At risk</option></select></label>
+              <label className="block text-xs"><span className="mb-1 block text-surface-on-variant">Birthday</span><input type="date" value={draftValue(customer, 'birthday')} onChange={(e) => setDraft(customer.id, 'birthday', e.target.value)} onBlur={() => saveDraft(customer, 'birthday')} className="input-field w-full" /></label>
+              <label className="block text-xs"><span className="mb-1 block text-surface-on-variant">Anniversary</span><input type="date" value={draftValue(customer, 'anniversary')} onChange={(e) => setDraft(customer.id, 'anniversary', e.target.value)} onBlur={() => saveDraft(customer, 'anniversary')} className="input-field w-full" /></label>
+            </div>
+
+            <label className="mt-3 block text-xs"><span className="mb-1 block text-surface-on-variant">Loyalty notes</span><textarea value={draftValue(customer, 'loyaltyNotes')} onChange={(e) => setDraft(customer.id, 'loyaltyNotes', e.target.value)} onBlur={() => saveDraft(customer, 'loyaltyNotes')} className="input-field min-h-16 w-full resize-y" placeholder="Add customer preferences or reward notes..." /></label>
 
             <div className="mt-4 flex flex-wrap gap-2">
               {customer.loyaltyItems?.length ? customer.loyaltyItems.map((item) => (
