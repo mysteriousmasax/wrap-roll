@@ -396,7 +396,7 @@ export default function KDSPage() {
         </div>
         </div>
       </div>
-      <button className="kds-support-fab" onClick={() => setSupportOpen(true)} aria-label="Open customer support"><MessageCircle size={19} /><span>Customer chats</span></button>
+      {!supportOpen && <button className="kds-support-fab" onClick={() => setSupportOpen(true)} aria-label="Open customer support"><MessageCircle size={19} /><span>Customer chats</span></button>}
       {supportOpen && <aside className="kds-support-drawer"><ChatInbox onClose={() => setSupportOpen(false)} /></aside>}
     </div>
   );
