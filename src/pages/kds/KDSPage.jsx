@@ -334,10 +334,8 @@ export default function KDSPage() {
         </div>
       </div>
 
-      <ChatInbox />
-
-      {/* Production Lanes Grid */}
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-3 p-3 overflow-hidden">
+      <div className="kds-workspace">
+        <div className="kds-ticket-board">
         {/* Lane 1: New Orders */}
         <div className="kds-lane kds-lane-new space-y-3 overflow-y-auto rounded-3xl p-3 bg-white/70 border border-[#ebdccb] md:col-span-5 shadow-sm">
           <div className="flex items-center justify-between px-1 sticky top-0 bg-white/90 backdrop-blur-sm py-1 z-10">
@@ -394,6 +392,11 @@ export default function KDSPage() {
             <p className="text-center py-10 text-xs text-[#746e67]">No orders waiting for pickup.</p>
           )}
         </div>
+        </div>
+
+        <aside className="kds-support-column">
+          <ChatInbox />
+        </aside>
       </div>
     </div>
   );
