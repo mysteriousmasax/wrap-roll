@@ -1463,12 +1463,33 @@ button, input, select, textarea { max-width: 100%; }
 
 .kds-support-fab { position: fixed; right: 22px; bottom: 24px; z-index: 40; display: inline-flex; align-items: center; gap: 8px; min-height: 46px; padding: 0 17px; border: 0; border-radius: 999px; background: #ae002a; color: #fff; box-shadow: 0 10px 24px rgba(96, 0, 24, .28); font-size: 12px; font-weight: 800; cursor: pointer; transition: transform .2s ease, background .2s ease; }
 .kds-support-fab:hover { background: #920023; transform: translateY(-2px); }
-.kds-support-drawer { position: fixed; top: 82px; right: 22px; bottom: 24px; z-index: 39; width: min(430px, calc(100vw - 32px)); overflow: hidden; border-radius: 18px; box-shadow: 0 18px 48px rgba(36,33,30,.22); }
+.kds-support-drawer { position: fixed; top: 82px; right: 22px; bottom: 24px; z-index: 39; width: min(820px, calc(100vw - 32px)); overflow: hidden; border-radius: 18px; box-shadow: 0 18px 48px rgba(36,33,30,.22); }
 .kds-support-drawer .kds-chat-inbox { height: 100%; max-height: none; margin: 0; grid-template-columns: 1fr; align-content: start; overflow-y: auto; }
 .kds-support-drawer .kds-chat-inbox-heading { grid-column: auto; }
 .kds-chat-close { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 9px; background: #faeee2; color: #ae002a; cursor: pointer; }
+.kds-chat-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 0; height: 100%; margin: 0 -16px -16px; border-top: 1px solid #eadfd2; background: #f7f3ed; }
+.kds-chat-list { min-width: 0; padding: 10px 0; overflow-y: auto; border-right: 1px solid #eadfd2; background: #fffdf9; }
+.kds-chat-search { margin: 0 10px 8px; padding: 9px 11px; border-radius: 9px; background: #f3eee8; color: #988b80; font-size: 10px; }
+.kds-chat-list-item { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 0; border-left: 3px solid transparent; background: transparent; color: #3f3833; text-align: left; cursor: pointer; }
+.kds-chat-list-item:hover, .kds-chat-list-item.is-selected { background: #f3eee8; border-left-color: #ae002a; }
+.kds-chat-list-copy { display: grid; min-width: 0; gap: 2px; }
+.kds-chat-list-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.kds-chat-list-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #988b80; font-size: 9px; }
+.kds-chat-list-time { align-self: start; color: #988b80; font-size: 8px; white-space: nowrap; }
+.kds-chat-active { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; min-height: 0; background: #efe8df; }
+.kds-chat-active-header { display: flex; align-items: center; gap: 9px; padding: 12px 16px; border-bottom: 1px solid #e2d8cc; background: #fffdf9; }
+.kds-chat-active-header div { display: grid; gap: 2px; }
+.kds-chat-active-header strong { font-size: 12px; }
+.kds-chat-active-header small { color: #227653; font-size: 9px; }
+.kds-chat-active-thread { display: grid; align-content: end; gap: 8px; min-height: 0; padding: 18px; overflow-y: auto; background: radial-gradient(rgba(174,0,42,.04) 1px, transparent 1px), #f4eee7; background-size: 18px 18px; }
+.kds-chat-active-form { display: flex; gap: 8px; padding: 10px 12px; background: #fffdf9; border-top: 1px solid #e2d8cc; }
+.kds-chat-active-form input { min-width: 0; flex: 1; padding: 10px 12px; border: 1px solid #ddd1be; border-radius: 20px; background: #f7f3ed; font-size: 11px; }
+.kds-chat-active-form button { width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 36px; border: 0; border-radius: 50%; background: #ae002a; color: #fff; cursor: pointer; }
 
 @media (max-width: 767px) {
   .kds-support-fab { right: 14px; bottom: 16px; padding-inline: 14px; }
   .kds-support-drawer { top: 70px; right: 10px; bottom: 10px; width: calc(100vw - 20px); }
+  .kds-chat-layout { grid-template-columns: 1fr; }
+  .kds-chat-list { max-height: 190px; border-right: 0; border-bottom: 1px solid #eadfd2; }
+  .kds-chat-active { min-height: 300px; }
 }
