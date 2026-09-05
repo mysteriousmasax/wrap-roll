@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { MessageCircle, Send } from 'lucide-react';
+import { CheckCheck, MessageCircle, Send, UserRound } from 'lucide-react';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 
@@ -22,12 +22,30 @@ export default function ChatInbox() {
     setDrafts((current) => ({ ...current, [conversationId]: '' }));
   };
 
+  const formatTime = (value) => {
+    if (!value) return '';
+    return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(value));
+  };
+
   return (
     <section className="kds-chat-inbox">
-      <div className="kds-chat-inbox-heading"><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Customer support</p><h2 className="font-display text-sm font-bold">Live customer messages</h2></div><MessageCircle size={18} className="text-primary" /></div>
+      <div className="kds-chat-inbox-heading"><div className="flex items-center gap-3"><div className="kds-chat-inbox-icon"><MessageCircle size={17} /></div><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Customer support</p><h2 className="font-display text-base font-bold">Live customer messages</h2></div></div><span className="kds-chat-online"><span /> Online</span></div>
       {conversations.length === 0 ? <p className="text-xs text-surface-on-variant">No customer messages yet.</p> : conversations.slice(0, 6).map((conversation) => {
         const lastMessage = conversation.messages[conversation.messages.length - 1];
-        return <div className="kds-chat-conversation" key={conversation.id}><div className="kds-chat-meta"><strong>{conversation.customer_name || 'Website customer'}</strong><span>{lastMessage?.from === 'customer' ? 'Needs reply' : 'Replied'}</span></div><div className="kds-chat-thread">{conversation.messages.slice(-3).map((message) => <p className={message.from === 'customer' ? 'customer-message' : 'agent-message'} key={message.id}>{message.from === 'staff' && `${message.staffName}: `}{message.text}</p>)}</div><form onSubmit={(event) => { event.preventDefault(); reply(conversation.id); }}><input value={drafts[conversation.id] || ''} onChange={(event) => setDrafts((current) => ({ ...current, [conversation.id]: event.target.value }))} placeholder="Reply to customer..." /><button type="submit" aria-label="Send reply"><Send size={14} /></button></form></div>;
+        const needsReply = lastMessage?.from === 'customer';
+        return <article className="kds-chat-conversation" key={conversation.id}>
+          <div className="kds-chat-meta">
+            <div className="kds-chat-customer"><span className="kds-chat-avatar"><UserRound size={15} /></span><div><strong>{conversation.customer_name || 'Website customer'}</strong><small>Website chat</small></div></div>
+            <span className={needsReply ? 'kds-chat-status needs-reply' : 'kds-chat-status'}>{needsReply ? 'Needs reply' : 'Replied'}</span>
+          </div>
+          <div className="kds-chat-thread">
+            {conversation.messages.length === 0 && <p className="kds-chat-empty">Conversation started. Waiting for the first message.</p>}
+            {conversation.messages.slice(-5).map((message) => <div className={`kds-chat-bubble-row ${message.from === 'customer' ? 'from-customer' : 'from-staff'}`} key={message.id}>
+              <p className={message.from === 'customer' ? 'customer-message' : 'agent-message'}><span>{message.text}</span><small>{message.from === 'staff' && <CheckCheck size={12} />}{formatTime(message.createdAt)}</small></p>
+            </div>)}
+          </div>
+          <form onSubmit={(event) => { event.preventDefault(); reply(conversation.id); }}><input value={drafts[conversation.id] || ''} onChange={(event) => setDrafts((current) => ({ ...current, [conversation.id]: event.target.value }))} placeholder="Write a reply..." /><button type="submit" aria-label="Send reply"><Send size={14} /></button></form>
+        </article>;
       })}
     </section>
   );
