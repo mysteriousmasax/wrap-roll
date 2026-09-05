@@ -1254,6 +1254,10 @@ button, input, select, textarea { max-width: 100%; }
     width: 100%;
   }
 
+  .public-header .public-nav > a.header-utility {
+    display: flex !important;
+  }
+
   .public-header .public-nav > button,
   .public-header .public-nav > a,
   .public-header .public-nav .header-utility {
