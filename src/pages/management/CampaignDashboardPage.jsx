@@ -24,7 +24,7 @@ export default function CampaignDashboardPage() {
 
   const sendCampaign = async () => {
     try {
-      const response = await api.dispatchHolidayNotifications();
+      const response = await api.dispatchCustomerCampaign();
       setSendStatus(`Campaign notifications sent to ${response.sentCount} customers.`);
     } catch (error) {
       setSendStatus(error.message || 'Unable to dispatch campaign notifications');

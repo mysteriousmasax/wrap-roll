@@ -69,6 +69,7 @@ router.get('/dashboard', authMiddleware, (req, res) => {
     return `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   };
 
+  const currentKey = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const birthdays = customers.filter((customer) => customer.birthday && getMonthDay(customer.birthday));
   const anniversaries = customers.filter((customer) => customer.anniversary && getMonthDay(customer.anniversary));
   const couples = customers.filter((customer) => (customer.customer_segment || '').toLowerCase() === 'couples');
@@ -82,7 +83,7 @@ router.get('/dashboard', authMiddleware, (req, res) => {
       dateKey: getMonthDay(customer.birthday),
       monthDay: getMonthDay(customer.birthday),
     }))
-    .sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+    .sort((a, b) => ((a.dateKey < currentKey ? `1-${a.dateKey}` : `0-${a.dateKey}`).localeCompare(b.dateKey < currentKey ? `1-${b.dateKey}` : `0-${b.dateKey}`)));
 
   const upcomingAnniversaries = anniversaries
     .map((customer) => ({
@@ -91,7 +92,7 @@ router.get('/dashboard', authMiddleware, (req, res) => {
       anniversary: customer.anniversary,
       dateKey: getMonthDay(customer.anniversary),
     }))
-    .sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+    .sort((a, b) => ((a.dateKey < currentKey ? `1-${a.dateKey}` : `0-${a.dateKey}`).localeCompare(b.dateKey < currentKey ? `1-${b.dateKey}` : `0-${b.dateKey}`)));
 
   res.json({
     totals: {
@@ -108,6 +109,22 @@ router.get('/dashboard', authMiddleware, (req, res) => {
       year: today.getFullYear(),
     },
   });
+});
+
+router.post('/campaign/dispatch', authMiddleware, (req, res) => {
+  const customers = db.prepare('SELECT * FROM customers WHERE birthday IS NOT NULL OR anniversary IS NOT NULL OR lower(customer_segment) = ?').all('couples');
+  const now = new Date().toISOString();
+  const sent = [];
+  customers.forEach((customer) => {
+    const events = [];
+    if (customer.birthday) events.push('birthday');
+    if (customer.anniversary) events.push('anniversary');
+    if ((customer.customer_segment || '').toLowerCase() === 'couples') events.push('couples offer');
+    const message = `Hello ${customer.name?.split(' ')[0] || 'friend'}, Wrap & Roll has a special ${events.join(' and ')} offer waiting for you.`;
+    db.prepare('INSERT INTO notifications (type, title, message, read, created_at) VALUES (?, ?, ?, 0, ?)').run('success', 'Customer campaign ready', message, now);
+    sent.push({ customerId: customer.id, name: customer.name, channel: customer.preferred_channel || 'pos', message });
+  });
+  res.json({ ok: true, sentCount: sent.length, sent });
 });
 
 export default router;

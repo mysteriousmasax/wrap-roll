@@ -68,6 +68,7 @@ export const api = {
   updateCustomerLoyalty: (id, data) => request(`/customers/${id}/loyalty`, { method: 'PATCH', body: JSON.stringify(data) }),
   getLoyaltyItems: () => request('/loyalty'),
   getCampaignDashboard: () => request('/loyalty/dashboard'),
+  dispatchCustomerCampaign: () => request('/loyalty/campaign/dispatch', { method: 'POST' }),
   sendWhatsApp: (data) => request('/customers/whatsapp', { method: 'POST', body: JSON.stringify(data) }),
 
   getHolidayFeed: () => request('/calendar/feed'),
