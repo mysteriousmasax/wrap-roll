@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
 import { animate } from 'animejs';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
