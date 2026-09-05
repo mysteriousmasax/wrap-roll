@@ -7,6 +7,11 @@ set "VITE=%ROOT%node_modules\vite\bin\vite.js"
 set "SERVER=%ROOT%server\index.js"
 set "CLOUDFLARED=%ROOT%cloudflared.exe"
 set "TUNNEL_SCRIPT=%ROOT%open-cloudflare-tunnel.ps1"
+set "DATA_DIR=%LOCALAPPDATA%\WrapRollPOS"
+set "DB_PATH=%DATA_DIR%\wraproll.db"
+
+if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"
+if not exist "%DB_PATH%" if exist "%ROOT%server\db\wraproll.db" copy /Y "%ROOT%server\db\wraproll.db" "%DB_PATH%" >nul
 
 if not exist "%NODE%" (
   echo Could not find the bundled Node runtime.

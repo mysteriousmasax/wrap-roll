@@ -19,6 +19,12 @@ function getMessages(conversationId) {
     WHERE conversation_id = ? ORDER BY chat_messages.id`).all(conversationId).map(mapMessage);
 }
 
+function findAutoReply(message) {
+  const normalized = message.toLowerCase();
+  const faqs = db.prepare('SELECT * FROM chat_faqs WHERE active = 1 ORDER BY id').all();
+  return faqs.find((faq) => faq.keywords.split(',').map((keyword) => keyword.trim().toLowerCase()).filter(Boolean).some((keyword) => normalized.includes(keyword)));
+}
+
 function ensureConversation(id, customerName = '', customerPhone = '', customerEmail = '') {
   const now = new Date().toISOString();
   const existing = db.prepare('SELECT id FROM chat_conversations WHERE id = ?').get(id);
@@ -47,7 +53,47 @@ router.post('/public/:conversationId/messages', (req, res) => {
   db.prepare('UPDATE chat_conversations SET updated_at = ?, status = \'open\' WHERE id = ?').run(now, conversationId);
   const created = mapMessage(db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(result.lastInsertRowid));
   broadcast('chat:message', { conversationId, message: created });
-  res.status(201).json(created);
+  const autoReply = messageType === 'text' ? findAutoReply(message) : null;
+  let autoReplyMessage = null;
+  if (autoReply) {
+    const replyResult = db.prepare('INSERT INTO chat_messages (conversation_id, sender_type, message, message_type, metadata, created_at) VALUES (?, \'agent\', ?, \'text\', ?, ?)')
+      .run(conversationId, autoReply.answer, JSON.stringify({ faqId: autoReply.id, automated: true }), new Date().toISOString());
+    autoReplyMessage = mapMessage(db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(replyResult.lastInsertRowid));
+    db.prepare('UPDATE chat_conversations SET updated_at = ? WHERE id = ?').run(autoReplyMessage.createdAt, conversationId);
+    broadcast('chat:message', { conversationId, message: autoReplyMessage });
+  }
+  res.status(201).json({ message: created, autoReply: autoReplyMessage });
+});
+
+router.get('/faq', authMiddleware, requireRole('admin', 'manager'), (_req, res) => {
+  res.json(db.prepare('SELECT * FROM chat_faqs ORDER BY active DESC, id').all());
+});
+
+router.post('/faq', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
+  const question = String(req.body.question || '').trim();
+  const keywords = String(req.body.keywords || '').trim();
+  const answer = String(req.body.answer || '').trim();
+  if (!question || !keywords || !answer) return res.status(400).json({ error: 'Question, keywords, and answer are required' });
+  const now = new Date().toISOString();
+  const result = db.prepare('INSERT INTO chat_faqs (question, keywords, answer, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(question, keywords, answer, req.body.active === false ? 0 : 1, now, now);
+  res.status(201).json(db.prepare('SELECT * FROM chat_faqs WHERE id = ?').get(result.lastInsertRowid));
+});
+
+router.put('/faq/:id', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
+  const existing = db.prepare('SELECT * FROM chat_faqs WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'FAQ not found' });
+  const question = String(req.body.question ?? existing.question).trim();
+  const keywords = String(req.body.keywords ?? existing.keywords).trim();
+  const answer = String(req.body.answer ?? existing.answer).trim();
+  if (!question || !keywords || !answer) return res.status(400).json({ error: 'Question, keywords, and answer are required' });
+  db.prepare('UPDATE chat_faqs SET question = ?, keywords = ?, answer = ?, active = ?, updated_at = ? WHERE id = ?').run(question, keywords, answer, req.body.active == null ? existing.active : (req.body.active ? 1 : 0), new Date().toISOString(), req.params.id);
+  res.json(db.prepare('SELECT * FROM chat_faqs WHERE id = ?').get(req.params.id));
+});
+
+router.delete('/faq/:id', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
+  const result = db.prepare('UPDATE chat_faqs SET active = 0, updated_at = ? WHERE id = ?').run(new Date().toISOString(), req.params.id);
+  if (!result.changes) return res.status(404).json({ error: 'FAQ not found' });
+  res.json({ ok: true });
 });
 
 router.get('/', authMiddleware, requireRole(...staffRoles), (_req, res) => {

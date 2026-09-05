@@ -4,7 +4,7 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import useSettingsStore from '../../store/useSettingsStore';
-import { Save, Store, Receipt, CreditCard, Globe, Shield, Bell, Plus, Trash2 } from 'lucide-react';
+import { Save, Store, Receipt, CreditCard, Globe, Shield, Bell, MessageCircle, Plus, Trash2 } from 'lucide-react';
 
 const sections = [
   { id: 'general', label: 'General', icon: Store },
@@ -12,6 +12,7 @@ const sections = [
   { id: 'payments', label: 'Payments', icon: CreditCard },
   { id: 'appearance', label: 'Website Motion', icon: Globe },
   { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'chat', label: 'Chat Auto-Replies', icon: MessageCircle },
   { id: 'security', label: 'Security', icon: Shield },
 ];
 
@@ -30,6 +31,9 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [lipaAccounts, setLipaAccounts] = useState([]);
+  const [chatFaqs, setChatFaqs] = useState([]);
+  const [faqForm, setFaqForm] = useState({ question: '', keywords: '', answer: '' });
+  const [editingFaqId, setEditingFaqId] = useState(null);
 
   useEffect(() => {
     if (loaded) setForm({ ...settings });
@@ -38,6 +42,10 @@ export default function SettingsPage() {
       setLipaAccounts(readLipaAccounts(settings.lipa_namba_accounts, settings.lipa_namba_number));
     }
   }, [loaded, settings]);
+
+  useEffect(() => {
+    if (loaded && activeSection === 'chat') api.getChatFaqs().then(setChatFaqs).catch(() => setMessage('Unable to load chat auto-replies'));
+  }, [activeSection, loaded]);
 
   const update = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -67,6 +75,33 @@ export default function SettingsPage() {
     const reader = new FileReader();
     reader.onload = () => updateLipaAccounts(lipaAccounts.map((account, accountIndex) => accountIndex === index ? { ...account, qrImage: reader.result } : account));
     reader.readAsDataURL(file);
+  };
+
+  const saveFaq = async (event) => {
+    event.preventDefault();
+    try {
+      const saved = editingFaqId ? await api.updateChatFaq(editingFaqId, faqForm) : await api.createChatFaq(faqForm);
+      setChatFaqs((current) => editingFaqId ? current.map((faq) => faq.id === saved.id ? saved : faq) : [...current, saved]);
+      setFaqForm({ question: '', keywords: '', answer: '' });
+      setEditingFaqId(null);
+      setMessage('Chat auto-reply saved successfully');
+    } catch (error) {
+      setMessage(error.message || 'Unable to save chat auto-reply');
+    }
+  };
+
+  const editFaq = (faq) => {
+    setEditingFaqId(faq.id);
+    setFaqForm({ question: faq.question, keywords: faq.keywords, answer: faq.answer });
+  };
+
+  const disableFaq = async (id) => {
+    try {
+      await api.deleteChatFaq(id);
+      setChatFaqs((current) => current.map((faq) => faq.id === id ? { ...faq, active: 0 } : faq));
+    } catch (error) {
+      setMessage(error.message || 'Unable to disable chat auto-reply');
+    }
   };
 
   if (!loaded) return <div className="p-6 text-sm text-surface-on-variant">Loading settings...</div>;
@@ -186,6 +221,25 @@ export default function SettingsPage() {
               <h3 className="font-display font-bold mb-4">Notification Settings</h3>
               <p className="text-sm text-surface-on-variant mb-4">Low stock alerts and order notifications are enabled by default.</p>
               <Input label="Alert Email" value={form.email || ''} onChange={(e) => update('email', e.target.value)} />
+            </Card>
+          )}
+          {activeSection === 'chat' && (
+            <Card>
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div><h3 className="font-display font-bold">Chat Auto-Replies</h3><p className="text-sm text-surface-on-variant mt-1">Answers sent automatically when a customer asks a matching question.</p></div>
+                {editingFaqId && <Button size="sm" variant="secondary" onClick={() => { setEditingFaqId(null); setFaqForm({ question: '', keywords: '', answer: '' }); }}>Cancel edit</Button>}
+              </div>
+              <form onSubmit={saveFaq} className="space-y-3 mb-6">
+                <Input label="Question label" value={faqForm.question} onChange={(event) => setFaqForm({ ...faqForm, question: event.target.value })} placeholder="Where are you located?" />
+                <Input label="Matching keywords" value={faqForm.keywords} onChange={(event) => setFaqForm({ ...faqForm, keywords: event.target.value })} placeholder="location, address, directions" />
+                <div><label className="block text-xs font-semibold text-surface-on-variant uppercase mb-1.5">Answer</label><textarea className="input-field min-h-24" value={faqForm.answer} onChange={(event) => setFaqForm({ ...faqForm, answer: event.target.value })} placeholder="Write the customer-facing answer" required /></div>
+                <Button type="submit" size="sm"><Save size={14} /> {editingFaqId ? 'Update auto-reply' : 'Add auto-reply'}</Button>
+              </form>
+              <div className="space-y-2">
+                {chatFaqs.map((faq) => <div key={faq.id} className={'border border-outline-variant rounded-lg p-3 ' + (!faq.active ? 'opacity-50' : '')}>
+                  <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-sm">{faq.question}</p><p className="text-[11px] text-surface-on-variant mt-1">Keywords: {faq.keywords}</p><p className="text-xs mt-2">{faq.answer}</p></div><div className="flex gap-1 shrink-0"><button type="button" className="text-xs font-semibold text-primary px-2 py-1" onClick={() => editFaq(faq)}>Edit</button>{faq.active ? <button type="button" className="text-xs font-semibold text-error px-2 py-1" onClick={() => disableFaq(faq.id)}>Disable</button> : <span className="text-xs text-surface-on-variant px-2 py-1">Disabled</span>}</div></div>
+                </div>)}
+              </div>
             </Card>
           )}
           {activeSection === 'security' && (

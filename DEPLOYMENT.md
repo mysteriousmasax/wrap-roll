@@ -9,7 +9,7 @@ Copy `.env.example` to `.env` and set:
 - `JWT_SECRET`: a long random value. This is required when `NODE_ENV=production`.
 - `CORS_ORIGIN`: comma-separated frontend origins. The local POS launcher sets this automatically.
 - `PORT`: the port supplied by the hosting provider, when applicable.
-- `DB_PATH`: an optional persistent path for `wraproll.db`. Use persistent storage; the database is created and migrated on startup.
+- `DB_PATH`: the path to `wraproll.db` on persistent storage. For Docker deployments use `/data/wraproll.db` and mount `/data` to a named volume or host directory.
 
 For a separately hosted frontend, set `VITE_API_BASE_URL` to the API URL ending in `/api` and `VITE_WS_URL` to the API WebSocket URL ending in `/ws` before building.
 
@@ -33,11 +33,20 @@ The service listens on `PORT` and serves the frontend from `dist`. Client-side r
 
 The FOH window opens at `/pos` and the kitchen window opens at `/kds`. Sign in once in each window with the appropriate staff account. Separate browser profiles keep FOH and KDS sessions independent, while both windows receive order updates through the local WebSocket connection.
 
-For automatic startup, create shortcuts to `start-pos.ps1` and `launch-displays.ps1` in the POS Windows startup folder. Keep the service window running during operations. The database is stored under `server/db/wraproll.db`; back it up before maintenance.
+For automatic startup, create shortcuts to `start-pos.ps1` and `launch-displays.ps1` in the POS Windows startup folder. Keep the service window running during operations. The launchers keep the database at `%LOCALAPPDATA%\WrapRollPOS\wraproll.db`, outside the deployed project folder, and migrate the old `server/db/wraproll.db` there on first launch. Back up this file before maintenance.
 
 ## Database persistence
 
-Back up the configured SQLite database before redeploying. Do not use an ephemeral filesystem for production data.
+The app stores orders, payments, customers, staff activity, notifications, and settings in SQLite. A new container or hosting instance has a new filesystem, so deploying the image alone cannot preserve live data.
+
+For Docker, create and reuse a named volume:
+
+```bash
+docker volume create wrap-roll-data
+docker run -d --name wrap-roll-pos -p 3000:3000 -v wrap-roll-data:/data wrap-roll-pos
+```
+
+If your hosting provider offers persistent disks, attach one to `/data` and set `DB_PATH=/data/wraproll.db`. Do not deploy this service on an ephemeral filesystem without either a persistent disk or an external database. Back up the configured SQLite database before redeploying.
 
 ## Reverse proxy
 

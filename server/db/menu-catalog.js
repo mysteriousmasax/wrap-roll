@@ -111,7 +111,7 @@ const menuCatalog = [
 export function syncMenuCatalog(db) {
   const existing = db.prepare('SELECT id, name FROM menu_items').all();
   const existingByName = new Map(existing.map((item) => [item.name, item.id]));
-  const update = db.prepare('UPDATE menu_items SET description = ?, price = ?, category = ?, image = ?, popular = ?, active = 1 WHERE id = ?');
+  const update = db.prepare('UPDATE menu_items SET description = ?, price = ?, category = ?, image = ?, popular = ? WHERE id = ?');
   const insert = db.prepare('INSERT INTO menu_items (name, description, price, category, image, popular, active) VALUES (?, ?, ?, ?, ?, ?, 1)');
   const activeNames = new Set(menuCatalog.map((item) => item.name));
   const deactivate = db.prepare('UPDATE menu_items SET active = 0 WHERE name = ?');

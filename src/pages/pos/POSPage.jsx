@@ -626,7 +626,7 @@ export default function POSPage() {
               </button>
 
               <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-[#fbf6ee] px-3 py-1 text-xs font-bold text-[#746e67]">
-                {filteredItems.length} items
+                {menuItems.length} items
               </span>
             </div>
           </div>

@@ -38,9 +38,10 @@ export default function ChatInbox({ onClose }) {
   const renderMessageContent = (message) => (
     <>
       <span>{message.type === 'cart' && <ShoppingBag size={13} />} {message.type === 'location' && <MapPin size={13} />} {message.type === 'image' && <Image size={13} />} {message.text}</span>
+      {message.type === 'location' && message.metadata?.latitude && <a href={`https://www.google.com/maps?q=${message.metadata.latitude},${message.metadata.longitude}`} target="_blank" rel="noreferrer" className="kds-chat-location-link">{message.metadata.address || 'Open delivery location in Maps'}</a>}
       {message.type === 'image' && message.attachmentUrl && <img className="kds-chat-attachment-image" src={message.attachmentUrl} alt="Customer attachment" />}
       {message.type === 'audio' && message.attachmentUrl && <audio controls src={message.attachmentUrl} />}
-      {message.type === 'cart' && message.metadata?.items?.length > 0 && <small className="kds-chat-cart-items">{message.metadata.items.map((item) => `${item.qty}x ${item.name}`).join(' · ')}</small>}
+      {message.type === 'cart' && message.metadata?.items?.length > 0 && <small className="kds-chat-cart-items">{message.metadata.items.map((item) => `${item.qty}x ${item.name}`).join(' · ')}{message.metadata.deliveryAddress ? ` · Delivery: ${message.metadata.deliveryAddress}` : ''}</small>}
       <small>{message.from === 'staff' && <CheckCheck size={12} />}{formatTime(message.createdAt)}</small>
     </>
   );

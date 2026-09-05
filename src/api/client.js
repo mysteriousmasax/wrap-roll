@@ -101,6 +101,10 @@ export const api = {
   sendPublicChatMessage: (conversationId, message, customerName, customerPhone, customerEmail, messageType = 'text', attachmentUrl = null, metadata = {}) => request(`/chat/public/${encodeURIComponent(conversationId)}/messages`, { method: 'POST', body: JSON.stringify({ message, customerName, customerPhone, customerEmail, messageType, attachmentUrl, metadata }) }),
   getChatConversations: () => request('/chat'),
   sendChatReply: (conversationId, message) => request(`/chat/${encodeURIComponent(conversationId)}/messages`, { method: 'POST', body: JSON.stringify({ message }) }),
+  getChatFaqs: () => request('/chat/faq'),
+  createChatFaq: (data) => request('/chat/faq', { method: 'POST', body: JSON.stringify(data) }),
+  updateChatFaq: (id, data) => request(`/chat/faq/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteChatFaq: (id) => request(`/chat/faq/${id}`, { method: 'DELETE' }),
   getAnalyticsReports: () => request('/analytics/reports'),
   getReports: () => request('/analytics/reports'),
 };

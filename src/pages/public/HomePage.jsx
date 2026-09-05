@@ -769,7 +769,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <CustomerChat t={t} cartItems={cartItems} deliveryAddress={deliveryAddress} />
+      <CustomerChat t={t} cartItems={cartItems} deliveryAddress={deliveryAddress} onOpenCart={() => setCartOpen(true)} />
 
       {/* Cart Drawer Modal */}
       {cartOpen && (

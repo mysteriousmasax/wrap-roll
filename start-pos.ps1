@@ -9,6 +9,15 @@ $Node = Join-Path $Root '.node\node-v20.18.0-win-x64\node.exe'
 $Server = Join-Path $Root 'server\index.js'
 $DistIndex = Join-Path $Root 'dist\index.html'
 $SecretPath = Join-Path $Root 'server\db\pos-jwt-secret.txt'
+$DataRoot = Join-Path $env:LOCALAPPDATA 'WrapRollPOS'
+$DatabasePath = Join-Path $DataRoot 'wraproll.db'
+$LegacyDatabasePath = Join-Path $Root 'server\db\wraproll.db'
+
+New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
+if (-not (Test-Path -LiteralPath $DatabasePath) -and (Test-Path -LiteralPath $LegacyDatabasePath)) {
+  Copy-Item -LiteralPath $LegacyDatabasePath -Destination $DatabasePath
+}
+$env:DB_PATH = $DatabasePath
 
 if (-not (Test-Path -LiteralPath $Node)) { throw "Bundled Node runtime not found: $Node" }
 if (-not (Test-Path -LiteralPath $DistIndex)) {

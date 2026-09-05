@@ -1391,6 +1391,18 @@ button, input, select, textarea { max-width: 100%; }
 .customer-chat-actions button, .customer-chat-actions label { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid #e6d8c5; border-radius: 50%; background: #fffaf0; color: #ae002a; cursor: pointer; }
 .customer-chat-actions label { position: relative; }
 .customer-chat-actions input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+.customer-chat-message-content { display: grid; gap: 6px; }
+.customer-chat-image { display: block; width: 100%; max-height: 180px; object-fit: cover; border-radius: 10px; }
+.customer-chat-location-link, .kds-chat-location-link { color: inherit; font-size: 10px; font-weight: 800; text-decoration: underline; }
+.customer-chat-cart-card { display: grid; gap: 4px; padding: 8px; border: 1px solid rgba(174,0,42,.16); border-radius: 9px; background: rgba(255,255,255,.6); }
+.customer-chat-cart-card span, .customer-chat-cart-card small { font-size: 10px; }
+.customer-chat-cart-card button { justify-self: start; margin-top: 4px; padding: 5px 8px; border: 0; border-radius: 7px; background: #ae002a; color: #fff; font-size: 10px; font-weight: 800; cursor: pointer; }
+.customer-chat-image-preview { display: flex; align-items: center; gap: 8px; margin: 8px 14px 0; padding: 7px; border: 1px solid #e6d8c5; border-radius: 9px; background: #fffaf0; }
+.customer-chat-image-preview img { width: 42px; height: 42px; object-fit: cover; border-radius: 6px; }
+.customer-chat-image-preview div { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.customer-chat-image-preview strong, .customer-chat-image-preview span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.customer-chat-image-preview span { color: #746e67; }
+.customer-chat-image-preview button { display: grid; place-items: center; border: 0; background: transparent; color: #ae002a; cursor: pointer; }
 .global-support-fab { position: fixed; right: 22px; bottom: 24px; z-index: 40; padding: 12px 17px; border: 0; border-radius: 999px; background: #ae002a; color: #fff; box-shadow: 0 10px 24px rgba(96,0,24,.28); font-size: 12px; font-weight: 800; cursor: pointer; }
 .global-support-drawer { position: fixed; top: 82px; right: 22px; bottom: 24px; left: max(300px, calc(100vw - 842px)); z-index: 39; overflow: hidden; border-radius: 18px; box-shadow: 0 18px 48px rgba(36,33,30,.22); }
 .global-support-drawer .kds-chat-inbox { height: 100%; max-height: none; margin: 0; grid-template-columns: 1fr; align-content: start; overflow-y: auto; }

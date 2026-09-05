@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { mkdirSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { syncMenuCatalog } from './menu-catalog.js';
@@ -6,6 +7,7 @@ import { syncMenuCatalog } from './menu-catalog.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'wraproll.db');
 
+mkdirSync(path.dirname(DB_PATH), { recursive: true });
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
@@ -269,6 +271,16 @@ export async function initDatabase() {
       FOREIGN KEY (staff_id) REFERENCES users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS chat_faqs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      question TEXT NOT NULL,
+      keywords TEXT NOT NULL DEFAULT '',
+      answer TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS sales_monthly (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       month TEXT NOT NULL,
@@ -324,6 +336,19 @@ export async function initDatabase() {
   }
 
   syncMenuCatalog(db);
+
+  const faqCount = db.prepare('SELECT COUNT(*) AS count FROM chat_faqs').get().count;
+  if (faqCount === 0) {
+    const now = new Date().toISOString();
+    const insertFaq = db.prepare('INSERT INTO chat_faqs (question, keywords, answer, created_at, updated_at) VALUES (?, ?, ?, ?, ?)');
+    [
+      ['What is on the menu?', 'menu,food,dishes,items,what do you sell', 'You can browse our current menu on this website. We serve wraps, salads, rolls, pizzas, burgers, combos, hot drinks, cold drinks, soft drinks, and extras.', now, now],
+      ['Where are you located?', 'location,address,where are you,find you,directions', 'We are at Wikicha Tower on Mwai Kibaki Road, Dar es Salaam. Open the location link on our website for directions.', now, now],
+      ['What are your opening hours?', 'hours,open,opening time,close,closing', 'We are open daily from 7:00 AM to 11:00 PM.', now, now],
+      ['Do you deliver?', 'delivery,deliver,delivery area,bring my order', 'Yes, we accept delivery orders. Add your delivery address at checkout or share your location in this chat so the team can confirm delivery.', now, now],
+      ['How can I place an order?', 'order,place an order,buy,purchase,checkout', 'Add dishes to your cart, open the cart, enter your details and delivery address, then submit the order. You can also send your cart here for assistance.', now, now],
+    ].forEach((faq) => insertFaq.run(...faq));
+  }
 
   const { migratePlaintextPins, migrateUserCredentials } = await import('../utils/pins.js');
   await migratePlaintextPins(db);
