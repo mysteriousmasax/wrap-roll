@@ -13,6 +13,7 @@ import {
   VolumeX,
   Filter,
   Check,
+  MessageCircle,
 } from 'lucide-react';
 import ChatInbox from '../../components/kds/ChatInbox';
 
@@ -340,7 +341,7 @@ export default function KDSPage() {
           <Flame size={15} /> Production tickets <span>{active.length}</span>
         </button>
         <button className={activePanel === 'support' ? 'is-active' : ''} onClick={() => setActivePanel('support')} role="tab" aria-selected={activePanel === 'support'}>
-          <ChatInboxIcon /> Customer support <span>Live</span>
+          <MessageCircle size={15} /> Customer support <span>Live</span>
         </button>
       </div>
 
