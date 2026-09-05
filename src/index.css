@@ -1292,6 +1292,42 @@ button, input, select, textarea { max-width: 100%; }
   }
 }
 
+@media (min-width: 801px) and (max-width: 1100px) {
+  .public-header .mobile-menu-button {
+    display: none;
+  }
+
+  .public-header .public-nav {
+    display: flex;
+    position: static;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    flex-direction: row;
+    align-items: center;
+    gap: clamp(10px, 1.5vw, 18px);
+  }
+
+  .public-header .public-nav > button,
+  .public-header .public-nav > a {
+    width: auto;
+    min-height: 0;
+    padding: 8px 0;
+    white-space: nowrap;
+    text-align: center;
+  }
+
+  .public-header .public-nav > button.header-utility,
+  .public-header .public-nav .header-menu-wrap {
+    display: none !important;
+  }
+
+  .public-header .public-nav > a.header-utility {
+    display: inline-flex !important;
+    padding-inline: 10px;
+  }
+}
+
 @media (max-width: 560px) {
   .public-header {
     height: 68px;
