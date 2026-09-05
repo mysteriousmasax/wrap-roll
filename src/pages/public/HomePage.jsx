@@ -506,8 +506,8 @@ export default function HomePage() {
 
       {/* Story Section */}
       <section className="story-section py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="story">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
-          <div className="relative overflow-hidden rounded-3xl shadow-xl border-4 border-white aspect-video lg:aspect-square">
+        <div className="story-feature">
+          <div className="story-feature-image relative overflow-hidden rounded-3xl shadow-xl border-4 border-white">
             <img
               src="/craft-story.jpg"
               alt="Handcrafted wraps"
@@ -515,29 +515,24 @@ export default function HomePage() {
             />
           </div>
 
-          <div className="story-copy space-y-4">
-            <p className="text-xs font-bold uppercase tracking-wider text-[#ae002a]">Our Craft</p>
-            <h2 className="text-3xl sm:text-4xl font-bold font-display text-[#1f1d1b]">
-              <RotatingText
-                texts={[
-                  'Fresh wraps crafted with passion.',
-                  'Real ingredients, zero shortcuts.',
-                  'Your daily delicious fuel.',
-                ]}
-                splitBy="words"
-                staggerFrom="last"
-                staggerDuration={0.025}
-                rotationInterval={2400}
-              />
-            </h2>
-            <p className="text-sm sm:text-base text-[#6f6861] leading-relaxed">
-              At Wrap &amp; Roll, we believe fast food should never mean compromising on quality. Every single wrap, roll, and salad is freshly prepared with locally sourced meats, crisp organic vegetables, and our house-made sauces.
-            </p>
+          <div className="story-promo">
+            <strong>wrap &amp; roll</strong>
+            <h3>Delivery &amp; Catering</h3>
+            <p>Freshness brought to your doorstep.<br />Perfect for meetings, events, or a cozy night in!</p>
             <button
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#faeee2] text-[#ae002a] font-bold text-xs hover:bg-[#f6e0cd] transition-colors border border-[#ebdccb]"
+              className="story-menu-button"
               onClick={() => scrollTo('menu')}
             >
-              Order Online Today <ArrowRight size={15} />
+              Order Now
+            </button>
+          </div>
+
+          <div className="story-copy space-y-4">
+            <p>{t('careEyebrow')}</p>
+            <h2>{t('careTitle')}</h2>
+            <p>{t('careBody')}</p>
+            <button className="story-menu-button inline-flex items-center gap-2 text-white" onClick={() => scrollTo('menu')}>
+              {t('checkMenu')} <ArrowRight size={15} />
             </button>
           </div>
         </div>
