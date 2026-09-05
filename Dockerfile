@@ -25,9 +25,6 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV DB_PATH=/data/wraproll.db
 
-# Keep the SQLite database outside the application image so deployments can reuse it.
-VOLUME ["/data"]
-
 EXPOSE 3000
 
 CMD ["node", "server/index.js"]
