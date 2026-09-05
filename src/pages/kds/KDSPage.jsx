@@ -194,6 +194,7 @@ export default function KDSPage() {
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
   const [activeStation, setActiveStation] = useState('all');
+  const [activePanel, setActivePanel] = useState('tickets');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const prevCountRef = useRef(0);
 
@@ -334,7 +335,17 @@ export default function KDSPage() {
         </div>
       </div>
 
-      <div className="kds-workspace">
+      <div className="kds-view-switcher" role="tablist" aria-label="Kitchen workspace">
+        <button className={activePanel === 'tickets' ? 'is-active' : ''} onClick={() => setActivePanel('tickets')} role="tab" aria-selected={activePanel === 'tickets'}>
+          <Flame size={15} /> Production tickets <span>{active.length}</span>
+        </button>
+        <button className={activePanel === 'support' ? 'is-active' : ''} onClick={() => setActivePanel('support')} role="tab" aria-selected={activePanel === 'support'}>
+          <ChatInboxIcon /> Customer support <span>Live</span>
+        </button>
+      </div>
+
+      <div className={`kds-workspace ${activePanel === 'support' ? 'is-support' : 'is-tickets'}`}>
+        {activePanel === 'tickets' ? <div className="kds-ticket-board">
         <div className="kds-ticket-board">
         {/* Lane 1: New Orders */}
         <div className="kds-lane kds-lane-new space-y-3 overflow-y-auto rounded-3xl p-3 bg-white/70 border border-[#ebdccb] md:col-span-5 shadow-sm">
@@ -392,11 +403,9 @@ export default function KDSPage() {
             <p className="text-center py-10 text-xs text-[#746e67]">No orders waiting for pickup.</p>
           )}
         </div>
-        </div>
-
-        <aside className="kds-support-column">
+        </div> : <aside className="kds-support-column">
           <ChatInbox />
-        </aside>
+        </aside>}
       </div>
     </div>
   );
