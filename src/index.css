@@ -1436,3 +1436,22 @@ button, input, select, textarea { max-width: 100%; }
   .kds-support-column { overflow: visible; }
   .kds-support-column .kds-chat-inbox { height: auto; max-height: none; }
 }
+
+.kds-view-switcher { display: flex; gap: 6px; margin: 12px 12px 0; padding: 5px; border: 1px solid #eadfd2; border-radius: 14px; background: #fffaf4; }
+.kds-view-switcher button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; flex: 1; padding: 8px 12px; border: 0; border-radius: 10px; background: transparent; color: #746e67; font-size: 12px; font-weight: 800; cursor: pointer; transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
+.kds-view-switcher button span { padding: 2px 7px; border-radius: 999px; background: #f3e9df; color: #8c7669; font-size: 10px; }
+.kds-view-switcher button.is-active { background: #ae002a; color: #fff; box-shadow: 0 4px 12px rgba(174,0,42,.18); }
+.kds-view-switcher button.is-active span { background: rgba(255,255,255,.18); color: #fff; }
+.kds-workspace { display: block; padding: 12px; overflow: hidden; }
+.kds-workspace.is-tickets .kds-ticket-board { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 3fr); height: 100%; overflow: hidden; }
+.kds-workspace.is-support .kds-support-column { height: 100%; overflow: hidden; }
+.kds-workspace.is-support .kds-support-column .kds-chat-inbox { height: 100%; max-height: none; margin: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
+.kds-workspace.is-support .kds-support-column .kds-chat-inbox-heading { grid-column: 1 / -1; }
+
+@media (max-width: 767px) {
+  .kds-view-switcher { margin-inline: 12px; }
+  .kds-view-switcher button { font-size: 11px; }
+  .kds-workspace.is-tickets .kds-ticket-board { display: flex; height: auto; overflow: visible; }
+  .kds-workspace.is-support .kds-support-column .kds-chat-inbox { height: auto; grid-template-columns: 1fr; }
+  .kds-workspace.is-support .kds-support-column .kds-chat-inbox-heading { grid-column: auto; }
+}
