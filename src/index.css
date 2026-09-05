@@ -1448,6 +1448,11 @@ button, input, select, textarea { max-width: 100%; }
 .kds-workspace.is-support .kds-support-column .kds-chat-inbox { height: 100%; max-height: none; margin: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
 .kds-workspace.is-support .kds-support-column .kds-chat-inbox-heading { grid-column: 1 / -1; }
 
+@media (min-width: 768px) {
+  .kds-workspace.is-tickets .kds-ticket-board { grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 3fr) !important; overflow: hidden; }
+  .kds-workspace.is-tickets .kds-lane { max-height: none; }
+}
+
 @media (max-width: 767px) {
   .kds-view-switcher { margin-inline: 12px; }
   .kds-view-switcher button { font-size: 11px; }
