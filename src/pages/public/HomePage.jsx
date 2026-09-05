@@ -161,12 +161,17 @@ export default function HomePage() {
 
     const splitter = splitText(heading, { words: false, chars: true });
     const animation = animate(splitter.chars, {
-      opacity: [0, 1],
-      y: ['1.5rem', 0],
-      rotate: { from: '-0.18turn', to: 0 },
-      delay: stagger(45),
-      ease: 'out(4)',
-      duration: 850,
+      y: [
+        { to: '-0.35rem', ease: 'outExpo', duration: 500 },
+        { to: 0, ease: 'outBounce', duration: 700, delay: 100 },
+      ],
+      rotate: [
+        { to: '-0.04turn', ease: 'outSine', duration: 350 },
+        { to: 0, ease: 'inOutSine', duration: 450 },
+      ],
+      delay: stagger(55),
+      loopDelay: 1200,
+      loop: true,
     });
 
     return () => {
