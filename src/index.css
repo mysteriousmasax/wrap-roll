@@ -1327,6 +1327,7 @@ button, input, select, textarea { max-width: 100%; }
 }
 
 .menu-viewport { overflow: hidden; }
+.hero-heading-animation [data-char] { display: inline-block; transform-origin: 50% 100%; }
 .menu-heading-animation [data-char] { display: inline-block; transform-origin: 50% 100%; }
 .menu-page { animation: menu-page-in .42s cubic-bezier(.2,.75,.25,1) both; }
 .menu-carousel-controls { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 24px; color: #746e67; font-size: 12px; font-weight: 700; }

@@ -94,6 +94,7 @@ export default function HomePage() {
   const [mealQuantity, setMealQuantity] = useState(1);
   const [mealInstructions, setMealInstructions] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
+  const heroHeadingRef = useRef(null);
   const menuHeadingRef = useRef(null);
 
   const lipaNambaNumber = useSettingsStore((state) => state.settings.lipa_namba_number || '123456');
@@ -146,6 +147,26 @@ export default function HomePage() {
       ease: 'inOutCirc',
       loopDelay: 1000,
       loop: true,
+    });
+
+    return () => {
+      animation.revert();
+      splitter.revert();
+    };
+  }, []);
+
+  useEffect(() => {
+    const heading = heroHeadingRef.current;
+    if (!heading || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
+
+    const splitter = splitText(heading, { words: false, chars: true });
+    const animation = animate(splitter.chars, {
+      opacity: [0, 1],
+      y: ['1.5rem', 0],
+      rotate: { from: '-0.18turn', to: 0 },
+      delay: stagger(45),
+      ease: 'out(4)',
+      duration: 850,
     });
 
     return () => {
@@ -468,7 +489,7 @@ export default function HomePage() {
         {/* Hero Content */}
         <div className="relative z-10 max-w-7xl mx-auto px-6 sm:px-12 py-20 sm:py-28 w-full">
           <div className="max-w-2xl space-y-6">
-            <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold font-display text-white leading-[1.06] tracking-tight drop-shadow-[0_4px_14px_rgba(0,0,0,0.85)]">
+            <h1 ref={heroHeadingRef} className="hero-heading-animation text-4xl sm:text-6xl lg:text-7xl font-bold font-display text-white leading-[1.06] tracking-tight drop-shadow-[0_4px_14px_rgba(0,0,0,0.85)]">
               Craving Authentic <span className="text-[#ffc72c]">Wraps &amp; Rolls?</span>
             </h1>
             <p className="text-base sm:text-lg text-white leading-relaxed max-w-xl font-medium drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]">
