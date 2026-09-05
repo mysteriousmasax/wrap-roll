@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageCircle, Send, X } from 'lucide-react';
+import { Image, MapPin, MessageCircle, Mic, Send, ShoppingBag, Square, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 
-export default function CustomerChat({ t }) {
+export default function CustomerChat({ t, cartItems = [], deliveryAddress = '' }) {
   const [open, setOpen] = useState(false);
   const [profile, setProfile] = useState(() => ({
     name: localStorage.getItem('wraproll_customer_name') || '',
@@ -23,6 +23,9 @@ export default function CustomerChat({ t }) {
   });
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
+  const [recording, setRecording] = useState(false);
+  const recorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
   const quickReplies = [
     ['chatMenu', 'chatMenuReply'],
     ['chatHours', 'chatHoursReply'],
@@ -49,21 +52,75 @@ export default function CustomerChat({ t }) {
     return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
   }, [open]);
 
-  const sendMessage = async (text = draft) => {
-    if (!text.trim()) return;
+  const sendMessage = async (text = draft, options = {}) => {
+    if (!text.trim() && !options.attachmentUrl) return;
     try {
       const message = await api.sendPublicChatMessage(
         conversationId,
         text,
         localStorage.getItem('wraproll_customer_name') || '',
         localStorage.getItem('wraproll_customer_phone') || '',
-        localStorage.getItem('wraproll_customer_email') || ''
+        localStorage.getItem('wraproll_customer_email') || '',
+        options.messageType || 'text',
+        options.attachmentUrl || null,
+        options.metadata || {}
       );
       setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message]);
     } catch {
       setMessages((current) => [...current, { from: 'agent', text: 'We could not send your message. Please try again.' }]);
     }
     setDraft('');
+  };
+
+  const sendCart = () => {
+    if (!cartItems.length) return sendMessage('I have not selected items yet. Please help me choose.', { messageType: 'cart' });
+    const summary = cartItems.map((item) => `${item.qty}x ${item.name}`).join(', ');
+    sendMessage(`Order request: ${summary}${deliveryAddress ? `. Delivery location: ${deliveryAddress}` : ''}`, { messageType: 'cart', metadata: { items: cartItems, deliveryAddress } });
+  };
+
+  const sendLocation = () => {
+    if (!navigator.geolocation) return sendMessage('My delivery location is not available. I will type it here.');
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => sendMessage(`Please deliver to my current location: ${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}`, { messageType: 'location', metadata: { latitude: coords.latitude, longitude: coords.longitude } }),
+      () => sendMessage('I could not share my location. I will type the delivery address here.')
+    );
+  };
+
+  const sendImage = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => sendMessage(`Attached image: ${file.name}`, { messageType: 'image', attachmentUrl: reader.result });
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  };
+
+  const toggleRecording = async () => {
+    if (recording) {
+      recorderRef.current?.stop();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) return sendMessage('Voice notes are not supported on this device.');
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      setMessages((current) => [...current, { from: 'agent', text: 'Microphone access was not granted. You can type your request instead.' }]);
+      return;
+    }
+    const recorder = new MediaRecorder(stream);
+    audioChunksRef.current = [];
+    recorder.ondataavailable = (event) => audioChunksRef.current.push(event.data);
+    recorder.onstop = () => {
+      const reader = new FileReader();
+      reader.onload = () => sendMessage('Voice message', { messageType: 'audio', attachmentUrl: reader.result });
+      reader.readAsDataURL(new Blob(audioChunksRef.current, { type: recorder.mimeType }));
+      stream.getTracks().forEach((track) => track.stop());
+      setRecording(false);
+    };
+    recorderRef.current = recorder;
+    recorder.start();
+    setRecording(true);
   };
 
   const hasProfile = Boolean(profile.name.trim() && profile.phone.trim() && profile.email.trim());
@@ -107,6 +164,7 @@ export default function CustomerChat({ t }) {
           <div className="customer-chat-profile-summary"><strong>{profile.name}</strong><span>{profile.phone} · {profile.email}</span></div>
           <div className="customer-chat-messages">{messages.map((message, index) => <p key={index} className={message.from === 'customer' ? 'customer-message' : 'agent-message'}>{message.text}</p>)}</div>
           <div className="customer-chat-quick">{quickReplies.map(([labelKey]) => <button key={labelKey} onClick={() => sendMessage(t(labelKey))}>{t(labelKey)}</button>)}</div>
+          <div className="customer-chat-actions"><button type="button" onClick={sendCart} title="Send cart summary"><ShoppingBag size={15} /></button><button type="button" onClick={sendLocation} title="Share location"><MapPin size={15} /></button><label title="Attach image"><Image size={15} /><input type="file" accept="image/*" onChange={sendImage} /></label><button type="button" onClick={toggleRecording} title={recording ? 'Stop recording' : 'Record voice'}>{recording ? <Square size={14} /> : <Mic size={15} />}</button></div>
           <form onSubmit={(event) => { event.preventDefault(); sendMessage(); }}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Type your question or order..." /><button type="submit" aria-label={t('send')}><Send size={16} /></button></form>
         </>}
       </aside>}

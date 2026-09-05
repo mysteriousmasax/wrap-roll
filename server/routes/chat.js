@@ -8,7 +8,9 @@ const router = Router();
 const staffRoles = ['admin', 'manager', 'foh', 'kitchen'];
 
 function mapMessage(row) {
-  return { id: row.id, from: row.sender_type, text: row.message, staffName: row.staff_name || null, createdAt: row.created_at };
+  let metadata = {};
+  try { metadata = JSON.parse(row.metadata || '{}'); } catch {}
+  return { id: row.id, from: row.sender_type, text: row.message, type: row.message_type || 'text', attachmentUrl: row.attachment_url || null, metadata, staffName: row.staff_name || null, createdAt: row.created_at };
 }
 
 function getMessages(conversationId) {
@@ -35,10 +37,13 @@ router.get('/public/:conversationId', (req, res) => {
 
 router.post('/public/:conversationId/messages', (req, res) => {
   const message = String(req.body.message || '').trim();
-  if (!message || message.length > 1000) return res.status(400).json({ error: 'Message must be between 1 and 1000 characters' });
+  const messageType = String(req.body.messageType || 'text');
+  const attachmentUrl = req.body.attachmentUrl || null;
+  const metadata = req.body.metadata || {};
+  if ((!message && !attachmentUrl) || message.length > 4000) return res.status(400).json({ error: 'Message is required and must be 4000 characters or fewer' });
   const conversationId = ensureConversation(req.params.conversationId, req.body.customerName, req.body.customerPhone, req.body.customerEmail);
   const now = new Date().toISOString();
-  const result = db.prepare('INSERT INTO chat_messages (conversation_id, sender_type, message, created_at) VALUES (?, \'customer\', ?, ?)').run(conversationId, message, now);
+  const result = db.prepare('INSERT INTO chat_messages (conversation_id, sender_type, message, message_type, attachment_url, metadata, created_at) VALUES (?, \'customer\', ?, ?, ?, ?, ?)').run(conversationId, message, messageType, attachmentUrl, JSON.stringify(metadata), now);
   db.prepare('UPDATE chat_conversations SET updated_at = ?, status = \'open\' WHERE id = ?').run(now, conversationId);
   const created = mapMessage(db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(result.lastInsertRowid));
   broadcast('chat:message', { conversationId, message: created });
@@ -54,7 +59,7 @@ router.get('/', authMiddleware, requireRole(...staffRoles), (_req, res) => {
 
 router.post('/:conversationId/messages', authMiddleware, requireRole(...staffRoles), (req, res) => {
   const message = String(req.body.message || '').trim();
-  if (!message || message.length > 1000) return res.status(400).json({ error: 'Message must be between 1 and 1000 characters' });
+  if (!message || message.length > 4000) return res.status(400).json({ error: 'Message must be between 1 and 4000 characters' });
   const conversationId = ensureConversation(req.params.conversationId);
   const now = new Date().toISOString();
   const result = db.prepare('INSERT INTO chat_messages (conversation_id, sender_type, staff_id, message, created_at) VALUES (?, \'staff\', ?, ?, ?)').run(conversationId, req.user.id, message, now);

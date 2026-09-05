@@ -769,7 +769,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <CustomerChat t={t} />
+      <CustomerChat t={t} cartItems={cartItems} deliveryAddress={deliveryAddress} />
 
       {/* Cart Drawer Modal */}
       {cartOpen && (

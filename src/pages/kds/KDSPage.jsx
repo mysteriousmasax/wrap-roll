@@ -13,9 +13,7 @@ import {
   VolumeX,
   Filter,
   Check,
-  MessageCircle,
 } from 'lucide-react';
-import ChatInbox from '../../components/kds/ChatInbox';
 
 function playOrderChime() {
   try {
@@ -195,7 +193,6 @@ export default function KDSPage() {
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
   const [activeStation, setActiveStation] = useState('all');
-  const [supportOpen, setSupportOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const prevCountRef = useRef(0);
 
@@ -396,8 +393,6 @@ export default function KDSPage() {
         </div>
         </div>
       </div>
-      {!supportOpen && <button className="kds-support-fab" onClick={() => setSupportOpen(true)} aria-label="Open customer support"><MessageCircle size={19} /><span>Customer chats</span></button>}
-      {supportOpen && <aside className="kds-support-drawer"><ChatInbox onClose={() => setSupportOpen(false)} /></aside>}
     </div>
   );
 }

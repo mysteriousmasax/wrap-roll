@@ -366,6 +366,10 @@ function migrateSchema(db) {
   const chatConversationCols = db.prepare('PRAGMA table_info(chat_conversations)').all();
   if (!chatConversationCols.some((col) => col.name === 'customer_phone')) db.exec('ALTER TABLE chat_conversations ADD COLUMN customer_phone TEXT');
   if (!chatConversationCols.some((col) => col.name === 'customer_email')) db.exec('ALTER TABLE chat_conversations ADD COLUMN customer_email TEXT');
+  const chatMessageCols = db.prepare('PRAGMA table_info(chat_messages)').all();
+  if (!chatMessageCols.some((col) => col.name === 'message_type')) db.exec("ALTER TABLE chat_messages ADD COLUMN message_type TEXT DEFAULT 'text'");
+  if (!chatMessageCols.some((col) => col.name === 'attachment_url')) db.exec('ALTER TABLE chat_messages ADD COLUMN attachment_url TEXT');
+  if (!chatMessageCols.some((col) => col.name === 'metadata')) db.exec("ALTER TABLE chat_messages ADD COLUMN metadata TEXT DEFAULT '{}'");
   const inventoryCols = db.prepare('PRAGMA table_info(inventory)').all();
   if (!inventoryCols.some((col) => col.name === 'image_url')) db.exec('ALTER TABLE inventory ADD COLUMN image_url TEXT');
   if (!inventoryCols.some((col) => col.name === 'category')) db.exec("ALTER TABLE inventory ADD COLUMN category TEXT DEFAULT 'ingredients'");

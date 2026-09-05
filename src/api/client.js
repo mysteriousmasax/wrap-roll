@@ -98,7 +98,7 @@ export const api = {
   getAnalyticsSummary: () => request('/analytics/summary'),
   getCategorySales: () => request('/analytics/categories'),
   getPublicChat: (conversationId) => request(`/chat/public/${encodeURIComponent(conversationId)}`),
-  sendPublicChatMessage: (conversationId, message, customerName, customerPhone, customerEmail) => request(`/chat/public/${encodeURIComponent(conversationId)}/messages`, { method: 'POST', body: JSON.stringify({ message, customerName, customerPhone, customerEmail }) }),
+  sendPublicChatMessage: (conversationId, message, customerName, customerPhone, customerEmail, messageType = 'text', attachmentUrl = null, metadata = {}) => request(`/chat/public/${encodeURIComponent(conversationId)}/messages`, { method: 'POST', body: JSON.stringify({ message, customerName, customerPhone, customerEmail, messageType, attachmentUrl, metadata }) }),
   getChatConversations: () => request('/chat'),
   sendChatReply: (conversationId, message) => request(`/chat/${encodeURIComponent(conversationId)}/messages`, { method: 'POST', body: JSON.stringify({ message }) }),
   getAnalyticsReports: () => request('/analytics/reports'),

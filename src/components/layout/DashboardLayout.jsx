@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
 import { animate } from 'animejs';
@@ -7,6 +7,7 @@ import TopBar from './TopBar';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import useOrderStore from '../../store/useOrderStore';
 import useNotificationStore from '../../store/useNotificationStore';
+import ChatInbox from '../kds/ChatInbox';
 
 const pageTitles = {
   '/pos': 'POS Till',
@@ -32,10 +33,21 @@ const pageTitles = {
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
+  const supportDrawerRef = useRef(null);
   const location = useLocation();
   const title = pageTitles[location.pathname] || 'Wrap & Roll';
   const upsertOrder = useOrderStore((s) => s.upsertOrder);
   const fetchNotifications = useNotificationStore((s) => s.fetchNotifications);
+
+  useEffect(() => {
+    if (!supportOpen) return undefined;
+    const closeOnOutsideClick = (event) => {
+      if (!supportDrawerRef.current?.contains(event.target)) setSupportOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
+  }, [supportOpen]);
 
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
@@ -89,6 +101,8 @@ export default function DashboardLayout() {
           <Outlet />
         </main>
       </div>
+      {!supportOpen && <button className="global-support-fab" onClick={() => setSupportOpen(true)} aria-label="Open customer support">Customer chats</button>}
+      {supportOpen && <aside ref={supportDrawerRef} className="global-support-drawer"><ChatInbox onClose={() => setSupportOpen(false)} /></aside>}
     </div>
   );
 }

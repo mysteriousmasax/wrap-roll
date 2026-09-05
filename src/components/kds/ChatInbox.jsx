@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCheck, Mail, MessageCircle, Phone, Send, UserRound, X } from 'lucide-react';
+import { CheckCheck, Image, Mail, MapPin, MessageCircle, Phone, Send, ShoppingBag, UserRound, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 
@@ -35,6 +35,16 @@ export default function ChatInbox({ onClose }) {
   const selectedMessages = selectedConversation?.messages || [];
   const selectedDraft = selectedConversation ? drafts[selectedConversation.id] || '' : '';
 
+  const renderMessageContent = (message) => (
+    <>
+      <span>{message.type === 'cart' && <ShoppingBag size={13} />} {message.type === 'location' && <MapPin size={13} />} {message.type === 'image' && <Image size={13} />} {message.text}</span>
+      {message.type === 'image' && message.attachmentUrl && <img className="kds-chat-attachment-image" src={message.attachmentUrl} alt="Customer attachment" />}
+      {message.type === 'audio' && message.attachmentUrl && <audio controls src={message.attachmentUrl} />}
+      {message.type === 'cart' && message.metadata?.items?.length > 0 && <small className="kds-chat-cart-items">{message.metadata.items.map((item) => `${item.qty}x ${item.name}`).join(' · ')}</small>}
+      <small>{message.from === 'staff' && <CheckCheck size={12} />}{formatTime(message.createdAt)}</small>
+    </>
+  );
+
   return (
     <section className="kds-chat-inbox">
       <div className="kds-chat-inbox-heading"><div className="flex items-center gap-3"><div className="kds-chat-inbox-icon"><MessageCircle size={17} /></div><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Customer support</p><h2 className="font-display text-base font-bold">Live customer messages</h2></div></div><div className="flex items-center gap-3"><span className="kds-chat-online"><span /> Online</span>{onClose && <button className="kds-chat-close" onClick={onClose} aria-label="Close customer support"><X size={17} /></button>}</div></div>
@@ -55,7 +65,7 @@ export default function ChatInbox({ onClose }) {
             <div className="kds-chat-active-header"><span className="kds-chat-avatar"><UserRound size={15} /></span><div><strong>{selectedConversation.customer_name || 'Website customer'}</strong><small>Website chat · Online</small></div><div className="kds-chat-contact"><span><Phone size={12} /> {selectedConversation.customer_phone || 'Phone not provided'}</span><span><Mail size={12} /> {selectedConversation.customer_email || 'Email not provided'}</span></div></div>
             <div className="kds-chat-active-thread">
               {selectedMessages.length === 0 && <p className="kds-chat-empty">No messages yet. Reply to start the conversation.</p>}
-              {selectedMessages.map((message) => <div className={`kds-chat-bubble-row ${message.from === 'customer' ? 'from-customer' : 'from-staff'}`} key={message.id}><p className={message.from === 'customer' ? 'customer-message' : 'agent-message'}><span>{message.text}</span><small>{message.from === 'staff' && <CheckCheck size={12} />}{formatTime(message.createdAt)}</small></p></div>)}
+              {selectedMessages.map((message) => <div className={`kds-chat-bubble-row ${message.from === 'customer' ? 'from-customer' : 'from-staff'}`} key={message.id}><p className={message.from === 'customer' ? 'customer-message' : 'agent-message'}>{renderMessageContent(message)}</p></div>)}
             </div>
             <form className="kds-chat-active-form" onSubmit={(event) => { event.preventDefault(); reply(selectedConversation.id); }}><input value={selectedDraft} onChange={(event) => setDrafts((current) => ({ ...current, [selectedConversation.id]: event.target.value }))} placeholder="Type a message" /><button type="submit" aria-label="Send reply"><Send size={16} /></button></form>
           </>}
