@@ -6,8 +6,7 @@ import { getOrders } from '../utils/orders.js';
 const router = Router();
 
 router.get('/sales', authMiddleware, (req, res) => {
-  const salesData = db.prepare('SELECT month, revenue, orders_count as orders, profit FROM sales_monthly ORDER BY id').all();
-  res.json(salesData);
+  res.json(getSeriesForRange('month'));
 });
 
 function buildRangeSeries(rows, formatLabel) {
@@ -21,7 +20,7 @@ function buildRangeSeries(rows, formatLabel) {
 
 function getSeriesForRange(range) {
   const groups = new Map();
-  const orders = db.prepare('SELECT created_at, total FROM orders WHERE created_at IS NOT NULL').all();
+  const orders = getLiveOrders();
 
   for (const order of orders) {
     const created = new Date(order.created_at);
@@ -54,20 +53,35 @@ function getSeriesForRange(range) {
   return buildRangeSeries(rows.slice(-12), (label) => new Date(`${label}-01T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', year: '2-digit' }));
 }
 
+function getLiveOrders() {
+  return db.prepare("SELECT created_at, total, order_type, status FROM orders WHERE created_at IS NOT NULL AND status != 'cancelled'").all();
+}
+
+function getCurrentPeriodRevenue(start, end) {
+  return db.prepare("SELECT COALESCE(SUM(total), 0) AS revenue, COUNT(*) AS orders FROM orders WHERE created_at >= ? AND created_at < ? AND status != 'cancelled'").get(start, end);
+}
+
 router.get('/summary', authMiddleware, (req, res) => {
-  const salesData = db.prepare('SELECT * FROM sales_monthly ORDER BY id DESC LIMIT 1').get();
+  const now = new Date();
+  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+  const tomorrowStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)).toISOString();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
+  const todayTotals = getCurrentPeriodRevenue(todayStart, tomorrowStart);
+  const monthTotals = getCurrentPeriodRevenue(monthStart, nextMonthStart);
   const activeOrders = getOrders({ status: 'pending,preparing,ready' });
-  const todayOrders = getOrders({}).filter((o) => o.createdAt.startsWith(new Date().toISOString().slice(0, 10)));
+  const todayOrders = getOrders({}).filter((o) => o.createdAt >= todayStart && o.createdAt < tomorrowStart);
   const summaryRanges = {
     day: getSeriesForRange('day'),
     week: getSeriesForRange('week'),
     month: getSeriesForRange('month'),
   };
 
-  const todayRevenue = todayOrders.reduce((s, o) => s + o.total, 0);
+  const todayRevenue = Number(todayTotals.revenue || 0);
   const avgOrder = todayOrders.length ? todayRevenue / todayOrders.length : 0;
-  const channelMix = activeOrders.reduce((mix, order) => {
-    mix[order.type] = (mix[order.type] || 0) + 1;
+  const allOrders = getLiveOrders();
+  const channelMix = allOrders.reduce((mix, order) => {
+    mix[order.order_type] = (mix[order.order_type] || 0) + 1;
     return mix;
   }, {});
   const channelTotal = Object.values(channelMix).reduce((sum, count) => sum + count, 0);
@@ -76,11 +90,11 @@ router.get('/summary', authMiddleware, (req, res) => {
   );
 
   res.json({
-    monthlyRevenue: salesData?.revenue ?? 0,
-    monthlyProfit: salesData?.profit ?? 0,
-    monthlyOrders: salesData?.orders_count ?? 0,
-    todayRevenue,
-    todayOrders: todayOrders.length,
+    monthlyRevenue: Number(monthTotals.revenue || 0),
+    monthlyProfit: Number(monthTotals.revenue || 0) * 0.28,
+    monthlyOrders: Number(monthTotals.orders || 0),
+    todayRevenue: Number(todayTotals.revenue || 0),
+    todayOrders: Number(todayTotals.orders || 0),
     avgOrderValue: avgOrder,
     activeKitchenOrders: activeOrders.length,
     pendingOrders: activeOrders.filter((o) => o.status === 'pending').length,
@@ -96,6 +110,7 @@ router.get('/categories', authMiddleware, (req, res) => {
   const rows = db.prepare(`
     SELECT mi.category, SUM(oi.price * oi.qty) as revenue
     FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id AND o.status != 'cancelled'
     LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
     GROUP BY mi.category
     ORDER BY revenue DESC
@@ -110,9 +125,9 @@ router.get('/categories', authMiddleware, (req, res) => {
 });
 
 router.get('/reports', authMiddleware, (req, res) => {
-  const salesData = db.prepare('SELECT month, revenue, orders_count as orders, profit FROM sales_monthly ORDER BY id').all();
+  const salesData = getSeriesForRange('month');
   const totalRevenue = salesData.reduce((s, r) => s + r.revenue, 0);
-  const totalProfit = salesData.reduce((s, r) => s + r.profit, 0);
+  const totalProfit = totalRevenue * 0.28;
   const daySeries = getSeriesForRange('day');
   const weekSeries = getSeriesForRange('week');
   const monthSeries = getSeriesForRange('month');
