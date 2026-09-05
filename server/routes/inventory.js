@@ -37,9 +37,24 @@ router.post('/', authMiddleware, (req, res) => {
   const { name, quantity, unit, threshold, supplier, imageUrl, category, sku, unitCost, expiryDate, storageLocation } = req.body;
   if (!name || quantity == null) return res.status(400).json({ error: 'Name and quantity required' });
   const today = new Date().toISOString().slice(0, 10);
+  const normalizedName = String(name).trim();
+  const normalizedUnit = String(unit || 'pcs').trim();
+  const existing = db.prepare('SELECT * FROM inventory WHERE lower(trim(name)) = lower(?) AND lower(trim(unit)) = lower(?) ORDER BY id LIMIT 1').get(normalizedName, normalizedUnit);
+  if (existing) {
+    const received = Number(quantity);
+    const nextQuantity = existing.quantity + received;
+    db.prepare('UPDATE inventory SET quantity = ?, threshold = ?, supplier = ?, last_restocked = ?, image_url = ?, category = ?, unit_cost = ?, expiry_date = ?, storage_location = ? WHERE id = ?')
+      .run(nextQuantity, threshold ?? existing.threshold, supplier || existing.supplier, today, imageUrl || existing.image_url, category || existing.category, Number(unitCost) || existing.unit_cost, expiryDate || existing.expiry_date, storageLocation || existing.storage_location, existing.id);
+    const item = mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(existing.id));
+    auditInventoryChange(item.id, 'updated', req.user, {
+      quantity: { from: existing.quantity, to: item.quantity },
+      reason: { from: null, to: 'Stock received (existing item)' },
+    });
+    return res.status(200).json({ ...item, merged: true });
+  }
   const result = db.prepare(
     'INSERT INTO inventory (name, quantity, unit, threshold, supplier, last_restocked, image_url, category, sku, unit_cost, expiry_date, storage_location) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(name, Number(quantity), unit || 'pcs', threshold ?? 10, supplier || '', today, imageUrl || '', category || 'ingredients', sku || `INV-${Date.now().toString().slice(-6)}`, Number(unitCost) || 0, expiryDate || '', storageLocation || 'Main store');
+  ).run(normalizedName, Number(quantity), normalizedUnit, threshold ?? 10, supplier || '', today, imageUrl || '', category || 'ingredients', sku || `INV-${Date.now().toString().slice(-6)}`, Number(unitCost) || 0, expiryDate || '', storageLocation || 'Main store');
   const item = mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(result.lastInsertRowid));
   auditInventoryChange(item.id, 'created', req.user, { item: { from: null, to: item.name }, quantity: { from: null, to: item.quantity }, unit: { from: null, to: item.unit } });
   if (item.quantity <= item.threshold) {

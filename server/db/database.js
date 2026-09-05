@@ -176,6 +176,8 @@ export async function initDatabase() {
       storage_location TEXT
     );
 
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_identity ON inventory(lower(trim(name)), lower(trim(unit)));
+
     CREATE TABLE IF NOT EXISTS inventory_audit (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       inventory_id INTEGER NOT NULL,
