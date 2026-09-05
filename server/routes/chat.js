@@ -17,11 +17,13 @@ function getMessages(conversationId) {
     WHERE conversation_id = ? ORDER BY chat_messages.id`).all(conversationId).map(mapMessage);
 }
 
-function ensureConversation(id, customerName = '') {
+function ensureConversation(id, customerName = '', customerPhone = '', customerEmail = '') {
   const now = new Date().toISOString();
   const existing = db.prepare('SELECT id FROM chat_conversations WHERE id = ?').get(id);
   if (!existing) {
-    db.prepare('INSERT INTO chat_conversations (id, customer_name, created_at, updated_at) VALUES (?, ?, ?, ?)').run(id, customerName || null, now, now);
+    db.prepare('INSERT INTO chat_conversations (id, customer_name, customer_phone, customer_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, customerName || null, customerPhone || null, customerEmail || null, now, now);
+  } else if (customerName || customerPhone || customerEmail) {
+    db.prepare('UPDATE chat_conversations SET customer_name = COALESCE(?, customer_name), customer_phone = COALESCE(?, customer_phone), customer_email = COALESCE(?, customer_email), updated_at = ? WHERE id = ?').run(customerName || null, customerPhone || null, customerEmail || null, now, id);
   }
   return id;
 }
@@ -34,7 +36,7 @@ router.get('/public/:conversationId', (req, res) => {
 router.post('/public/:conversationId/messages', (req, res) => {
   const message = String(req.body.message || '').trim();
   if (!message || message.length > 1000) return res.status(400).json({ error: 'Message must be between 1 and 1000 characters' });
-  const conversationId = ensureConversation(req.params.conversationId, req.body.customerName);
+  const conversationId = ensureConversation(req.params.conversationId, req.body.customerName, req.body.customerPhone, req.body.customerEmail);
   const now = new Date().toISOString();
   const result = db.prepare('INSERT INTO chat_messages (conversation_id, sender_type, message, created_at) VALUES (?, \'customer\', ?, ?)').run(conversationId, message, now);
   db.prepare('UPDATE chat_conversations SET updated_at = ?, status = \'open\' WHERE id = ?').run(now, conversationId);

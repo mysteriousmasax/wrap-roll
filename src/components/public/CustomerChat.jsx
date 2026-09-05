@@ -45,7 +45,13 @@ export default function CustomerChat({ t }) {
   const sendMessage = async (text = draft) => {
     if (!text.trim()) return;
     try {
-      const message = await api.sendPublicChatMessage(conversationId, text);
+      const message = await api.sendPublicChatMessage(
+        conversationId,
+        text,
+        localStorage.getItem('wraproll_customer_name') || '',
+        localStorage.getItem('wraproll_customer_phone') || '',
+        localStorage.getItem('wraproll_customer_email') || ''
+      );
       setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message]);
     } catch {
       setMessages((current) => [...current, { from: 'agent', text: 'We could not send your message. Please try again.' }]);
