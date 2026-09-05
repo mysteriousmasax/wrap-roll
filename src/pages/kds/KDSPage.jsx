@@ -347,7 +347,6 @@ export default function KDSPage() {
 
       <div className={`kds-workspace ${activePanel === 'support' ? 'is-support' : 'is-tickets'}`}>
         {activePanel === 'tickets' ? <div className="kds-ticket-board">
-        <div className="kds-ticket-board">
         {/* Lane 1: New Orders */}
         <div className="kds-lane kds-lane-new space-y-3 overflow-y-auto rounded-3xl p-3 bg-white/70 border border-[#ebdccb] md:col-span-5 shadow-sm">
           <div className="flex items-center justify-between px-1 sticky top-0 bg-white/90 backdrop-blur-sm py-1 z-10">
