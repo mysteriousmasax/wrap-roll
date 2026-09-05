@@ -64,6 +64,10 @@ router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
     avatar ?? existing.avatar,
     req.params.id
   );
+  if (existing.user_id) {
+    db.prepare('UPDATE users SET name = ?, role = ?, avatar = ? WHERE id = ?')
+      .run(name ?? existing.name, role ?? existing.role, avatar ?? existing.avatar, existing.user_id);
+  }
   res.json(mapStaff(db.prepare('SELECT staff.*, users.username, users.email FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.id = ?').get(req.params.id)));
 });
 

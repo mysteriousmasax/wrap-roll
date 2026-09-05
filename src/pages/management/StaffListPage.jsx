@@ -43,14 +43,20 @@ export default function StaffListPage() {
 
   const handleEdit = async () => {
     if (!form.name) return;
-    await api.updateStaff(editStaff.id, form);
-    if (form.password) await api.updateStaffCredentials(editStaff.id, { username: form.username, email: form.email, password: form.password });
-    setEditStaff(null);
-    load();
+    setFormError('');
+    try {
+      await api.updateStaff(editStaff.id, form);
+      await api.updateStaffCredentials(editStaff.id, { username: form.username, email: form.email, password: form.password || undefined });
+      setEditStaff(null);
+      load();
+    } catch (error) {
+      setFormError(error instanceof ApiError ? error.message : 'Unable to save staff changes.');
+    }
   };
 
   const openEdit = (staff) => {
-    setForm({ name: staff.name, role: staff.role, shift: staff.shift, phone: staff.phone, username: staff.name.toLowerCase().replace(/[^a-z0-9]+/g, '.'), email: '', password: '' });
+    setForm({ name: staff.name, role: staff.role, shift: staff.shift, phone: staff.phone || '', username: staff.username || staff.name.toLowerCase().replace(/[^a-z0-9]+/g, '.'), email: staff.email || '', password: '' });
+    setFormError('');
     setEditStaff(staff);
   };
 
@@ -63,8 +69,8 @@ export default function StaffListPage() {
   const StaffForm = ({ onSave, label }) => (
     <div className="space-y-4">
       <Input label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-      {!editStaff && <Input label="Username" placeholder="e.g. grace.kimaro" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/\s/g, '.') })} />}
-      {!editStaff && <Input label="Email" type="email" placeholder="staff@wrapandrolltz.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />}
+      <Input label="Username" placeholder="e.g. grace.kimaro" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/\s/g, '.') })} />
+      <Input label="Email" type="email" placeholder="staff@wrapandrolltz.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
       <div>
         <label className="block text-xs font-semibold text-surface-on-variant uppercase mb-1.5">System Access Role</label>
         <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="input-field">
@@ -97,26 +103,14 @@ export default function StaffListPage() {
       </div>
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex gap-2 overflow-x-auto"><button onClick={() => setStatusFilter('all')} className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold ${statusFilter === 'all' ? 'bg-primary text-white' : 'bg-white text-surface-on'}`}>Everyone</button><button onClick={() => setStatusFilter('on-clock')} className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold ${statusFilter === 'on-clock' ? 'bg-success text-white' : 'bg-white text-surface-on'}`}>On clock</button><button onClick={() => setStatusFilter('off-clock')} className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold ${statusFilter === 'off-clock' ? 'bg-surface-on text-white' : 'bg-white text-surface-on'}`}>Off clock</button><button onClick={() => setStatusFilter('no-show')} className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold ${statusFilter === 'no-show' ? 'bg-error text-white' : 'bg-white text-surface-on'}`}>No show</button></div><div className="relative w-full sm:w-64"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search staff..." className="input-field pl-9" /></div></div>
-      <div className="grid gap-3">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {visibleStaff.map((staff) => (
-          <Card key={staff.id} className="staff-card flex items-center gap-4">
-            <div className={'w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm ' +
+          <Card key={staff.id} className="staff-card flex flex-col gap-3">
+            <div className="flex min-w-0 items-start gap-3"><div className={'flex h-12 w-12 shrink-0 items-center justify-center rounded-full font-bold text-sm ' +
               (staff.status === 'on-clock' ? 'bg-success/10 text-success ring-2 ring-success/30' : 'bg-surface-container text-surface-on-variant')}>
               {staff.avatar}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="font-bold text-sm">{staff.name}</p>
-                <StatusBadge status={staff.status} />
-              </div>
-              <p className="mt-0.5 flex items-center gap-1 text-xs text-surface-on-variant"><BriefcaseBusiness size={11} />{staff.role} &middot; {staff.shift} Shift</p>
-              <p className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-primary"><ShieldCheck size={11} />System access configured</p>
-            </div>
-            <div className="text-right">
-              {staff.clockIn && <p className="text-sm font-semibold flex items-center gap-1"><Clock size={12} /> {staff.clockIn}</p>}
-              <p className="text-xs text-surface-on-variant flex items-center gap-1"><Phone size={10} /> {staff.phone}</p>
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => openEdit(staff)}>Edit</Button>
+            </div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="truncate font-bold text-sm">{staff.name}</p><StatusBadge status={staff.status} /></div><p className="mt-0.5 flex items-center gap-1 text-xs capitalize text-surface-on-variant"><BriefcaseBusiness size={11} />{staff.role} · {staff.shift} Shift</p><p className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-primary"><ShieldCheck size={11} />Access configured</p></div></div>
+            <div className="flex items-center justify-between gap-2 border-t border-outline-variant/60 pt-3"><div className="min-w-0 text-xs text-surface-on-variant">{staff.clockIn && <p className="mb-1 flex items-center gap-1 font-semibold"><Clock size={11} />{staff.clockIn}</p>}<p className="flex items-center gap-1 truncate"><Phone size={10} />{staff.phone || 'No phone'}</p>{staff.email && <p className="mt-1 truncate text-[10px]">{staff.email}</p>}</div><Button variant="ghost" size="sm" onClick={() => openEdit(staff)}>Edit</Button></div>
           </Card>
         ))}
       </div>
