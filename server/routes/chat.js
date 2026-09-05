@@ -10,7 +10,8 @@ const staffRoles = ['admin', 'manager', 'foh', 'kitchen'];
 function mapMessage(row) {
   let metadata = {};
   try { metadata = JSON.parse(row.metadata || '{}'); } catch {}
-  return { id: row.id, from: row.sender_type, text: row.message, type: row.message_type || 'text', attachmentUrl: row.attachment_url || null, metadata, staffName: row.staff_name || null, createdAt: row.created_at };
+  const from = row.sender_type === 'staff' && metadata.automated ? 'agent' : row.sender_type;
+  return { id: row.id, from, text: row.message, type: row.message_type || 'text', attachmentUrl: row.attachment_url || null, metadata, staffName: row.staff_name || null, createdAt: row.created_at };
 }
 
 function getMessages(conversationId) {
@@ -27,6 +28,11 @@ function findAutoReply(message) {
 
 function ensureConversation(id, customerName = '', customerPhone = '', customerEmail = '') {
   const now = new Date().toISOString();
+  const normalizedEmail = String(customerEmail || '').trim().toLowerCase();
+  if (normalizedEmail) {
+    const byEmail = db.prepare('SELECT id FROM chat_conversations WHERE lower(customer_email) = ? ORDER BY updated_at DESC LIMIT 1').get(normalizedEmail);
+    if (byEmail) id = byEmail.id;
+  }
   const existing = db.prepare('SELECT id FROM chat_conversations WHERE id = ?').get(id);
   if (!existing) {
     db.prepare('INSERT INTO chat_conversations (id, customer_name, customer_phone, customer_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, customerName || null, customerPhone || null, customerEmail || null, now, now);
@@ -37,7 +43,7 @@ function ensureConversation(id, customerName = '', customerPhone = '', customerE
 }
 
 router.get('/public/:conversationId', (req, res) => {
-  const conversationId = ensureConversation(req.params.conversationId);
+  const conversationId = ensureConversation(req.params.conversationId, req.query.customerName, req.query.customerPhone, req.query.customerEmail);
   res.json({ conversationId, messages: getMessages(conversationId) });
 });
 
@@ -56,7 +62,7 @@ router.post('/public/:conversationId/messages', (req, res) => {
   const autoReply = messageType === 'text' ? findAutoReply(message) : null;
   let autoReplyMessage = null;
   if (autoReply) {
-    const replyResult = db.prepare('INSERT INTO chat_messages (conversation_id, sender_type, message, message_type, metadata, created_at) VALUES (?, \'agent\', ?, \'text\', ?, ?)')
+    const replyResult = db.prepare('INSERT INTO chat_messages (conversation_id, sender_type, message, message_type, metadata, created_at) VALUES (?, \'staff\', ?, \'text\', ?, ?)')
       .run(conversationId, autoReply.answer, JSON.stringify({ faqId: autoReply.id, automated: true }), new Date().toISOString());
     autoReplyMessage = mapMessage(db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(replyResult.lastInsertRowid));
     db.prepare('UPDATE chat_conversations SET updated_at = ? WHERE id = ?').run(autoReplyMessage.createdAt, conversationId);

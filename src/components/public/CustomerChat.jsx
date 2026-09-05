@@ -14,7 +14,7 @@ export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', 
   const [profileError, setProfileError] = useState('');
   const panelRef = useRef(null);
   const triggerRef = useRef(null);
-  const [conversationId] = useState(() => {
+  const [conversationId, setConversationId] = useState(() => {
     const stored = localStorage.getItem('wraproll_chat_id');
     if (stored) return stored;
     const id = crypto.randomUUID();
@@ -34,10 +34,14 @@ export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', 
   ];
 
   useEffect(() => {
-    api.getPublicChat(conversationId).then(({ messages: savedMessages }) => {
+    api.getPublicChat(conversationId, profile.email, profile.name, profile.phone).then(({ conversationId: canonicalId, messages: savedMessages }) => {
+      if (canonicalId && canonicalId !== conversationId) {
+        setConversationId(canonicalId);
+        localStorage.setItem('wraproll_chat_id', canonicalId);
+      }
       setMessages(savedMessages.length ? savedMessages : [{ from: 'agent', text: t('chatGreeting') }]);
     }).catch(() => setMessages([{ from: 'agent', text: t('chatGreeting') }]));
-  }, [conversationId, t]);
+  }, [conversationId, profile.email, profile.name, profile.phone, t]);
 
   useWebSocket((event, data) => {
     if (event !== 'chat:message' || data.conversationId !== conversationId) return;

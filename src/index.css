@@ -185,7 +185,7 @@
   place-items: center;
   width: 3.1rem;
   height: 3.1rem;
-  border-radius: 50%;
+  .customer-chat-messages > p, .customer-chat-messages > .agent-message, .customer-chat-messages > .customer-message { width: fit-content; max-width: 85%; margin: 0; padding: 9px 11px; border-radius: 12px; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
   background: linear-gradient(135deg, #f3d3d3, #f7e4df);
   color: #b63a35;
   font-weight: 800;
