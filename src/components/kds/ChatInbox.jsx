@@ -33,10 +33,11 @@ export default function ChatInbox() {
       {conversations.length === 0 ? <p className="text-xs text-surface-on-variant">No customer messages yet.</p> : conversations.slice(0, 6).map((conversation) => {
         const lastMessage = conversation.messages[conversation.messages.length - 1];
         const needsReply = lastMessage?.from === 'customer';
+        const conversationStatus = !lastMessage ? 'New chat' : needsReply ? 'Needs reply' : 'Replied';
         return <article className="kds-chat-conversation" key={conversation.id}>
           <div className="kds-chat-meta">
             <div className="kds-chat-customer"><span className="kds-chat-avatar"><UserRound size={15} /></span><div><strong>{conversation.customer_name || 'Website customer'}</strong><small>Website chat</small></div></div>
-            <span className={needsReply ? 'kds-chat-status needs-reply' : 'kds-chat-status'}>{needsReply ? 'Needs reply' : 'Replied'}</span>
+            <span className={!lastMessage || needsReply ? 'kds-chat-status needs-reply' : 'kds-chat-status'}>{conversationStatus}</span>
           </div>
           <div className="kds-chat-thread">
             {conversation.messages.length === 0 && <p className="kds-chat-empty">Conversation started. Waiting for the first message.</p>}
