@@ -1416,3 +1416,23 @@ button, input, select, textarea { max-width: 100%; }
 @media (max-width: 767px) {
   .kds-chat-inbox { max-height: none; }
 }
+
+.kds-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); flex: 1 1 auto; min-height: 0; gap: 12px; padding: 12px; overflow: hidden; }
+.kds-ticket-board { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 3fr); min-width: 0; min-height: 0; gap: 12px; overflow: hidden; }
+.kds-support-column { min-width: 0; min-height: 0; overflow: hidden; }
+.kds-support-column .kds-chat-inbox { height: 100%; max-height: none; margin: 0; align-content: start; grid-template-columns: 1fr; overflow-y: auto; }
+.kds-support-column .kds-chat-inbox-heading { grid-column: auto; }
+
+@media (max-width: 1100px) {
+  .kds-workspace { grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); }
+  .kds-ticket-board { grid-template-columns: 1fr; overflow-y: auto; }
+  .kds-ticket-board .kds-lane { min-height: 220px; max-height: 420px; }
+}
+
+@media (max-width: 767px) {
+  .kds-workspace { display: flex; flex-direction: column; overflow: visible; }
+  .kds-ticket-board { display: flex; flex-direction: column; overflow: visible; }
+  .kds-ticket-board .kds-lane { max-height: none; }
+  .kds-support-column { overflow: visible; }
+  .kds-support-column .kds-chat-inbox { height: auto; max-height: none; }
+}
