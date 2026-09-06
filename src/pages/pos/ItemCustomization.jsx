@@ -5,10 +5,11 @@ import Button from '../../components/ui/Button';
 
 const quickQuantities = [1, 2, 5, 10, 20, 50];
 
-export default function ItemCustomization({ isOpen, item, modifiers: allModifiers = [], onClose, onAdd }) {
+export default function ItemCustomization({ isOpen, item, modifiers: allModifiers = [], kitchenLoad = 0, onClose, onAdd }) {
   const [selectedModifiers, setSelectedModifiers] = useState([]);
   const [specialInstructions, setSpecialInstructions] = useState('');
   const [quantity, setQuantity] = useState(1);
+
 
   if (!isOpen || !item) return null;
 
@@ -17,6 +18,12 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
   const modifierTotal = selectedModifiers.reduce((sum, m) => sum + (m.price || 0), 0);
   const singleItemPrice = (item.price || 0) + modifierTotal;
   const itemTotal = singleItemPrice * quantity;
+  const basePrepMinutes = Number(item.prep_time_minutes || 8);
+  const queueMinutes = Math.min(30, kitchenLoad * 2);
+  const quantityMinutes = Math.max(0, Math.ceil(quantity / 3) - 1) * 2;
+  const extrasMinutes = addModifiers.length ? selectedModifiers.filter((mod) => mod.type === 'add').length : 0;
+  const prepMinutes = basePrepMinutes + queueMinutes + quantityMinutes + extrasMinutes;
+  const prepWindow = `${prepMinutes}-${prepMinutes + 5} min`;
 
   const toggleModifier = (mod) => {
     setSelectedModifiers((prev) =>
@@ -41,7 +48,7 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
             {item.image && (
               <img
                 src={item.image}
-                alt={item.name}
+                alt=""
                 className="w-16 h-16 rounded-2xl object-cover border border-[#ecdac8] shadow-sm flex-shrink-0"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
@@ -71,15 +78,26 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
 
         {/* Scrollable Customization Content */}
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
-          {/* Quick Bulk Quantity Selector for Large Orders */}
+          {/* Quantity comes first because it directly affects production time. */}
           <div className="bg-[#fbf6ee] border border-[#ebdccb] rounded-2xl p-4">
             <div className="flex items-center justify-between mb-2.5">
               <label className="text-xs font-bold uppercase tracking-wider text-[#746e67] flex items-center gap-1.5">
-                <Sparkles size={13} className="text-[#e6ac29]" /> Order Quantity / Bulk Catering
+                <Sparkles size={13} className="text-[#e6ac29]" /> How many would you like?
               </label>
               <span className="text-xs font-bold text-[#ae002a]">
                 {quantity} {quantity === 1 ? 'item' : 'items'} &times; {formatCurrency(singleItemPrice)}
               </span>
+            </div>
+
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-[#ecdac8] bg-white px-3 py-2.5">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[#746e67]">Estimated ready time</p>
+                <p className="text-sm font-bold text-[#ae002a]">{prepWindow}</p>
+              </div>
+              <p className="text-right text-[11px] leading-snug text-[#746e67]">
+                {kitchenLoad > 0 ? `${kitchenLoad} active kitchen ticket${kitchenLoad === 1 ? '' : 's'} ahead` : 'Kitchen queue is clear'}
+                <br />Quantity and extras included
+              </p>
             </div>
 
             {/* Stepper + Quick Pills */}
@@ -130,6 +148,7 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
                 ))}
               </div>
             </div>
+            {quantity >= 10 && <p className="mt-3 rounded-xl border border-[#f0cf8a] bg-[#fff9ed] px-3 py-2 text-[11px] font-semibold leading-snug text-[#775a00]">Large order: please confirm the {prepWindow} estimate with the guest before sending it to the kitchen.</p>}
           </div>
 
           {/* Add Extras & Combos */}
@@ -139,7 +158,7 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
                 <h3 className="text-xs font-bold font-display uppercase tracking-wider text-[#746e67]">
                   Add Extras &amp; Upgrades
                 </h3>
-                <span className="text-[11px] text-[#8c8278]">Multiple selectable</span>
+                <span className="text-[11px] text-[#8c8278]">Adds {selectedModifiers.filter((mod) => mod.type === 'add').length} min each</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {addModifiers.map((mod) => {

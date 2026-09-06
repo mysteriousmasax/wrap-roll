@@ -1,6 +1,16 @@
 import { formatCurrency } from '../../utils/format';
 import Badge from './Badge';
 
+const fallbackImage = 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=600&h=600&fit=crop';
+
+function getImageSource(image) {
+  if (typeof image !== 'string') return fallbackImage;
+  const value = image.trim();
+  return /^(https?:\/\/|\/|data:image\/(?:png|jpe?g|webp|gif);base64,)/i.test(value)
+    ? value
+    : fallbackImage;
+}
+
 export default function ProductCard({ item, onClick }) {
   return (
     <div
@@ -9,11 +19,11 @@ export default function ProductCard({ item, onClick }) {
     >
       <div className="relative aspect-square bg-surface-container-low overflow-hidden product-card-media-wrap">
         <img
-          src={item.image}
-          alt={item.name}
+          src={getImageSource(item.image)}
+          alt=""
           className="product-card-image w-full h-full object-cover transition-transform duration-300"
           loading="lazy"
-          onError={(event) => { event.currentTarget.src = 'https://wrapandrolltz.com/uploads/photo_gallery/d706fc0ef56440dd131465fd75aae870.jpg'; }}
+          onError={(event) => { event.currentTarget.src = fallbackImage; }}
         />
         {item.popular && (
           <div className="absolute top-2 left-2">

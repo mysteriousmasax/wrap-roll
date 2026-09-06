@@ -3,7 +3,7 @@
  * Handles payment processing with secure Pesapal integration
  */
 
-const API_BASE_URL = '/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 class PaymentClient {
   /**
@@ -118,7 +118,7 @@ class PaymentClient {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('wraproll_token')}`,
         },
         body: JSON.stringify({
           reason,

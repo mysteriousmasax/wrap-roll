@@ -61,7 +61,7 @@ function getOrderCountdown(order, now) {
   };
 }
 
-function OrderCard({ order, onStatusChange, now }) {
+function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
   const elapsedMins = getTimeSinceMinutes(order.createdAt, now);
   const { text: countdownText, isOverdue } = getOrderCountdown(order, now);
 
@@ -148,8 +148,17 @@ function OrderCard({ order, onStatusChange, now }) {
 
         {/* Action Buttons */}
         <div className="flex gap-2 pt-1">
+          {order.paymentMethod === 'lipa_namba' && order.paymentStatus !== 'paid' && (
+            <button
+              onClick={() => onPaymentConfirm(order.id)}
+              className="flex-1 py-2 rounded-xl bg-[#227653] hover:bg-[#1b5e43] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+            >
+              <CheckCircle2 size={14} /> Confirm Payment
+            </button>
+          )}
           {order.status === 'pending' && (
             <button
+              disabled={order.paymentMethod === 'lipa_namba' && order.paymentStatus !== 'paid'}
               onClick={() => onStatusChange(order.id, 'preparing')}
               className="flex-1 py-2 rounded-xl bg-[#ae002a] hover:bg-[#920023] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
             >
@@ -265,6 +274,15 @@ export default function KDSPage() {
     }
   };
 
+  const handlePaymentConfirm = async (orderId) => {
+    try {
+      await api.updateOrderPaymentStatus(orderId, 'paid');
+      await fetchOrders('pending,preparing,ready');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -347,7 +365,7 @@ export default function KDSPage() {
           </div>
           {pending.length ? (
             pending.map((o) => (
-              <OrderCard key={o.id} order={o} now={now} onStatusChange={handleStatusChange} />
+              <OrderCard key={o.id} order={o} now={now} onStatusChange={handleStatusChange} onPaymentConfirm={handlePaymentConfirm} />
             ))
           ) : (
             <p className="text-center py-10 text-xs text-[#746e67]">No new tickets waiting.</p>
@@ -366,7 +384,7 @@ export default function KDSPage() {
           </div>
           {preparing.length ? (
             preparing.map((o) => (
-              <OrderCard key={o.id} order={o} now={now} onStatusChange={handleStatusChange} />
+              <OrderCard key={o.id} order={o} now={now} onStatusChange={handleStatusChange} onPaymentConfirm={handlePaymentConfirm} />
             ))
           ) : (
             <p className="text-center py-10 text-xs text-[#746e67]">No orders currently cooking.</p>
@@ -385,7 +403,7 @@ export default function KDSPage() {
           </div>
           {ready.length ? (
             ready.map((o) => (
-              <OrderCard key={o.id} order={o} now={now} onStatusChange={handleStatusChange} />
+              <OrderCard key={o.id} order={o} now={now} onStatusChange={handleStatusChange} onPaymentConfirm={handlePaymentConfirm} />
             ))
           ) : (
             <p className="text-center py-10 text-xs text-[#746e67]">No orders waiting for pickup.</p>

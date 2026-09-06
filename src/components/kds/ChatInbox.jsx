@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCheck, Image, Mail, MapPin, MessageCircle, Phone, Send, ShoppingBag, UserRound, X } from 'lucide-react';
+import { CheckCheck, Image, Mail, MapPin, MessageCircle, Phone, Search, Send, ShoppingBag, UserRound, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 
@@ -7,11 +7,15 @@ export default function ChatInbox({ onClose }) {
   const [conversations, setConversations] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [selectedConversationId, setSelectedConversationId] = useState(null);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const loadConversations = () => api.getChatConversations().then(({ conversations: saved }) => {
     setConversations(saved);
     setSelectedConversationId((current) => current || saved[0]?.id || null);
-  }).catch(() => {});
+    setLoadError('');
+  }).catch(() => setLoadError('Unable to load customer chats')).finally(() => setLoading(false));
   useEffect(() => { loadConversations(); }, []);
   useWebSocket((event, data) => {
     if (event !== 'chat:message') return;
@@ -34,6 +38,12 @@ export default function ChatInbox({ onClose }) {
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId) || conversations[0];
   const selectedMessages = selectedConversation?.messages || [];
   const selectedDraft = selectedConversation ? drafts[selectedConversation.id] || '' : '';
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleConversations = conversations.filter((conversation) => {
+    if (!normalizedSearch) return true;
+    const lastMessage = conversation.messages[conversation.messages.length - 1];
+    return [conversation.customer_name, conversation.customer_phone, conversation.customer_email, lastMessage?.text].filter(Boolean).join(' ').toLowerCase().includes(normalizedSearch);
+  }).slice(0, 12);
 
   const renderMessageContent = (message) => (
     <>
@@ -48,11 +58,11 @@ export default function ChatInbox({ onClose }) {
 
   return (
     <section className="kds-chat-inbox">
-      <div className="kds-chat-inbox-heading"><div className="flex items-center gap-3"><div className="kds-chat-inbox-icon"><MessageCircle size={17} /></div><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Customer support</p><h2 className="font-display text-base font-bold">Live customer messages</h2></div></div><div className="flex items-center gap-3"><span className="kds-chat-online"><span /> Online</span>{onClose && <button className="kds-chat-close" onClick={onClose} aria-label="Close customer support"><X size={17} /></button>}</div></div>
-      {conversations.length === 0 ? <p className="text-xs text-surface-on-variant">No customer messages yet.</p> : <div className="kds-chat-layout">
+      <div className="kds-chat-inbox-heading"><div className="flex items-center gap-3"><div className="kds-chat-inbox-icon"><MessageCircle size={17} /></div><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Customer support</p><h2 className="font-display text-base font-bold">Live customer messages</h2><span className="kds-chat-count">{conversations.length} {conversations.length === 1 ? 'conversation' : 'conversations'}</span></div></div><div className="flex items-center gap-3"><span className="kds-chat-online"><span /> Live</span>{onClose && <button className="kds-chat-close" onClick={onClose} aria-label="Close customer support"><X size={17} /></button>}</div></div>
+      {loading ? <div className="kds-chat-state"><MessageCircle size={20} /><span>Loading customer chats...</span></div> : loadError ? <div className="kds-chat-state is-error"><span>{loadError}</span><button type="button" onClick={loadConversations}>Retry</button></div> : conversations.length === 0 ? <div className="kds-chat-state"><MessageCircle size={20} /><span>No customer messages yet.</span></div> : <div className="kds-chat-layout">
         <div className="kds-chat-list">
-          <div className="kds-chat-search">Search customer chats</div>
-          {conversations.slice(0, 12).map((conversation) => {
+          <label className="kds-chat-search"><Search size={14} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" /></label>
+          {visibleConversations.map((conversation) => {
             const lastMessage = conversation.messages[conversation.messages.length - 1];
             return <button className={`kds-chat-list-item ${selectedConversation?.id === conversation.id ? 'is-selected' : ''}`} key={conversation.id} onClick={() => setSelectedConversationId(conversation.id)}>
               <span className="kds-chat-avatar"><UserRound size={15} /></span>
@@ -60,6 +70,7 @@ export default function ChatInbox({ onClose }) {
               <span className="kds-chat-list-time">{formatTime(lastMessage?.createdAt)}</span>
             </button>;
           })}
+          {!visibleConversations.length && <p className="kds-chat-no-results">No matching conversations.</p>}
         </div>
         <div className="kds-chat-active">
           {selectedConversation && <>

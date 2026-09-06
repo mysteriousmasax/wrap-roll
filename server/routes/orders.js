@@ -31,7 +31,7 @@ function priceOrderItems(items) {
   return { items: pricedItems, subtotal: pricedItems.reduce((sum, item) => sum + item.price * item.qty, 0) };
 }
 
-function createOrderRecord({ items, orderType, tableNumber, customerName, customerPhone, customerEmail, deliveryAddress, paymentMethod, scheduledFor, paymentTiming, orderSource, paymentReference }, staffId = null) {
+function createOrderRecord({ items, orderType, tableNumber, customerName, customerPhone, customerEmail, deliveryAddress, deliveryLatitude, deliveryLongitude, paymentMethod, scheduledFor, paymentTiming, orderSource, paymentReference }, staffId = null) {
   const priced = priceOrderItems(items);
   const subtotal = priced.subtotal;
   const taxRate = Number(db.prepare("SELECT value FROM settings WHERE key = 'tax_rate'").get()?.value || 8) / 100;
@@ -46,8 +46,8 @@ function createOrderRecord({ items, orderType, tableNumber, customerName, custom
   const id = nextOrderId();
   const now = new Date().toISOString();
   const insertOrder = db.prepare(`
-    INSERT INTO orders (id, order_type, table_number, customer_name, customer_phone, customer_email, delivery_address, delivery_scheduled_for, subtotal, tax, total, payment_method, payment_status, order_source, payment_reference, status, created_at, updated_at, staff_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+    INSERT INTO orders (id, order_type, table_number, customer_name, customer_phone, customer_email, delivery_address, delivery_latitude, delivery_longitude, delivery_scheduled_for, subtotal, tax, total, payment_method, payment_status, order_source, payment_reference, status, created_at, updated_at, staff_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
   `);
   const insertItem = db.prepare(`
     INSERT INTO order_items (order_id, menu_item_id, name, qty, price, prep_time_minutes, modifiers, special_instructions)
@@ -77,7 +77,8 @@ function createOrderRecord({ items, orderType, tableNumber, customerName, custom
         db.prepare('UPDATE customers SET nfc_tag_code = ?, customer_segment = ? WHERE id = ?').run(tagCode, 'first_order', createdCustomer.lastInsertRowid);
       }
     }
-    insertOrder.run(id, orderType || 'delivery', tableNumber || null, customerName || null, customerPhone || null, customerEmail || null, deliveryAddress || null, scheduledFor || null, subtotal, tax, total, paymentMethod || 'lipa_namba', paymentTiming === 'pay-later' ? 'unpaid' : 'paid', orderSource || 'foh', paymentReference || null, now, now, staffId);
+    const paymentStatus = paymentMethod === 'lipa_namba' ? 'pending' : (paymentTiming === 'pay-later' ? 'unpaid' : 'paid');
+    insertOrder.run(id, orderType || 'delivery', tableNumber || null, customerName || null, customerPhone || null, customerEmail || null, deliveryAddress || null, deliveryLatitude || null, deliveryLongitude || null, scheduledFor || null, subtotal, tax, total, paymentMethod || 'lipa_namba', paymentStatus, orderSource || 'foh', paymentReference || null, now, now, staffId);
     for (const item of priced.items) insertItem.run(id, item.menuItemId, item.name, item.qty, item.price, item.prepTimeMinutes || 8, JSON.stringify(item.modifiers), item.specialInstructions);
     insertEvent.run(id, 'created', 'pending', staffId, now, JSON.stringify({ source: orderSource || 'foh' }));
     if (tableNumber) db.prepare('UPDATE tables SET status = ?, current_order_id = ? WHERE number = ?').run('occupied', id, tableNumber);
@@ -160,6 +161,9 @@ router.patch('/:id/status', authMiddleware, (req, res) => {
 
   const existing = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
+  if (status === 'preparing' && existing.payment_method === 'lipa_namba' && existing.payment_status !== 'paid') {
+    return res.status(409).json({ error: 'Lipa Namba payment must be confirmed before cooking starts.' });
+  }
 
   const now = new Date().toISOString();
   db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(status, now, req.params.id);
@@ -170,6 +174,17 @@ router.patch('/:id/status', authMiddleware, (req, res) => {
     db.prepare('UPDATE tables SET status = ?, current_order_id = NULL WHERE number = ?').run('cleaning', existing.table_number);
   }
 
+  const order = getOrderById(req.params.id);
+  broadcast('order:updated', order);
+  res.json(order);
+});
+
+router.patch('/:id/payment-status', authMiddleware, (req, res) => {
+  const { paymentStatus } = req.body || {};
+  if (!['paid', 'failed', 'pending'].includes(paymentStatus)) return res.status(400).json({ error: 'Invalid payment status' });
+  const existing = db.prepare('SELECT id FROM orders WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Order not found' });
+  db.prepare('UPDATE orders SET payment_status = ?, updated_at = ? WHERE id = ?').run(paymentStatus, new Date().toISOString(), req.params.id);
   const order = getOrderById(req.params.id);
   broadcast('order:updated', order);
   res.json(order);

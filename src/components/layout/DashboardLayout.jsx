@@ -6,6 +6,7 @@ import TopBar from './TopBar';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import useOrderStore from '../../store/useOrderStore';
 import useNotificationStore from '../../store/useNotificationStore';
+import useSettingsStore from '../../store/useSettingsStore';
 import ChatInbox from '../kds/ChatInbox';
 
 const pageTitles = {
@@ -19,13 +20,13 @@ const pageTitles = {
   '/crm/whatsapp': 'WhatsApp',
   '/analytics': 'Analytics Dashboard',
   '/management/menu': 'Menu Editor',
-  '/management/inventory': 'Inventory',
+  '/management/operations': 'Operations Hub',
   '/management/reports': 'Financial Reports',
-  '/management/staff': 'Staff Management',
+  '/assistant': 'Gemini Assistant',
+  '/management/people': 'People & HR',
   '/management/loyalty': 'Loyalty Items',
   '/management/campaigns': 'Birthday & Couples Campaigns',
   '/management/settings': 'System Settings',
-  '/hr': 'HR & Staff Tracking',
   '/notifications': 'Notifications',
 };
 
@@ -84,6 +85,7 @@ export default function DashboardLayout() {
   useWebSocket((event, data) => {
     if (event === 'order:created' || event === 'order:updated') upsertOrder(data);
     if (event === 'notification:created') fetchNotifications();
+    if (event === 'settings:updated') useSettingsStore.setState((state) => ({ settings: { ...state.settings, ...data } }));
   });
 
   return (

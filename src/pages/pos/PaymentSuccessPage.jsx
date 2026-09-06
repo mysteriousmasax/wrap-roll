@@ -6,7 +6,7 @@ import Button from '../../components/ui/Button';
 export default function PaymentSuccessPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { order, orderId, total, method } = location.state || {};
+  const { order, orderId, total, method, awaitingConfirmation } = location.state || {};
 
   if (!orderId && !order) {
     return (
@@ -27,8 +27,8 @@ export default function PaymentSuccessPage() {
         <div className="success-orbit w-24 h-24 rounded-full bg-success/10 flex items-center justify-center mx-auto mb-6">
           <CheckCircle size={56} className="text-success" />
         </div>
-        <h1 className="text-2xl font-display font-bold mb-2">Payment Successful!</h1>
-        <p className="text-surface-on-variant mb-6">Transaction completed successfully</p>
+        <h1 className="text-2xl font-display font-bold mb-2">{awaitingConfirmation ? 'Payment Submitted' : 'Payment Successful!'}</h1>
+        <p className="text-surface-on-variant mb-6">{awaitingConfirmation ? 'The kitchen will confirm your Lipa Namba payment before preparing the order.' : 'Transaction completed successfully'}</p>
 
         <div className="card text-left mb-6">
           <div className="space-y-3">

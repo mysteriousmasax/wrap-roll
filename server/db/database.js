@@ -123,6 +123,19 @@ export async function initDatabase() {
       FOREIGN KEY (staff_id) REFERENCES staff(id)
     );
 
+    CREATE TABLE IF NOT EXISTS staff_tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      staff_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT DEFAULT 'open',
+      due_date TEXT,
+      created_by INTEGER,
+      created_at TEXT NOT NULL,
+      completed_at TEXT,
+      FOREIGN KEY (staff_id) REFERENCES staff(id),
+      FOREIGN KEY (created_by) REFERENCES users(id)
+    );
+
     CREATE TABLE IF NOT EXISTS payroll_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       staff_id INTEGER NOT NULL,
@@ -136,6 +149,20 @@ export async function initDatabase() {
       status TEXT DEFAULT 'approved',
       created_at TEXT NOT NULL,
       FOREIGN KEY (staff_id) REFERENCES staff(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS business_expenses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      expense_date TEXT NOT NULL,
+      category TEXT NOT NULL,
+      description TEXT NOT NULL,
+      supplier TEXT,
+      amount REAL NOT NULL,
+      payment_method TEXT DEFAULT 'bank',
+      status TEXT DEFAULT 'pending',
+      receipt_ref TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS training_records (
@@ -201,6 +228,8 @@ export async function initDatabase() {
       customer_phone TEXT,
       customer_email TEXT,
       delivery_address TEXT,
+      delivery_latitude REAL,
+      delivery_longitude REAL,
       subtotal REAL NOT NULL,
       tax REAL NOT NULL,
       total REAL NOT NULL,
@@ -278,10 +307,36 @@ export async function initDatabase() {
       question TEXT NOT NULL,
       keywords TEXT NOT NULL DEFAULT '',
       answer TEXT NOT NULL,
+      question_sw TEXT,
+      answer_sw TEXT,
       active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS chat_training_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      language TEXT NOT NULL DEFAULT 'English + Swahili',
+      approved_examples INTEGER NOT NULL DEFAULT 0,
+      bilingual_examples INTEGER NOT NULL DEFAULT 0,
+      staff_examples INTEGER NOT NULL DEFAULT 0,
+      result TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_activity (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      surface TEXT NOT NULL,
+      action TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'offline',
+      status TEXT NOT NULL DEFAULT 'completed',
+      user_id INTEGER,
+      duration_ms INTEGER DEFAULT 0,
+      input_length INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_activity_created ON ai_activity(created_at DESC);
 
     CREATE TABLE IF NOT EXISTS sales_monthly (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -356,6 +411,7 @@ export async function initDatabase() {
     restaurant_name: 'Wrap & Roll',
     branch_location: 'Wikicha Tower, Mwai Kibaki Road, Dar es Salaam',
     google_maps_url: 'https://maps.app.goo.gl/gZqwfknocNK6FYNAA',
+    google_maps_embed_url: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3962.0852270366922!2d39.251722599999994!3d-6.7594617!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x185c4d08cb7bb7f1%3A0x2fca94e306e228d4!2sWrap%20%26%20Roll!5e0!3m2!1sen!2stz!4v1787495167004!5m2!1sen!2stz',
     phone: '+255 746 222 889',
     email: 'info@wrapandrolltz.com',
     operating_hours: '7:00 AM - 11:00 PM',
@@ -413,6 +469,21 @@ function migrateSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events(order_id, occurred_at ASC);
     CREATE INDEX IF NOT EXISTS idx_order_events_actor ON order_events(actor_user_id, occurred_at DESC);
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ai_activity (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      surface TEXT NOT NULL,
+      action TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'offline',
+      status TEXT NOT NULL DEFAULT 'completed',
+      user_id INTEGER,
+      duration_ms INTEGER DEFAULT 0,
+      input_length INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_activity_created ON ai_activity(created_at DESC);
+  `);
   db.prepare('UPDATE staff SET user_id = (SELECT id FROM users WHERE users.name = staff.name) WHERE user_id IS NULL').run();
 
   const tableCols = db.prepare('PRAGMA table_info(tables)').all();
@@ -427,6 +498,9 @@ function migrateSchema(db) {
   if (!chatMessageCols.some((col) => col.name === 'message_type')) db.exec("ALTER TABLE chat_messages ADD COLUMN message_type TEXT DEFAULT 'text'");
   if (!chatMessageCols.some((col) => col.name === 'attachment_url')) db.exec('ALTER TABLE chat_messages ADD COLUMN attachment_url TEXT');
   if (!chatMessageCols.some((col) => col.name === 'metadata')) db.exec("ALTER TABLE chat_messages ADD COLUMN metadata TEXT DEFAULT '{}'");
+  const faqCols = db.prepare('PRAGMA table_info(chat_faqs)').all();
+  if (!faqCols.some((col) => col.name === 'question_sw')) db.exec('ALTER TABLE chat_faqs ADD COLUMN question_sw TEXT');
+  if (!faqCols.some((col) => col.name === 'answer_sw')) db.exec('ALTER TABLE chat_faqs ADD COLUMN answer_sw TEXT');
   const inventoryCols = db.prepare('PRAGMA table_info(inventory)').all();
   if (!inventoryCols.some((col) => col.name === 'image_url')) db.exec('ALTER TABLE inventory ADD COLUMN image_url TEXT');
   if (!inventoryCols.some((col) => col.name === 'category')) db.exec("ALTER TABLE inventory ADD COLUMN category TEXT DEFAULT 'ingredients'");
@@ -486,6 +560,8 @@ function migrateSchema(db) {
   const orderCols = db.prepare('PRAGMA table_info(orders)').all();
   if (!orderCols.some((col) => col.name === 'customer_phone')) db.exec('ALTER TABLE orders ADD COLUMN customer_phone TEXT');
   if (!orderCols.some((col) => col.name === 'customer_email')) db.exec('ALTER TABLE orders ADD COLUMN customer_email TEXT');
+  if (!orderCols.some((col) => col.name === 'delivery_latitude')) db.exec('ALTER TABLE orders ADD COLUMN delivery_latitude REAL');
+  if (!orderCols.some((col) => col.name === 'delivery_longitude')) db.exec('ALTER TABLE orders ADD COLUMN delivery_longitude REAL');
   if (!orderCols.some((c) => c.name === 'delivery_scheduled_for')) db.exec('ALTER TABLE orders ADD COLUMN delivery_scheduled_for TEXT');
   if (!orderCols.some((c) => c.name === 'payment_status')) db.exec("ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT 'unpaid'");
   if (!orderCols.some((c) => c.name === 'order_source')) db.exec("ALTER TABLE orders ADD COLUMN order_source TEXT DEFAULT 'foh'");

@@ -6,7 +6,8 @@ import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import { api } from '../../api/client';
 import { formatCurrency } from '../../utils/format';
-import { Package, AlertTriangle, CalendarClock, Edit3, Search, Plus, MapPin, Truck, X, Upload, History, SlidersHorizontal } from 'lucide-react';
+import { downloadAsset } from '../../utils/downloadAsset';
+import { Package, AlertTriangle, CalendarClock, Edit3, Search, Plus, MapPin, Truck, X, Upload, History, SlidersHorizontal, Download } from 'lucide-react';
 
 const fallbackImage = 'https://images.unsplash.com/photo-1547592180-85f173990554?w=240&h=180&fit=crop';
 const emptyForm = { name: '', quantity: '', unit: 'kg', threshold: '10', supplier: '', imageUrl: '', category: 'ingredients', sku: '', unitCost: '', expiryDate: '', storageLocation: 'Main store' };
@@ -39,7 +40,7 @@ function importPhoto(file) {
   });
 }
 
-export default function InventoryPage() {
+export default function InventoryPage({ embedded = false }) {
   const [items, setItems] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
@@ -104,11 +105,21 @@ export default function InventoryPage() {
     load();
   };
 
+  const downloadInventoryImage = async (item) => {
+    if (!item.imageUrl) return;
+    try {
+      await downloadAsset(item.imageUrl, `wrap-roll-inventory-${item.name}`);
+    } catch (downloadError) {
+      setError(downloadError.message || 'Unable to download this image.');
+    }
+  };
+
   if (loading) return <div className="p-6 text-sm text-surface-on-variant">Loading inventory...</div>;
 
   return (
-    <div className="inventory-page p-4 sm:p-6">
-      <PageHeader title="Inventory Management" subtitle="Track stock levels, suppliers, expiry dates, and storage locations" actions={<Button size="sm" onClick={openAdd}><Plus size={14} /> Add Item</Button>} />
+    <div className={'inventory-page ' + (embedded ? '' : 'p-4 sm:p-6')}>
+      {!embedded && <PageHeader title="Inventory Management" subtitle="Track stock levels, suppliers, expiry dates, and storage locations" actions={<Button size="sm" onClick={openAdd}><Plus size={14} /> Add Item</Button>} />}
+      {embedded && <div className="mb-4 flex justify-end"><Button size="sm" onClick={openAdd}><Plus size={14} /> Add Item</Button></div>}
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="card flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10"><Package size={19} className="text-primary" /></div><div><p className="text-xs text-surface-on-variant">Total items</p><p className="text-xl font-bold">{items.length}</p><p className="text-[10px] text-surface-on-variant">Across all stores</p></div></div>
@@ -133,7 +144,7 @@ export default function InventoryPage() {
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3 text-xs"><div><p className="text-surface-on-variant">Stock level</p><p className={'mt-1 text-lg font-bold ' + (isLow ? 'text-error' : '')}>{item.quantity} <span className="text-xs font-normal text-surface-on-variant">{item.unit}</span></p><div className="mt-1 h-1.5 rounded-full bg-surface-container"><div className={'h-1.5 rounded-full ' + (isLow ? 'bg-error' : 'bg-success')} style={{ width: `${stockPercent}%` }} /></div></div><div><p className="text-surface-on-variant">Threshold</p><p className="mt-1 font-semibold">{item.threshold} {item.unit}</p><p className="mt-3 text-surface-on-variant">Unit cost</p><p className="mt-1 font-semibold">{formatCurrency(item.unitCost || 0)}</p></div></div>
             <div className="mt-4 grid grid-cols-2 gap-3 border-t border-outline-variant/60 pt-3 text-xs"><div><p className="text-surface-on-variant">Supplier</p><p className="mt-1 font-semibold">{item.supplier || 'Not assigned'}</p><p className="mt-3 text-surface-on-variant">Location</p><p className="mt-1 inline-flex items-center gap-1 font-semibold"><MapPin size={12} />{item.storageLocation || 'Main store'}</p></div><div><p className="text-surface-on-variant">Expiry</p><p className={'mt-1 font-semibold ' + (isExpiring ? 'text-warning' : '')}>{item.expiryDate || 'No expiry'}</p>{isExpiring && <p className="mt-1 text-warning">{expiryDays < 0 ? 'Expired' : `${expiryDays} days left`}</p>}</div></div>
-            <div className="mt-4 flex justify-end gap-1 border-t border-outline-variant/60 pt-3"><button title="Adjust stock" onClick={() => openAdjust(item)} className="rounded-lg p-2 hover:bg-surface-container"><SlidersHorizontal size={15} className="text-surface-on-variant" /></button><button title="View inventory history" onClick={() => openAudit(item)} className="rounded-lg p-2 hover:bg-surface-container"><History size={15} className="text-surface-on-variant" /></button><button title="Edit inventory item" onClick={() => openEdit(item)} className="rounded-lg p-2 hover:bg-surface-container"><Edit3 size={15} className="text-surface-on-variant" /></button></div>
+            <div className="mt-4 flex justify-end gap-1 border-t border-outline-variant/60 pt-3"><button title="Download inventory image" onClick={() => downloadInventoryImage(item)} disabled={!item.imageUrl} className="rounded-lg p-2 hover:bg-surface-container disabled:opacity-30"><Download size={15} className="text-surface-on-variant" /></button><button title="Adjust stock" onClick={() => openAdjust(item)} className="rounded-lg p-2 hover:bg-surface-container"><SlidersHorizontal size={15} className="text-surface-on-variant" /></button><button title="View inventory history" onClick={() => openAudit(item)} className="rounded-lg p-2 hover:bg-surface-container"><History size={15} className="text-surface-on-variant" /></button><button title="Edit inventory item" onClick={() => openEdit(item)} className="rounded-lg p-2 hover:bg-surface-container"><Edit3 size={15} className="text-surface-on-variant" /></button></div>
           </article>;
         })}
         {!filteredItems.length && <div className="rounded-2xl border border-dashed border-outline-variant p-10 text-center text-sm text-surface-on-variant lg:col-span-2">No inventory items match your filters.</div>}

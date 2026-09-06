@@ -29,6 +29,7 @@ const useAuthStore = create((set) => ({
   },
 
   logout: () => {
+    api.logout().catch(() => {});
     setToken(null);
     set({ currentUser: null, isAuthenticated: false });
   },

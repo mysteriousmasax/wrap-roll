@@ -1,8 +1,19 @@
 import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
+import { createMenuBookExport } from '../utils/menuBookExport.js';
+import { broadcast } from '../ws.js';
 
 const router = Router();
+
+const fallbackMenuImage = 'https://wrapandrolltz.com/uploads/photo_gallery/d706fc0ef56440dd131465fd75aae870.jpg';
+
+function getMenuImage(image) {
+  if (typeof image !== 'string') return fallbackMenuImage;
+  const value = image.trim();
+  if (/^(https?:\/\/|\/|data:image\/(?:png|jpe?g|webp|gif);base64,)/i.test(value)) return value;
+  return fallbackMenuImage;
+}
 
 function mapMenuItem(row) {
   return {
@@ -11,7 +22,7 @@ function mapMenuItem(row) {
     description: row.description,
     price: row.price,
     category: row.category,
-    image: row.image,
+    image: getMenuImage(row.image),
     prep_time_minutes: Number(row.prep_time_minutes ?? 8),
     popular: !!row.popular,
     active: !!row.active,
@@ -32,6 +43,20 @@ router.get('/modifiers', authMiddleware, (req, res) => {
   res.json(db.prepare('SELECT * FROM modifiers ORDER BY type, name').all());
 });
 
+router.get('/export', authMiddleware, requireRole('admin', 'manager'), async (req, res) => {
+  const format = String(req.query.format || '').toLowerCase();
+  if (!['pdf', 'xlsx', 'docx', 'pptx'].includes(format)) return res.status(400).json({ error: 'Menu book format must be PDF, Excel, Word, or PowerPoint' });
+  try {
+    const items = db.prepare('SELECT * FROM menu_items WHERE active = 1 ORDER BY category, name').all().map(mapMenuItem);
+    const modifiers = db.prepare('SELECT * FROM modifiers ORDER BY type, name').all();
+    const result = await createMenuBookExport(format, items, modifiers);
+    res.type(result.contentType).set('Content-Disposition', `attachment; filename="wrap-roll-menu-book.${result.extension}"`).send(result.buffer);
+  } catch (error) {
+    console.error('Menu book export failed:', error.message);
+    res.status(500).json({ error: 'Unable to create the menu book export' });
+  }
+});
+
 router.post('/modifiers', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
   const { name, price = 0, type = 'add' } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Modifier name is required' });
@@ -40,6 +65,7 @@ router.post('/modifiers', authMiddleware, requireRole('admin', 'manager'), (req,
   const result = db.prepare('INSERT INTO modifiers (name, price, type) VALUES (?, ?, ?)')
     .run(name.trim(), Number(price) || 0, type);
   const modifier = db.prepare('SELECT * FROM modifiers WHERE id = ?').get(result.lastInsertRowid);
+  broadcast('menu:updated', { type: 'modifier', action: 'created', id: modifier.id });
   res.status(201).json(modifier);
 });
 
@@ -55,7 +81,9 @@ router.put('/modifiers/:id', authMiddleware, requireRole('admin', 'manager'), (r
   db.prepare('UPDATE modifiers SET name = ?, price = ?, type = ? WHERE id = ?')
     .run(nextName, nextPrice, nextType, req.params.id);
 
-  res.json(db.prepare('SELECT * FROM modifiers WHERE id = ?').get(req.params.id));
+  const modifier = db.prepare('SELECT * FROM modifiers WHERE id = ?').get(req.params.id);
+  broadcast('menu:updated', { type: 'modifier', action: 'updated', id: modifier.id });
+  res.json(modifier);
 });
 
 router.delete('/modifiers/:id', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
@@ -63,6 +91,7 @@ router.delete('/modifiers/:id', authMiddleware, requireRole('admin', 'manager'),
   if (!existing) return res.status(404).json({ error: 'Modifier not found' });
 
   db.prepare('DELETE FROM modifiers WHERE id = ?').run(req.params.id);
+  broadcast('menu:updated', { type: 'modifier', action: 'deleted', id: Number(req.params.id) });
   res.json({ ok: true });
 });
 
@@ -74,6 +103,7 @@ router.post('/', authMiddleware, requireRole('admin'), (req, res) => {
     'INSERT INTO menu_items (name, description, price, category, image, prep_time_minutes, popular, active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
   ).run(name, description || '', Number(price), category, image || '', Number.isFinite(prepMinutes) ? prepMinutes : 8, popular ? 1 : 0);
   const item = db.prepare('SELECT * FROM menu_items WHERE id = ?').get(result.lastInsertRowid);
+  broadcast('menu:updated', { type: 'item', action: 'created', id: item.id });
   res.status(201).json(mapMenuItem(item));
 });
 
@@ -95,13 +125,16 @@ router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
     active != null ? (active ? 1 : 0) : existing.active,
     req.params.id
   );
-  res.json(mapMenuItem(db.prepare('SELECT * FROM menu_items WHERE id = ?').get(req.params.id)));
+  const item = db.prepare('SELECT * FROM menu_items WHERE id = ?').get(req.params.id);
+  broadcast('menu:updated', { type: 'item', action: 'updated', id: item.id });
+  res.json(mapMenuItem(item));
 });
 
 router.delete('/:id', authMiddleware, requireRole('admin'), (req, res) => {
   const existing = db.prepare('SELECT * FROM menu_items WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Item not found' });
   db.prepare('UPDATE menu_items SET active = 0 WHERE id = ?').run(req.params.id);
+  broadcast('menu:updated', { type: 'item', action: 'deleted', id: Number(req.params.id) });
   res.json({ ok: true });
 });
 

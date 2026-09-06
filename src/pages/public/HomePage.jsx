@@ -21,6 +21,7 @@ import {
   Mail,
 } from 'lucide-react';
 import { api } from '../../api/client';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency } from '../../utils/format';
 import BrandLogo from '../../components/brand/BrandLogo';
 import useSettingsStore from '../../store/useSettingsStore';
@@ -29,6 +30,7 @@ import CustomerChat from '../../components/public/CustomerChat';
 import LipaNambaPayment from '../../components/public/LipaNambaPayment';
 import RotatingText from '../../components/ui/RotatingText';
 import DepthText from '../../components/ui/DepthText';
+import DriftWall from '../../components/ui/DriftWall';
 
 const categories = [
   { key: 'allMenu', filter: 'all', label: 'All Menu' },
@@ -69,7 +71,7 @@ export default function HomePage() {
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const [language, setLanguage] = useState(() => localStorage.getItem('wraproll_language') || 'English');
   const [displayCurrency, setDisplayCurrency] = useState(
-    () => localStorage.getItem('wraproll_display_currency') || 'TZS'
+    () => localStorage.getItem('wraproll_display_currency') || ''
   );
   const t = useTranslation(language);
   const [outlet, setOutlet] = useState(restaurantLocation.label);
@@ -131,8 +133,19 @@ export default function HomePage() {
   })();
 
   useEffect(() => {
+    if (!localStorage.getItem('wraproll_currency_user_selected')) {
+      setDisplayCurrency(publicSettings.currency || 'TZS');
+    }
+  }, [publicSettings.currency]);
+
+  useEffect(() => {
     api.getPublicMenu().then(setPublicMenu).catch(() => {});
   }, []);
+
+  useWebSocket((event, data) => {
+    if (event === 'menu:updated') api.getPublicMenu().then(setPublicMenu).catch(() => {});
+    if (event === 'settings:updated') useSettingsStore.setState((state) => ({ settings: { ...state.settings, ...data } }));
+  });
 
   useEffect(() => {
     api
@@ -215,8 +228,17 @@ export default function HomePage() {
     localStorage.setItem('wraproll_language', language);
   }, [language]);
   useEffect(() => {
-    localStorage.setItem('wraproll_display_currency', displayCurrency);
+    if (localStorage.getItem('wraproll_currency_user_selected')) {
+      localStorage.setItem('wraproll_display_currency', displayCurrency);
+    }
   }, [displayCurrency]);
+
+  const chooseCurrency = (currency) => {
+    localStorage.setItem('wraproll_currency_user_selected', 'true');
+    localStorage.setItem('wraproll_display_currency', currency);
+    setDisplayCurrency(currency);
+    setCurrencyOpen(false);
+  };
 
   const scrollTo = (id) => {
     setMobileMenuOpen(false);
@@ -445,24 +467,21 @@ export default function HomePage() {
               <div className="header-menu">
                 <button
                   onClick={() => {
-                    setDisplayCurrency('TZS');
-                    setCurrencyOpen(false);
+                    chooseCurrency('TZS');
                   }}
                 >
                   TZS (TSh)
                 </button>
                 <button
                   onClick={() => {
-                    setDisplayCurrency('USD');
-                    setCurrencyOpen(false);
+                    chooseCurrency('USD');
                   }}
                 >
                   USD ($)
                 </button>
                 <button
                   onClick={() => {
-                    setDisplayCurrency('KES');
-                    setCurrencyOpen(false);
+                    chooseCurrency('KES');
                   }}
                 >
                   KES (KSh)
@@ -504,9 +523,9 @@ export default function HomePage() {
         </div>
 
         {/* Hero Content */}
-        <div className="relative z-10 max-w-7xl mx-auto px-6 sm:px-12 py-20 sm:py-28 w-full">
+        <div className="relative z-10 max-w-7xl mx-auto px-5 sm:px-8 lg:px-12 py-16 sm:py-24 lg:py-28 w-full">
           <div className="max-w-2xl space-y-6">
-            <h1 ref={heroHeadingRef} className="hero-heading-animation text-4xl sm:text-6xl lg:text-7xl font-bold font-display text-white leading-[1.06] tracking-tight drop-shadow-[0_4px_14px_rgba(0,0,0,0.85)]">
+            <h1 ref={heroHeadingRef} className="hero-heading-animation text-[clamp(2.25rem,6vw,4.5rem)] font-bold font-display text-white leading-[1.06] tracking-tight drop-shadow-[0_4px_14px_rgba(0,0,0,0.85)]">
               Craving Authentic <span className="text-[#ffc72c]">Wraps &amp; Rolls?</span>
             </h1>
             <p className="text-base sm:text-lg text-white leading-relaxed max-w-xl font-medium drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]">
@@ -565,6 +584,7 @@ export default function HomePage() {
           {categories.map((cat) => (
             <button
               key={cat.filter}
+              type="button"
               onClick={() => setActiveCategory(cat.filter)}
               className={
                 'px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ' +
@@ -579,8 +599,11 @@ export default function HomePage() {
         </div>
 
         {/* Food Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-          {(menuByCategory[activeCategory]?.items || publicMenu).map((item) => (
+        {activeCategory === 'all' ? (
+          <DriftWall items={publicMenu} columns={3} tileWidth={300} tileHeight={210} gap={18} speed={28} direction="up" onTileClick={openMealCustomizer} />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+            {(menuByCategory[activeCategory]?.items || publicMenu).map((item, index) => (
             <article
               key={item.id}
               className="bg-white border border-[#ebdccb] rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between group cursor-pointer"
@@ -589,7 +612,7 @@ export default function HomePage() {
               <div className="relative aspect-[4/3] overflow-hidden bg-[#faeee2]">
                 <img
                   src={item.image}
-                  alt={item.name}
+                  alt=""
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   onError={(e) => {
                     e.currentTarget.src =
@@ -642,8 +665,9 @@ export default function HomePage() {
                 </div>
               </div>
             </article>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Item Customization Modal for Public Customers */}
@@ -772,7 +796,7 @@ export default function HomePage() {
             <iframe
               title="Wrap & Roll location"
               className="w-full h-full border-0"
-              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3962.0852270366922!2d39.251722599999994!3d-6.7594617!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x185c4d08cb7bb7f1%3A0x2fca94e306e228d4!2sWrap%20%26%20Roll!5e0!3m2!1sen!2stz!4v1787495167004!5m2!1sen!2stz"
+              src={publicSettings.google_maps_embed_url || 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3962.0852270366922!2d39.251722599999994!3d-6.7594617!2m3!1f0!2f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x185c4d08cb7bb7f1%3A0x2fca94e306e228d4!2sWrap%20%26%20Roll!5e0!3m2!1sen!2stz!4v1787495167004!5m2!1sen!2stz'}
               allowFullScreen
               loading="lazy"
             />
@@ -863,12 +887,12 @@ export default function HomePage() {
       {/* Floating Cart Button */}
       {cartCount > 0 && (
         <button
-          className="public-order-trigger fixed right-0 top-1/2 -translate-y-1/2 z-40 px-4 py-3 rounded-l-full bg-[#ae002a] text-white font-bold shadow-2xl flex items-center gap-2.5 transition-transform"
+          className="public-order-trigger fixed right-0 top-1/2 -translate-y-1/2 z-40 max-w-[min(42vw,260px)] px-3 py-2.5 sm:px-4 sm:py-3 rounded-l-full bg-[#ae002a] text-white text-xs sm:text-sm font-bold shadow-2xl flex items-center gap-2 transition-transform"
           onClick={() => setCartOpen(true)}
         >
           <ShoppingBag size={18} />
-          <span>{cartCount} items</span>
-          <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
+          <span className="truncate">{cartCount} items</span>
+          <span className="bg-white/20 px-2 py-0.5 rounded-full text-[10px] sm:text-xs whitespace-nowrap">
             {formatCurrency(cartSubtotal + cartTax, displayCurrency)}
           </span>
         </button>
@@ -880,7 +904,7 @@ export default function HomePage() {
           <div className="space-y-3">
             <BrandLogo variant="dark" />
             <p className="text-xs text-white/70 leading-relaxed">
-              Wrap &amp; Roll Tanzania. Dedicated to crafting healthy, mouth-watering wraps, rolls, and meals with pure fresh ingredients.
+              {publicSettings.restaurant_name || 'Wrap & Roll Tanzania'}. Dedicated to crafting healthy, mouth-watering wraps, rolls, and meals with pure fresh ingredients.
             </p>
           </div>
           <div>
@@ -895,14 +919,15 @@ export default function HomePage() {
           <div>
             <h4 className="font-bold text-sm mb-3 text-[#ffc72c]">Location</h4>
             <p className="text-xs text-white/70 leading-relaxed">
-              Wikicha Tower, Mwai Kibaki Rd, Mikocheni, Dar es Salaam.<br />
-              Open daily: 7:00 AM &ndash; 11:00 PM
+              {publicSettings.branch_location || 'Wikicha Tower, Mwai Kibaki Rd, Mikocheni, Dar es Salaam.'}<br />
+              Open: {displayHours}
             </p>
           </div>
           <div>
             <h4 className="font-bold text-sm mb-3 text-[#ffc72c]">Contact Us</h4>
-            <p className="text-xs text-white/70">Phone: +255 746 222 889</p>
-            <p className="text-xs text-white/70 mt-1">Email: info@wrapandrolltz.com</p>
+            <p className="text-xs text-white/70">Phone: {publicSettings.phone || '+255 746 222 889'}</p>
+            <p className="text-xs text-white/70 mt-1">Email: {publicSettings.email || 'info@wrapandrolltz.com'}</p>
+            <a href="/privacy-policy" className="mt-3 inline-flex text-xs font-semibold text-white/70 hover:text-white">Privacy Policy</a>
           </div>
         </div>
         <div className="max-w-7xl mx-auto pt-8 mt-8 border-t border-white/10 text-center text-xs text-white/50">

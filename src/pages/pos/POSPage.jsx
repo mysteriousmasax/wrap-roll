@@ -15,6 +15,7 @@ import {
   Percent,
 } from 'lucide-react';
 import { api } from '../../api/client';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency } from '../../utils/format';
 import useCartStore from '../../store/useCartStore';
 import useSettingsStore from '../../store/useSettingsStore';
@@ -507,11 +508,15 @@ export default function POSPage() {
   const [showOrderType, setShowOrderType] = useState(false);
   const [showCustomItemModal, setShowCustomItemModal] = useState(false);
   const [showMobileCart, setShowMobileCart] = useState(false);
+  const [showDesktopCart, setShowDesktopCart] = useState(true);
+  const desktopCartRef = useRef(null);
+  const floatingOrderRef = useRef(null);
   const [menuItems, setMenuItems] = useState([]);
   const [modifiers, setModifiers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [offlineOrderCount, setOfflineOrderCount] = useState(0);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const [kitchenLoad, setKitchenLoad] = useState(0);
 
   const { items, addItem, addCustomItem, getTotal, getItemCount } = useCartStore();
   const location = useLocation();
@@ -545,6 +550,37 @@ export default function POSPage() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useWebSocket((event) => {
+    if (event !== 'menu:updated') return;
+    Promise.all([api.getMenu(), api.getModifiers()])
+      .then(([menu, mods]) => {
+        setMenuItems(menu || []);
+        setModifiers(mods || []);
+      })
+      .catch(() => {});
+  });
+
+  useEffect(() => {
+    let active = true;
+    const refreshKitchenLoad = () => api.getOrders('pending,preparing')
+      .then((orders) => { if (active) setKitchenLoad((orders || []).length); })
+      .catch(() => {});
+    refreshKitchenLoad();
+    const timer = window.setInterval(refreshKitchenLoad, 30000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+
+  useEffect(() => {
+    const closeOnOutsideClick = (event) => {
+      if (window.innerWidth < 1024 || showMobileCart) return;
+      if (!desktopCartRef.current?.contains(event.target) && !floatingOrderRef.current?.contains(event.target)) {
+        setShowDesktopCart(false);
+      }
+    };
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
+  }, [showMobileCart]);
 
   const filteredItems = menuItems.filter((item) => {
     const matchCategory = activeCategory === 'all' || item.category === activeCategory;
@@ -685,8 +721,8 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* PERMANENTLY OPEN Cart Panel on Desktop & Tablet (Never Hidden) */}
-      <div className="pos-cart-panel w-80 xl:w-96 flex-shrink-0 flex flex-col bg-white border border-[#ebdccb] hidden lg:flex rounded-2xl shadow-sm my-3 mr-3 overflow-hidden">
+      {/* Dismissible current order panel on desktop */}
+      <div ref={desktopCartRef} className={'pos-cart-panel w-80 xl:w-96 flex-shrink-0 flex-col bg-white border border-[#ebdccb] rounded-2xl shadow-sm my-3 mr-3 overflow-hidden ' + (showDesktopCart ? 'hidden lg:flex' : 'hidden')}>
         {/* Cart Header */}
         <div className="p-3.5 border-b border-[#eee4d5] bg-gradient-to-r from-[#fff9f0] to-white flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -709,6 +745,17 @@ export default function POSPage() {
           onOpenCustomModal={() => setShowCustomItemModal(true)}
         />
       </div>
+
+      <button
+        ref={floatingOrderRef}
+        type="button"
+        onClick={() => setShowDesktopCart((visible) => !visible)}
+        className="fixed right-0 top-1/2 z-30 hidden -translate-y-1/2 items-center gap-2 rounded-l-2xl bg-[#ae002a] px-3 py-3 text-white shadow-xl transition-transform hover:-translate-x-1 lg:flex"
+        aria-label={showDesktopCart ? 'Hide current order' : `Show current order with ${getItemCount()} items`}
+      >
+        <ShoppingCart size={18} />
+        <span className="flex flex-col items-start leading-tight"><span className="text-xs font-bold">Order</span><span className="text-[10px] text-white/80">{getItemCount()} items</span></span>
+      </button>
 
       {/* Mobile Sticky Floating Cart Bar (Always Visible on Mobile) */}
       <div className="lg:hidden fixed bottom-3 left-3 right-3 z-30 flex items-center gap-2 bg-[#1f1d1b] text-white p-2 rounded-2xl shadow-2xl border border-white/10">
@@ -775,10 +822,11 @@ export default function POSPage() {
       )}
 
       {/* Modals */}
-      <ItemCustomization
+          <ItemCustomization
         isOpen={showCustomization}
         item={selectedItem}
         modifiers={modifiers}
+            kitchenLoad={kitchenLoad}
         onClose={() => setShowCustomization(false)}
         onAdd={handleAddToCart}
       />

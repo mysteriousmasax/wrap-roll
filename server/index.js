@@ -3,7 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import { createServer } from 'http';
 import { fileURLToPath } from 'url';
-import { ensureDatabase } from './db/database.js';
+import db, { ensureDatabase } from './db/database.js';
 import { initWebSocket } from './ws.js';
 
 import authRoutes from './routes/auth.js';
@@ -20,11 +20,13 @@ import chatRoutes from './routes/chat.js';
 import paymentRoutes from './routes/payments.js';
 import calendarRoutes from './routes/calendar.js';
 import loyaltyRoutes from './routes/loyalty.js';
+import businessRoutes from './routes/business.js';
+import crmIntelligenceRoutes from './routes/crmIntelligence.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' || process.env.PORT || process.env.RAILWAY_ENVIRONMENT ? '0.0.0.0' : '127.0.0.1');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const clientDist = path.resolve(__dirname, '../dist');
+const clientDist = process.env.CLIENT_DIST_PATH || path.resolve(__dirname, '../dist');
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
   .split(',')
   .map((origin) => origin.trim())
@@ -44,7 +46,14 @@ app.set('trust proxy', 1);
 app.use(cors({ origin: (origin, callback) => callback(null, isAllowedOrigin(origin)), credentials: true }));
 app.use(express.json({ limit: '8mb' }));
 
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.get('/api/health', (_req, res) => {
+  try {
+    db.prepare('SELECT 1').get();
+    res.json({ ok: true, database: 'ready' });
+  } catch {
+    res.status(503).json({ ok: false, database: 'unavailable' });
+  }
+});
 
 app.use('/api/auth', authRoutes);
 app.use('/api/menu', menuRoutes);
@@ -60,6 +69,8 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/loyalty', loyaltyRoutes);
+app.use('/api/business', businessRoutes);
+app.use('/api/crm-intelligence', crmIntelligenceRoutes);
 
 app.use(express.static(clientDist, { index: false, setHeaders: (res, filePath) => {
   if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-store');

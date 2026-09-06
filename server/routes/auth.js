@@ -52,6 +52,17 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   if (!user) return res.status(401).json({ error: 'Invalid username or PIN/password' });
 
+  const staff = db.prepare('SELECT id, name, shift, status FROM staff WHERE user_id = ?').get(user.id);
+  if (staff?.status === 'removed') return res.status(403).json({ error: 'This staff account has been removed.' });
+  if (staff && staff.status !== 'on-clock') {
+    const now = new Date();
+    const loginTime = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const shiftDate = now.toISOString().slice(0, 10);
+    db.prepare('UPDATE staff SET status = ?, clock_in = ? WHERE id = ?').run('on-clock', loginTime, staff.id);
+    const activeShift = db.prepare("SELECT id FROM shift_logs WHERE staff_id = ? AND shift_date = ? AND status = 'active'").get(staff.id, shiftDate);
+    if (!activeShift) db.prepare('INSERT INTO shift_logs (staff_id, staff_name, shift_date, start_time, status, notes) VALUES (?, ?, ?, ?, ?, ?)').run(staff.id, staff.name, shiftDate, loginTime, 'active', staff.shift || 'Assigned shift');
+  }
+
   const { pin: _, password: __, ...safeUser } = user;
   const token = signToken(safeUser);
   res.json({ user: safeUser, token });
@@ -61,6 +72,22 @@ router.get('/me', authMiddleware, (req, res) => {
   const user = db.prepare('SELECT id, name, role, avatar FROM users WHERE id = ?').get(req.user.id);
   if (!user) return res.status(401).json({ error: 'User not found' });
   res.json({ user });
+});
+
+router.post('/logout', authMiddleware, (req, res) => {
+  const staff = db.prepare('SELECT id FROM staff WHERE user_id = ?').get(req.user.id);
+  if (staff) {
+    const now = new Date();
+    const shiftDate = now.toISOString().slice(0, 10);
+    const activeShift = db.prepare("SELECT id, start_time FROM shift_logs WHERE staff_id = ? AND shift_date = ? AND status = 'active' ORDER BY id DESC LIMIT 1").get(staff.id, shiftDate);
+    db.prepare('UPDATE staff SET status = ?, clock_in = NULL WHERE id = ?').run('off-clock', staff.id);
+    if (activeShift) {
+      const loginAt = new Date(`${shiftDate} ${activeShift.start_time}`);
+      const hours = Number.isNaN(loginAt.getTime()) ? 0 : Math.max(0, (now.getTime() - loginAt.getTime()) / 3600000);
+      db.prepare('UPDATE shift_logs SET end_time = ?, hours_worked = ?, status = ? WHERE id = ?').run(now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }), hours, 'completed', activeShift.id);
+    }
+  }
+  res.json({ ok: true });
 });
 
 router.patch('/me', authMiddleware, (req, res) => {

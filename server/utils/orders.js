@@ -31,6 +31,8 @@ export function formatOrder(row, items) {
     customerPhone: row.customer_phone,
     customerEmail: row.customer_email,
     deliveryAddress: row.delivery_address,
+    deliveryLatitude: row.delivery_latitude,
+    deliveryLongitude: row.delivery_longitude,
     scheduledFor: row.delivery_scheduled_for,
     items: items.map((i) => ({
       menuItemId: i.menu_item_id,

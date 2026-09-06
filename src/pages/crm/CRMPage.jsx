@@ -5,7 +5,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import Button from '../../components/ui/Button';
 import { api } from '../../api/client';
 import { formatCurrency } from '../../utils/format';
-import { Search, Users, Star, AlertTriangle, Crown, TabletSmartphone, Mail, Instagram, Facebook, MessageSquareText, UtensilsCrossed, MapPinned, Gift, CalendarDays, Save, Sparkles } from 'lucide-react';
+import { Search, Users, Star, AlertTriangle, Crown, TabletSmartphone, Mail, Instagram, Facebook, MessageSquareText, UtensilsCrossed, MapPinned, Gift, CalendarDays, Save, Sparkles, ShieldAlert, Send, Brain, Target } from 'lucide-react';
 
 function WhatsAppLogo({ className = 'h-4 w-4' }) {
   return (
@@ -35,6 +35,10 @@ export default function CRMPage() {
   const [savingCustomer, setSavingCustomer] = useState(false);
   const [customerForm, setCustomerForm] = useState({});
   const [status, setStatus] = useState('');
+  const [intelligence, setIntelligence] = useState(null);
+  const [aiOutput, setAiOutput] = useState('');
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
 
   const loadCustomers = async () => {
     const data = await api.getCustomers();
@@ -57,12 +61,14 @@ export default function CRMPage() {
   useEffect(() => {
     const bootstrap = async () => {
       try {
-        const [customersData, calendarData] = await Promise.all([
+        const [customersData, calendarData, intelligenceData] = await Promise.all([
           api.getCustomers(),
           api.getHolidayFeed(),
+          api.getCrmIntelligence(),
         ]);
         setCustomers(customersData);
         setHolidayFeed(calendarData);
+        setIntelligence(intelligenceData);
         if (customersData[0]) {
           setSelectedCustomerId(customersData[0].id);
           setCustomerForm({
@@ -132,6 +138,27 @@ export default function CRMPage() {
     }
   };
 
+  const runAi = async (action, question = '') => {
+    setAiLoading(true);
+    try {
+      const result = question ? await api.askCrmAssistant(question) : await action();
+      setAiOutput(result.report || result.answer || 'No analysis returned.');
+    } catch (error) {
+      setAiOutput(error.message || 'Unable to generate CRM analysis');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const requestAction = async (type, payload) => {
+    try {
+      await api.requestCrmAction(type, payload);
+      setStatus('Action submitted for staff approval.');
+    } catch (error) {
+      setStatus(error.message || 'Unable to submit action');
+    }
+  };
+
   const vipCount = customers.filter((customer) => customer.tier === 'VIP').length;
   const atRiskCount = customers.filter((customer) => customer.atRisk).length;
   const totalLtv = customers.reduce((sum, customer) => sum + Number(customer.lifetimeValue || 0), 0);
@@ -152,6 +179,22 @@ export default function CRMPage() {
       <PageHeader title="CRM & Loyalty" subtitle="Customer relationship management and retention" actions={
         <Button variant="whatsapp" size="sm" onClick={() => openWhatsApp(customers[0])}><WhatsAppLogo /> WhatsApp</Button>
       } />
+
+      {intelligence && <>
+        <div className="grid grid-cols-2 gap-3 mb-6 lg:grid-cols-6">
+          {[['Customers', intelligence.customerSummary.total, Users], ['VIP', intelligence.customerSummary.vip, Crown], ['Inactive', intelligence.customerSummary.inactive, CalendarDays], ['At risk', intelligence.customerSummary.atRisk, AlertTriangle], ['Unpaid orders', intelligence.risks.unpaidOrders.count, ShieldAlert], ['Low stock', intelligence.risks.lowStock.length, Target]].map(([label, value, Icon]) => <Card key={label} className="p-3"><Icon size={15} className="text-primary" /><p className="mt-2 text-[10px] text-surface-on-variant">{label}</p><p className="text-xl font-bold">{value}</p></Card>)}
+        </div>
+        <Card className="mb-6 border border-primary/20 bg-primary/5">
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-display font-bold text-sm">CRM intelligence cockpit</h3><p className="mt-1 text-xs text-surface-on-variant">Deterministic customer data first, Gemini analysis second. Actions require approval.</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={() => runAi(api.generateCrmSwot)} disabled={aiLoading}><Brain size={14} /> SWOT</Button><Button size="sm" variant="secondary" onClick={() => runAi(api.generateDailyBriefing)} disabled={aiLoading}><Sparkles size={14} /> Daily briefing</Button></div></div>
+          <form className="mt-4 flex gap-2" onSubmit={(event) => { event.preventDefault(); runAi(null, aiQuestion); }}><input className="min-w-0 flex-1 rounded-xl border border-outline-variant bg-white px-3 py-2 text-xs" value={aiQuestion} onChange={(event) => setAiQuestion(event.target.value)} placeholder="Ask: Which customers should receive a loyalty offer?" /><Button type="submit" size="sm" disabled={aiLoading || !aiQuestion.trim()}><Send size={13} /> Ask AI</Button></form>
+          {aiOutput && <pre className="mt-4 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-xl bg-white p-4 text-xs leading-5">{aiOutput}</pre>}
+        </Card>
+        <div className="grid gap-4 mb-6 lg:grid-cols-2">
+          <Card><div className="flex items-center gap-2 mb-3"><Users size={16} className="text-primary" /><h3 className="font-display font-bold text-sm">Customer segments</h3></div><div className="grid grid-cols-2 gap-2 text-xs">{['vip', 'regular', 'new', 'inactive', 'at-risk'].map((segment) => <div key={segment} className="rounded-lg bg-surface-container-low p-3"><span className="capitalize text-surface-on-variant">{segment}</span><strong className="mt-1 block text-lg">{intelligence.customers.filter((customer) => customer.segment === segment).length}</strong></div>)}</div></Card>
+          <Card><div className="flex items-center gap-2 mb-3"><ShieldAlert size={16} className="text-error" /><h3 className="font-display font-bold text-sm">Issues needing attention</h3></div><div className="space-y-2 text-xs"><p>{intelligence.risks.unresolvedComplaints} unresolved customer conversations</p><p>{intelligence.risks.delayedOrders} delayed kitchen orders</p><p>{intelligence.risks.lowStock.length} low-stock or expiring inventory items</p><p>{intelligence.risks.unpaidOrders.count} unpaid orders worth {formatCurrency(intelligence.risks.unpaidOrders.amount || 0)}</p></div></Card>
+        </div>
+        <Card className="mb-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-display font-bold text-sm">Recommended CRM actions</h3><p className="mt-1 text-xs text-surface-on-variant">Review before sending campaigns or changing records.</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={() => requestAction('inactive_customer_campaign', { count: intelligence.customerSummary.inactive })}><Send size={13} /> Inactive campaign</Button><Button size="sm" variant="secondary" onClick={() => requestAction('vip_loyalty_offer', { count: intelligence.customerSummary.vip })}><Gift size={13} /> VIP loyalty offer</Button><Button size="sm" variant="secondary" onClick={() => requestAction('staff_follow_up', { complaints: intelligence.risks.unresolvedComplaints })}><CalendarDays size={13} /> Assign follow-up</Button></div></div></Card>
+      </>}
 
       <div className="grid grid-cols-1 gap-4 mb-6 md:grid-cols-2 xl:grid-cols-12">
         <Card className="flex items-center gap-3 md:col-span-2 xl:col-span-4">

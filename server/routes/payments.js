@@ -24,7 +24,7 @@ router.get('/methods', (req, res) => {
   try {
     res.json({
       success: true,
-      methods: PESAPAL_PAYMENT_METHODS,
+      methods: [{ id: 'lipa_namba', label: 'Lipa Namba QR', description: 'Scan the restaurant QR code and wait for staff confirmation.' }],
       supportedCurrencies: ['TZS', 'USD', 'KES'],
     });
   } catch (error) {
@@ -204,6 +204,10 @@ router.post('/webhook', async (req, res) => {
 
       // Update order status in database
       db.prepare('UPDATE orders SET payment_status = ? WHERE id = ?').run('paid', payment.order_id);
+      const order = db.prepare('SELECT total, payment_method FROM orders WHERE id = ?').get(payment.order_id);
+      db.prepare('INSERT INTO notifications (type, title, message, read, created_at) VALUES (?, ?, ?, 0, ?)').run(
+        'success', 'Payment Received', `Order ${payment.order_id} - ${order?.total || payment.amount} via ${order?.payment_method || payment.payment_method}`, new Date().toISOString()
+      );
 
       console.log(`✓ Payment confirmed for order: ${payment.order_id}`);
     } else if (validation.statusCode === 2) {

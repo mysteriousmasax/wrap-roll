@@ -6,7 +6,8 @@ import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import { api } from '../../api/client';
 import importPhoto from '../../utils/importPhoto';
-import { Users, Clock, MapPin, Wifi, Camera, NotebookPen, Upload, X } from 'lucide-react';
+import { downloadAsset } from '../../utils/downloadAsset';
+import { Users, Clock, MapPin, Wifi, Camera, NotebookPen, Upload, X, Download } from 'lucide-react';
 
 const defaultTableImage = 'https://images.unsplash.com/photo-1559339352-11d035aa65de?w=800&h=600&fit=crop';
 const emptyForm = { number: '', seats: '4', status: 'available', tagId: '', zone: 'Main Dining', imageUrl: '', reservation: '', note: '' };
@@ -92,6 +93,15 @@ export default function TableManagementPage() {
     }
   };
 
+  const downloadTableImage = async (table) => {
+    if (!table.imageUrl) return;
+    try {
+      await downloadAsset(table.imageUrl, `wrap-roll-table-${table.number}`);
+    } catch (downloadError) {
+      setError(downloadError.message || 'Unable to download this image.');
+    }
+  };
+
   if (loading) return <div className="p-6 text-sm text-surface-on-variant">Loading tables...</div>;
 
   return (
@@ -144,7 +154,7 @@ export default function TableManagementPage() {
                 <span className="inline-flex items-center gap-1.5"><Camera size={12} /> Table view</span>
                 <span className="font-semibold text-on-surface">{table.note || 'Tap NFC tag to identify guest table'}</span>
               </div>
-              <Button variant="ghost" size="sm" className="w-full" onClick={() => openEdit(table)}>Edit Table</Button>
+              <div className="flex gap-2"><Button variant="ghost" size="sm" className="flex-1" onClick={() => openEdit(table)}>Edit Table</Button><button type="button" title="Download table image" onClick={() => downloadTableImage(table)} disabled={!table.imageUrl} className="rounded-lg border border-outline-variant px-3 text-primary hover:bg-surface-container-low disabled:opacity-30"><Download size={15} /></button></div>
             </div>
           </div>
         ))}

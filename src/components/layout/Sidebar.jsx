@@ -6,7 +6,7 @@ import BrandLogo from '../brand/BrandLogo';
 import {
   LayoutGrid, ShoppingBag, ChefHat, Users, BarChart3, ClipboardList,
   Package, UserCog, Settings, Bell, LogOut, TrendingUp, Calendar, X,
-  ChevronLeft, ChevronRight, Gift
+  ChevronLeft, ChevronRight, Gift, WalletCards, Sparkles
 } from 'lucide-react';
 
 const navItems = [
@@ -17,15 +17,17 @@ const navItems = [
   { path: '/crm', label: 'CRM & Loyalty', icon: Users, roles: ['admin', 'manager', 'executive'] },
   { path: '/analytics', label: 'Analytics', icon: BarChart3, roles: ['admin', 'executive', 'manager'] },
   { path: '/management/menu', label: 'Menu Editor', icon: Package, roles: ['admin', 'manager'] },
-  { path: '/management/inventory', label: 'Inventory', icon: Package, roles: ['admin', 'manager'] },
-  { path: '/management/staff', label: 'Staff', icon: UserCog, roles: ['admin'] },
+  { path: '/management/operations', label: 'Operations', icon: WalletCards, roles: ['admin', 'manager', 'executive'] },
+  { path: '/management/people', label: 'People & HR', icon: UserCog, roles: ['admin'] },
   { path: '/management/loyalty', label: 'Loyalty Items', icon: Gift, roles: ['admin', 'manager'] },
   { path: '/management/campaigns', label: 'Campaigns', icon: Calendar, roles: ['admin', 'manager', 'executive'] },
-  { path: '/hr', label: 'HR Tracking', icon: Calendar, roles: ['admin'] },
   { path: '/management/reports', label: 'Reports', icon: TrendingUp, roles: ['admin', 'executive'] },
+  { path: '/assistant', label: 'Gemini Assistant', icon: Sparkles, roles: ['admin', 'executive', 'manager', 'foh', 'kitchen'] },
   { path: '/notifications', label: 'Notifications', icon: Bell, roles: ['admin', 'manager', 'foh'] },
   { path: '/management/settings', label: 'Settings', icon: Settings, roles: ['admin'] },
 ];
+
+const isImageAvatar = (value) => typeof value === 'string' && /^data:image\/(png|jpe?g|webp);base64,/i.test(value);
 
 export default function Sidebar({ isOpen, onClose, compact, onToggleCollapse }) {
   const { currentUser, logout } = useAuthStore();
@@ -40,6 +42,15 @@ export default function Sidebar({ isOpen, onClose, compact, onToggleCollapse }) 
   useEffect(() => {
     if (isOpen) onClose && onClose();
   }, [location.pathname]);
+
+  useEffect(() => {
+    const collapseOnOutsideClick = (event) => {
+      if (window.innerWidth < 768 || compact || sidebarRef.current?.contains(event.target)) return;
+      onToggleCollapse?.();
+    };
+    document.addEventListener('pointerdown', collapseOnOutsideClick);
+    return () => document.removeEventListener('pointerdown', collapseOnOutsideClick);
+  }, [compact, onToggleCollapse]);
 
   const sidebarContent = (
     <>
@@ -90,9 +101,13 @@ export default function Sidebar({ isOpen, onClose, compact, onToggleCollapse }) 
 
       <div className={clsx('p-3 border-t border-outline-variant', compact && 'px-2')}>
         <div className={clsx('flex items-center gap-2 mb-2', compact && 'justify-center')}>
-          <div className="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center font-bold text-xs text-secondary shrink-0">
-            {currentUser?.avatar}
-          </div>
+          {isImageAvatar(currentUser?.avatar) ? (
+            <img src={currentUser.avatar} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+          ) : (
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary-container text-xs font-bold text-secondary">
+              {currentUser?.avatar || currentUser?.name?.split(' ').map((part) => part[0]).join('').slice(0, 2)}
+            </div>
+          )}
           {!compact && (
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold truncate">{currentUser?.name}</p>

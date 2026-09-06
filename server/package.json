@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node --watch index.js",
-    "start": "node index.js",
+    "dev": "node --env-file=../.env --watch index.js",
+    "start": "node --env-file=../.env index.js",
     "start:production": "NODE_ENV=production node index.js",
     "seed": "node db/seed.js",
     "seed:business": "node scripts/loadBusinessData.js"
@@ -13,9 +13,14 @@
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
+    "docx": "^9.7.1",
+    "exceljs": "^4.4.0",
     "express": "^4.21.0",
     "express-rate-limit": "^7.4.0",
     "jsonwebtoken": "^9.0.2",
-    "ws": "^8.18.0"
+    "pdfkit": "^0.20.2",
+    "pptxgenjs": "^4.0.1",
+    "ws": "^8.18.0",
+    "xlsx": "^0.18.5"
   }
 }

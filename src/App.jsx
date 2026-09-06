@@ -17,15 +17,16 @@ import CRMPage from './pages/crm/CRMPage';
 import WhatsAppPage from './pages/crm/WhatsAppPage';
 import AnalyticsPage from './pages/analytics/AnalyticsPage';
 import MenuEditorPage from './pages/management/MenuEditorPage';
-import InventoryPage from './pages/management/InventoryPage';
 import ReportsPage from './pages/management/ReportsPage';
-import StaffListPage from './pages/management/StaffListPage';
+import AiAssistantPage from './pages/management/AiAssistantPage';
 import SettingsPage from './pages/management/SettingsPage';
 import LoyaltyManagementPage from './pages/management/LoyaltyManagementPage';
 import CampaignDashboardPage from './pages/management/CampaignDashboardPage';
-import StaffTrackingPage from './pages/hr/StaffTrackingPage';
+import OperationsHubPage from './pages/management/OperationsHubPage';
+import PeopleHubPage from './pages/management/PeopleHubPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
 import HomePage from './pages/public/HomePage';
+import PrivacyPolicyPage from './pages/public/PrivacyPolicyPage';
 
 const ROUTE_ROLES = {
   '/pos': ['admin', 'foh'],
@@ -38,13 +39,13 @@ const ROUTE_ROLES = {
   '/crm/whatsapp': ['admin', 'manager', 'executive'],
   '/analytics': ['admin', 'executive', 'manager'],
   '/management/menu': ['admin', 'manager'],
-  '/management/inventory': ['admin', 'manager'],
+  '/management/operations': ['admin', 'manager', 'executive'],
   '/management/reports': ['admin', 'executive'],
-  '/management/staff': ['admin'],
+  '/assistant': ['admin', 'executive', 'manager', 'foh', 'kitchen'],
+  '/management/people': ['admin'],
   '/management/loyalty': ['admin', 'manager'],
   '/management/campaigns': ['admin', 'manager', 'executive'],
   '/management/settings': ['admin'],
-  '/hr': ['admin'],
   '/notifications': ['admin', 'manager', 'foh'],
 };
 
@@ -91,6 +92,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/table/:tagId" element={<HomePage />} />
+      <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
       <Route path="/login" element={<LoginPage />} />
 
       <Route
@@ -110,13 +112,13 @@ function AppRoutes() {
         <Route path="/crm/whatsapp" element={<RoleRoute path="/crm/whatsapp"><WhatsAppPage /></RoleRoute>} />
         <Route path="/analytics" element={<RoleRoute path="/analytics"><AnalyticsPage /></RoleRoute>} />
         <Route path="/management/menu" element={<RoleRoute path="/management/menu"><MenuEditorPage /></RoleRoute>} />
-        <Route path="/management/inventory" element={<RoleRoute path="/management/inventory"><InventoryPage /></RoleRoute>} />
+        <Route path="/management/operations" element={<RoleRoute path="/management/operations"><OperationsHubPage /></RoleRoute>} />
         <Route path="/management/reports" element={<RoleRoute path="/management/reports"><ReportsPage /></RoleRoute>} />
-        <Route path="/management/staff" element={<RoleRoute path="/management/staff"><StaffListPage /></RoleRoute>} />
+        <Route path="/assistant" element={<RoleRoute path="/assistant"><AiAssistantPage /></RoleRoute>} />
+        <Route path="/management/people" element={<RoleRoute path="/management/people"><PeopleHubPage /></RoleRoute>} />
         <Route path="/management/loyalty" element={<RoleRoute path="/management/loyalty"><LoyaltyManagementPage /></RoleRoute>} />
         <Route path="/management/campaigns" element={<RoleRoute path="/management/campaigns"><CampaignDashboardPage /></RoleRoute>} />
         <Route path="/management/settings" element={<RoleRoute path="/management/settings"><SettingsPage /></RoleRoute>} />
-        <Route path="/hr" element={<RoleRoute path="/hr"><StaffTrackingPage /></RoleRoute>} />
         <Route path="/notifications" element={<RoleRoute path="/notifications"><NotificationsPage /></RoleRoute>} />
       </Route>
 

@@ -1,7 +1,7 @@
 import useSettingsStore from '../store/useSettingsStore';
 
 export const formatCurrency = (amount, currency) => {
-  const cur = currency || localStorage.getItem('wraproll_display_currency') || useSettingsStore.getState().getCurrency();
+  const cur = currency || useSettingsStore.getState().getCurrency() || localStorage.getItem('wraproll_display_currency') || 'TZS';
   if (cur === 'TZS') {
     return 'TZS ' + Number(amount).toLocaleString('en-TZ');
   }

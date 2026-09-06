@@ -209,18 +209,6 @@ export async function seedDatabase(db, options = {}) {
     ['public_animation_replay', 'true'],
   ].forEach((s) => insertSetting.run(...s));
 
-  const insertNotif = db.prepare(
-    'INSERT INTO notifications (type, title, message, read, created_at) VALUES (?, ?, ?, ?, ?)'
-  );
-  const now = new Date();
-  [
-    ['warning', 'Low Stock Alert', 'Chicken breast inventory below threshold (15 units)', 0, new Date(now - 5 * 60000).toISOString()],
-    ['info', 'New Reservation', 'Table 7 reserved for 6:30 PM - Party of 4', 0, new Date(now - 12 * 60000).toISOString()],
-    ['success', 'Payment Received', 'Order WR-1008 - TZS 45,000 via Mobile Money', 1, new Date(now - 18 * 60000).toISOString()],
-    ['error', 'Staff No-Show', 'Kitchen staff Brian K. did not clock in for 2:00 PM shift', 1, new Date(now - 32 * 60000).toISOString()],
-    ['info', 'Daily Report Ready', 'End-of-day sales report has been generated', 1, new Date(now - 60 * 60000).toISOString()],
-  ].forEach((n) => insertNotif.run(...n));
-
   db.prepare('INSERT INTO order_counter (id, next_id) VALUES (1, 1001)').run();
 
   seedKitchenOrders(db);

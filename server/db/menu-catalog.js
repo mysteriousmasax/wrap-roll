@@ -1,7 +1,7 @@
 const imageByCategory = {
-  wraps: 'https://wrapandrolltz.com/uploads/photo_gallery/d706fc0ef56440dd131465fd75aae870.jpg',
-  salads: 'https://images.unsplash.com/photo-1512621776951-a57141f2eecd?w=600&h=600&fit=crop',
-  rolls: 'https://wrapandrolltz.com/uploads/photo_gallery/c24c7b3e15ad597021def8b940058a69.jpg',
+  wraps: 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=600&h=600&fit=crop',
+  salads: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&h=600&fit=crop',
+  rolls: 'https://images.unsplash.com/photo-1551782450-17144efb9c50?w=600&h=600&fit=crop',
   pizzas: 'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=600&h=600&fit=crop',
   burgers: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&h=600&fit=crop',
   extras: 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=600&h=600&fit=crop',
@@ -111,17 +111,19 @@ const menuCatalog = [
 export function syncMenuCatalog(db) {
   const existing = db.prepare('SELECT id, name FROM menu_items').all();
   const existingByName = new Map(existing.map((item) => [item.name, item.id]));
-  const update = db.prepare('UPDATE menu_items SET description = ?, price = ?, category = ?, image = ?, popular = ? WHERE id = ?');
   const insert = db.prepare('INSERT INTO menu_items (name, description, price, category, image, popular, active) VALUES (?, ?, ?, ?, ?, ?, 1)');
-  const activeNames = new Set(menuCatalog.map((item) => item.name));
-  const deactivate = db.prepare('UPDATE menu_items SET active = 0 WHERE name = ?');
+  const updateBrokenImage = db.prepare('UPDATE menu_items SET image = ? WHERE id = ? AND image IN (?, ?, ?)');
+  const brokenImages = [
+    'https://wrapandrolltz.com/uploads/photo_gallery/d706fc0ef56440dd131465fd75aae870.jpg',
+    'https://wrapandrolltz.com/uploads/photo_gallery/c24c7b3e15ad597021def8b940058a69.jpg',
+    'https://images.unsplash.com/photo-1512621776951-a57141f2eecd?w=600&h=600&fit=crop',
+  ];
   const transaction = db.transaction(() => {
     for (const item of menuCatalog) {
       const id = existingByName.get(item.name);
-      if (id) update.run(item.description, item.price, item.category, item.image, item.popular, id);
-      else insert.run(item.name, item.description, item.price, item.category, item.image, item.popular);
+      if (!id) insert.run(item.name, item.description, item.price, item.category, item.image, item.popular);
+      else updateBrokenImage.run(item.image, id, ...brokenImages);
     }
-    for (const item of existing) if (!activeNames.has(item.name)) deactivate.run(item.name);
   });
   transaction();
 }

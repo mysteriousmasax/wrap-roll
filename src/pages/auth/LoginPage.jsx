@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowRight, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../../store/useAuthStore';
 import { ApiError } from '../../api/client';
@@ -8,6 +8,7 @@ import BrandLogo from '../../components/brand/BrandLogo';
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const login = useAuthStore((s) => s.login);
@@ -49,8 +50,7 @@ export default function LoginPage() {
       <div className="mx-auto flex max-w-6xl overflow-hidden rounded-[30px] border border-[#f3e5d7] bg-white shadow-[0_30px_80px_rgba(36,33,30,0.12)]">
         <div className="hidden w-1/2 bg-[#161311] p-10 text-white lg:flex lg:flex-col lg:justify-between">
           <div>
-            <div className="mb-8 inline-flex items-center gap-3 rounded-full border border-[#f2d77a] bg-white/5 px-3 py-2 text-sm font-semibold uppercase tracking-[0.18em] text-[#f5d777]">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#f5d777] text-[#1a120f] font-black">W</span>
+            <div className="mb-8">
               <BrandLogo className="login-brand-logo-on-dark" variant="dark" />
             </div>
             <h1 className="max-w-md font-[Georgia] text-5xl font-bold leading-none text-white">Fresh meals, better service.</h1>
@@ -92,12 +92,21 @@ export default function LoginPage() {
                   <LockKeyhole size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8a817a]" />
                   <input
                     autoComplete="current-password"
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    className="w-full rounded-2xl border border-[#e5d4bf] bg-white py-3 pl-10 pr-4 text-sm text-[#1f1f1f] outline-none transition focus:border-[#e00000] focus:ring-4 focus:ring-[#f9d7d7]"
+                    className="w-full rounded-2xl border border-[#e5d4bf] bg-white py-3 pl-10 pr-12 text-sm text-[#1f1f1f] outline-none transition focus:border-[#e00000] focus:ring-4 focus:ring-[#f9d7d7]"
                     placeholder="Enter your PIN or password"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((visible) => !visible)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1 text-[#8a817a] transition hover:bg-[#fff3dc] hover:text-[#e00000]"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                  </button>
                 </div>
               </label>
 
