@@ -10,6 +10,7 @@ export default function ChatInbox({ onClose }) {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [sending, setSending] = useState(false);
 
   const loadConversations = () => api.getChatConversations().then(({ conversations: saved }) => {
     setConversations(saved);
@@ -25,9 +26,17 @@ export default function ChatInbox({ onClose }) {
   const reply = async (conversationId) => {
     const message = drafts[conversationId]?.trim();
     if (!message) return;
-    const created = await api.sendChatReply(conversationId, message);
-    setConversations((current) => current.map((conversation) => conversation.id === conversationId ? { ...conversation, messages: [...conversation.messages, created] } : conversation));
-    setDrafts((current) => ({ ...current, [conversationId]: '' }));
+    setSending(true);
+    setLoadError('');
+    try {
+      const created = await api.sendChatReply(conversationId, message);
+      setConversations((current) => current.map((conversation) => conversation.id === conversationId ? { ...conversation, messages: [...conversation.messages, created] } : conversation));
+      setDrafts((current) => ({ ...current, [conversationId]: '' }));
+    } catch (error) {
+      setLoadError(error.message || 'Unable to send the reply.');
+    } finally {
+      setSending(false);
+    }
   };
 
   const formatTime = (value) => {
@@ -79,7 +88,7 @@ export default function ChatInbox({ onClose }) {
               {selectedMessages.length === 0 && <p className="kds-chat-empty">No messages yet. Reply to start the conversation.</p>}
               {selectedMessages.map((message) => <div className={`kds-chat-bubble-row ${message.from === 'customer' ? 'from-customer' : 'from-staff'}`} key={message.id}><p className={message.from === 'customer' ? 'customer-message' : 'agent-message'}>{renderMessageContent(message)}</p></div>)}
             </div>
-            <form className="kds-chat-active-form" onSubmit={(event) => { event.preventDefault(); reply(selectedConversation.id); }}><input value={selectedDraft} onChange={(event) => setDrafts((current) => ({ ...current, [selectedConversation.id]: event.target.value }))} placeholder="Type a message" /><button type="submit" aria-label="Send reply"><Send size={16} /></button></form>
+            <form className="kds-chat-active-form" onSubmit={(event) => { event.preventDefault(); reply(selectedConversation.id); }}><input type="text" inputMode="text" enterKeyHint="send" autoComplete="off" value={selectedDraft} onChange={(event) => setDrafts((current) => ({ ...current, [selectedConversation.id]: event.target.value }))} placeholder="Type a message" aria-label="Reply to customer" disabled={sending} /><button type="submit" aria-label="Send reply" disabled={sending || !selectedDraft.trim()}><Send size={16} /></button></form>
           </>}
         </div>
       </div>}

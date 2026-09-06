@@ -8,6 +8,7 @@ import useOrderStore from '../../store/useOrderStore';
 import useNotificationStore from '../../store/useNotificationStore';
 import useSettingsStore from '../../store/useSettingsStore';
 import ChatInbox from '../kds/ChatInbox';
+import { MessageCircle } from 'lucide-react';
 
 const pageTitles = {
   '/pos': 'POS Till',
@@ -102,7 +103,7 @@ export default function DashboardLayout() {
           <Outlet />
         </main>
       </div>
-      {!supportOpen && <button className="global-support-fab" onClick={() => setSupportOpen(true)} aria-label="Open customer support">Customer chats</button>}
+      {!supportOpen && <button className="global-support-fab" onClick={() => setSupportOpen(true)} aria-label="Open customer support" title="Customer chats"><MessageCircle size={18} /><span>Customer chats</span></button>}
       {supportOpen && <aside ref={supportDrawerRef} className="global-support-drawer"><ChatInbox onClose={() => setSupportOpen(false)} /></aside>}
     </div>
   );

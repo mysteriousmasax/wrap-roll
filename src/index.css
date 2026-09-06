@@ -1274,6 +1274,15 @@ button, input, select, textarea { max-width: 100%; }
   .payment-page .max-w-2xl { width: 100%; padding: 1rem; }
 }
 
+@media (min-width: 768px) and (max-width: 900px) {
+  .global-support-drawer,
+  .kds-support-drawer { top: 70px; right: 12px; bottom: 12px; left: 12px; }
+  .global-support-drawer .kds-chat-layout,
+  .kds-support-drawer .kds-chat-layout { grid-template-columns: 230px minmax(0, 1fr); }
+  .global-support-drawer .kds-chat-contact,
+  .kds-support-drawer .kds-chat-contact { display: grid !important; margin-left: auto; }
+}
+
 @media (max-width: 1100px) {
   .public-header {
     height: 76px;
@@ -1471,7 +1480,7 @@ button, input, select, textarea { max-width: 100%; }
 .customer-chat-image-preview span { color: #746e67; }
 .customer-chat-image-preview button { display: grid; place-items: center; border: 0; background: transparent; color: #ae002a; cursor: pointer; }
 .global-support-fab { position: fixed; right: 22px; bottom: 24px; z-index: 40; padding: 12px 17px; border: 0; border-radius: 999px; background: #ae002a; color: #fff; box-shadow: 0 10px 24px rgba(96,0,24,.28); font-size: 12px; font-weight: 800; cursor: pointer; }
-.global-support-drawer { position: fixed; top: 82px; right: 22px; bottom: 24px; left: max(300px, calc(100vw - 842px)); z-index: 39; overflow: hidden; border-radius: 18px; box-shadow: 0 18px 48px rgba(36,33,30,.22); }
+.global-support-drawer { position: fixed; top: 82px; right: 22px; bottom: 24px; left: max(300px, calc(100vw - 842px)); z-index: 39; min-width: 0; min-height: 0; overflow: hidden; border-radius: 18px; box-shadow: 0 18px 48px rgba(36,33,30,.22); }
 .global-support-drawer .kds-chat-inbox { height: 100%; max-height: none; margin: 0; grid-template-columns: 1fr; align-content: start; overflow-y: auto; }
 .global-support-drawer .kds-chat-inbox-heading { grid-column: auto; }
 .kds-chat-attachment-image { display: block; max-width: 220px; max-height: 150px; margin-top: 5px; border-radius: 8px; object-fit: cover; }
@@ -1480,7 +1489,7 @@ button, input, select, textarea { max-width: 100%; }
 
 @media (max-width: 767px) {
   .global-support-fab { right: 14px; bottom: 16px; }
-  .global-support-drawer { top: 70px; right: 10px; bottom: 10px; left: 10px; }
+  .global-support-drawer { top: 58px; right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); left: 8px; height: calc(100dvh - 66px - env(safe-area-inset-bottom)); max-height: none; border-radius: 14px; }
 }
 
 /* KDS support inbox: conversation bubbles instead of flat message rows. */
@@ -1588,6 +1597,7 @@ button, input, select, textarea { max-width: 100%; }
 .kds-chat-list-time { align-self: start; color: #988b80; font-size: 8px; white-space: nowrap; }
 .kds-chat-active { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; min-height: 0; background: #efe8df; }
 .kds-chat-active-header { display: flex; align-items: center; gap: 9px; padding: 12px 16px; border-bottom: 1px solid #e2d8cc; background: #fffdf9; }
+.kds-chat-active-header > div:nth-child(2) { min-width: 0; }
 .kds-chat-active-header div { display: grid; gap: 2px; min-width: 0; }
 .kds-chat-active-header strong { font-size: 12px; }
 .kds-chat-active-header small { color: #227653; font-size: 9px; }
@@ -1597,13 +1607,55 @@ button, input, select, textarea { max-width: 100%; }
 .kds-chat-active-form { display: flex; gap: 8px; padding: 10px 12px; background: #fffdf9; border-top: 1px solid #e2d8cc; }
 .kds-chat-active-form input { min-width: 0; flex: 1; padding: 10px 12px; border: 1px solid #ddd1be; border-radius: 20px; background: #f7f3ed; font-size: 11px; }
 .kds-chat-active-form button { width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 36px; border: 0; border-radius: 50%; background: #ae002a; color: #fff; cursor: pointer; }
+.kds-chat-active-form button:disabled { cursor: not-allowed; opacity: .45; }
 
 @media (max-width: 767px) {
   .kds-support-fab { right: 14px; bottom: 16px; padding-inline: 14px; }
-  .kds-support-drawer { top: 70px; left: 10px; right: 10px; bottom: 10px; }
+  .kds-support-drawer { top: 58px; left: 8px; right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); height: calc(100dvh - 66px - env(safe-area-inset-bottom)); max-height: none; border-radius: 14px; }
   .kds-chat-contact { display: grid !important; margin-left: 0; margin-top: 4px; }
   .kds-chat-layout { grid-template-columns: 1fr; }
   .kds-chat-list { max-height: 190px; border-right: 0; border-bottom: 1px solid #eadfd2; }
   .kds-chat-active { min-height: 300px; }
+}
+
+@media (max-width: 767px) {
+  .kds-page { width: 100%; min-width: 0; overflow: visible; }
+  .kds-command-bar { width: auto; min-width: 0; margin: 8px; padding: 12px; gap: 10px; }
+  .kds-command-bar > div:first-child { width: 100%; min-width: 0; }
+  .kds-command-bar h1 { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; }
+  .kds-command-bar > div:nth-child(2) { width: 100%; min-width: 0; overflow-x: auto; }
+  .kds-command-bar > div:nth-child(2) button { flex: 0 0 auto; }
+  .kds-command-bar > div:last-child { width: 100%; min-width: 0; gap: 6px; }
+  .kds-command-bar > div:last-child span { flex: 1 1 auto; min-width: 0; text-align: center; }
+  .kds-workspace { width: 100%; min-width: 0; padding: 8px; }
+  .kds-ticket-board { width: 100%; min-width: 0; gap: 8px; }
+  .kds-lane { width: 100%; min-width: 0; }
+  .global-support-fab { right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); width: 46px; height: 46px; padding: 0; justify-content: center; border-radius: 50%; }
+  .global-support-fab span { display: none; }
+}
+
+@media (max-width: 767px) {
+  .global-support-drawer .kds-chat-inbox,
+  .kds-support-drawer .kds-chat-inbox { padding: 10px; gap: 10px; }
+  .global-support-drawer .kds-chat-inbox-heading,
+  .kds-support-drawer .kds-chat-inbox-heading { align-items: flex-start; }
+  .global-support-drawer .kds-chat-inbox-heading > div:first-child,
+  .kds-support-drawer .kds-chat-inbox-heading > div:first-child { min-width: 0; }
+  .global-support-drawer .kds-chat-inbox-heading h2,
+  .kds-support-drawer .kds-chat-inbox-heading h2 { font-size: 14px; line-height: 1.2; }
+  .global-support-drawer .kds-chat-layout,
+  .kds-support-drawer .kds-chat-layout { display: grid; grid-template-rows: minmax(112px, 30dvh) minmax(0, 1fr); height: 100%; margin: 0 -10px -10px; }
+  .global-support-drawer .kds-chat-list,
+  .kds-support-drawer .kds-chat-list { max-height: none; min-height: 0; overflow-y: auto; border-right: 0; border-bottom: 1px solid #eadfd2; }
+  .global-support-drawer .kds-chat-active,
+  .kds-support-drawer .kds-chat-active { min-height: 0; }
+  .global-support-drawer .kds-chat-active-header,
+  .kds-support-drawer .kds-chat-active-header { flex-wrap: wrap; padding: 10px 12px; }
+  .global-support-drawer .kds-chat-contact,
+  .kds-support-drawer .kds-chat-contact { width: 100%; margin-left: 39px; }
+  .global-support-drawer .kds-chat-active-thread,
+  .kds-support-drawer .kds-chat-active-thread { padding: 12px; }
+  .global-support-drawer .kds-chat-active-form,
+  .kds-support-drawer .kds-chat-active-form { padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
 }
 
