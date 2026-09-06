@@ -42,6 +42,10 @@ export default function DashboardLayout() {
   const fetchNotifications = useNotificationStore((s) => s.fetchNotifications);
 
   useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
     if (!supportOpen) return undefined;
     const closeOnOutsideClick = (event) => {
       if (!supportDrawerRef.current?.contains(event.target)) setSupportOpen(false);
