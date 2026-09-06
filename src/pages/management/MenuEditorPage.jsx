@@ -443,6 +443,28 @@ export default function MenuEditorPage() {
     }
   };
 
+  const exportAllMenuBooks = async () => {
+    if (menuExporting) return;
+    setMenuExporting('all');
+    try {
+      for (const format of ['pdf', 'docx', 'pptx', 'xlsx']) {
+        const result = await api.exportMenuBook(format);
+        const url = URL.createObjectURL(result.blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = result.filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      setLoadError(error.message || 'Unable to download all menu documents.');
+    } finally {
+      setMenuExporting('');
+    }
+  };
+
   const downloadMenuImage = async (item) => {
     if (!item.image) return;
     try {
@@ -477,10 +499,11 @@ export default function MenuEditorPage() {
               <button type="button" onClick={() => { setPreviewFormat('pdf'); setShowMenuPreview(true); }} className="rounded-lg px-2 py-1.5 text-[10px] font-bold text-[#ae002a] hover:bg-[#faeee2]">Preview</button>
               {[
                 ['pdf', 'PDF'],
-                ['pptx', 'PPT'],
-                ['xlsx', 'Excel'],
-                ['docx', 'Word'],
+                ['docx', 'DOCX'],
+                ['pptx', 'PPTX'],
+                ['xlsx', 'XLSX'],
               ].map(([format, label]) => <button key={format} type="button" onClick={() => exportMenuBook(format)} disabled={Boolean(menuExporting)} className="rounded-lg px-2 py-1.5 text-[10px] font-bold text-[#ae002a] hover:bg-[#faeee2] disabled:opacity-50">{menuExporting === format ? '...' : label}</button>)}
+              <button type="button" onClick={exportAllMenuBooks} disabled={Boolean(menuExporting)} className="rounded-lg bg-[#ae002a] px-2 py-1.5 text-[10px] font-bold text-white hover:bg-[#920023] disabled:opacity-50">{menuExporting === 'all' ? '...' : 'All files'}</button>
             </div>
             <Button
               size="sm"
@@ -505,7 +528,7 @@ export default function MenuEditorPage() {
       />
 
       <Modal isOpen={showMenuPreview} onClose={() => setShowMenuPreview(false)} title="Menu book preview" size="xl">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ebdccb] bg-[#fffaf4] p-2"><div className="flex gap-1">{[['pdf', 'PDF'], ['pptx', 'PowerPoint'], ['xlsx', 'Excel'], ['docx', 'Word']].map(([format, label]) => <button key={format} type="button" onClick={() => setPreviewFormat(format)} className={'rounded-lg px-3 py-2 text-[10px] font-bold transition-colors ' + (previewFormat === format ? 'bg-[#ae002a] text-white' : 'text-[#ae002a] hover:bg-[#faeee2]')}>{label}</button>)}</div><p className="px-2 text-[10px] text-[#786a62]">Preview matches the selected saved format</p></div>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ebdccb] bg-[#fffaf4] p-2"><div className="flex gap-1">{[['pdf', 'PDF'], ['pptx', 'PPTX'], ['xlsx', 'XLSX'], ['docx', 'DOCX']].map(([format, label]) => <button key={format} type="button" onClick={() => setPreviewFormat(format)} className={'rounded-lg px-3 py-2 text-[10px] font-bold transition-colors ' + (previewFormat === format ? 'bg-[#ae002a] text-white' : 'text-[#ae002a] hover:bg-[#faeee2]')}>{label}</button>)}</div><button type="button" onClick={exportAllMenuBooks} disabled={Boolean(menuExporting)} className="rounded-lg bg-[#ae002a] px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">{menuExporting === 'all' ? 'Preparing files...' : 'Download all files'}</button><p className="px-2 text-[10px] text-[#786a62]">Preview matches the selected saved format</p></div>
         <div className="mb-4 rounded-xl border border-[#ead8c9] bg-white px-4 py-3"><p className="text-xs font-bold text-[#292522]">{previewFormat === 'pdf' ? 'Print-ready menu pages' : previewFormat === 'pptx' ? 'Presentation deck: cover plus category slides' : previewFormat === 'xlsx' ? 'Workbook preview: catalog sheet plus add-ons sheet' : 'Word document preview: branded headings and category tables'}</p><p className="mt-1 text-[10px] text-[#786a62]">Live active menu data · {items.filter((item) => item.active).length} available items · prices in TZS</p></div>
         <div className={'rounded-2xl p-3 sm:p-6 ' + (previewFormat === 'pptx' ? 'bg-[#292522]' : previewFormat === 'xlsx' ? 'bg-[#e9f1e7]' : previewFormat === 'docx' ? 'bg-[#e6e6e6]' : 'bg-[#302e2c]')}>
           <div className={'overflow-hidden rounded-sm bg-[#f7f3ec] shadow-[0_18px_45px_rgba(0,0,0,0.28)] ' + (previewFormat === 'xlsx' ? 'ring-4 ring-[#227653]/20' : previewFormat === 'docx' ? 'ring-4 ring-[#2d5b9c]/20' : previewFormat === 'pptx' ? 'ring-4 ring-[#e37b22]/20' : 'ring-4 ring-[#ae002a]/10')}>

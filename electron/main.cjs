@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, session } = require('electron');
+const { app, BrowserWindow, dialog, session, screen } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
@@ -6,6 +6,7 @@ const fs = require('fs');
 
 const PORT = Number(process.env.WRAP_ROLL_PORT || 3100);
 let serverProcess;
+let posWindows = [];
 
 function requestHealth() {
   return new Promise((resolve) => {
@@ -61,8 +62,9 @@ function startServer() {
   });
 }
 
-async function createWindow() {
-  const appUrl = app.isPackaged ? 'https://wrapandrolltz.com/login' : `http://127.0.0.1:${PORT}/login`;
+async function createWindow(role, display, partition) {
+  const baseUrl = app.isPackaged ? 'https://wrapandrolltz.com' : `http://127.0.0.1:${PORT}`;
+  const appUrl = `${baseUrl}/${role}`;
   if (!app.isPackaged) {
     startServer();
     const ready = await waitForServer();
@@ -74,8 +76,12 @@ async function createWindow() {
   }
 
   const window = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    x: display.bounds.x,
+    y: display.bounds.y,
+    width: display.bounds.width,
+    height: display.bounds.height,
+    fullscreen: true,
+    title: role === 'pos' ? 'Wrap & Roll POS · FOH' : 'Wrap & Roll POS · KDS',
     minWidth: 1024,
     minHeight: 700,
     backgroundColor: '#fffdfa',
@@ -84,18 +90,39 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      partition,
     },
   });
 
   await window.loadURL(appUrl);
   window.once('ready-to-show', () => window.show());
+  window.on('closed', () => {
+    posWindows = posWindows.filter((entry) => entry !== window);
+  });
+  posWindows.push(window);
 }
 
 app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
-  await createWindow();
+  if (!app.isPackaged) {
+    startServer();
+    const ready = await waitForServer();
+    if (!ready) {
+      dialog.showErrorBox('Wrap & Roll POS could not start', 'The local POS service did not become ready. Restart the application and try again.');
+      app.quit();
+      return;
+    }
+  }
+  const displays = screen.getAllDisplays();
+  const primary = screen.getPrimaryDisplay();
+  const secondary = displays.find((display) => display.id !== primary.id) || primary;
+  await createWindow('pos', primary, 'persist:wrap-roll-foh');
+  await createWindow('kds', secondary, 'persist:wrap-roll-kds');
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow('pos', primary, 'persist:wrap-roll-foh');
+      createWindow('kds', secondary, 'persist:wrap-roll-kds');
+    }
   });
 });
 

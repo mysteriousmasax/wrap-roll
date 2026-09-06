@@ -10,6 +10,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const PptxGenJS = require('pptxgenjs');
 const logoPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public/wrap-roll-logo-lockup-transparent.png');
+const lightLogoPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public/wrap-roll-logo-light-transparent.png');
 const heroPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public/hero-food.jpg');
 const brand = { red: 'B0003A', gold: 'D99A22', cream: 'FFF9F1', ink: '292522', muted: '786A62' };
 
@@ -29,7 +30,25 @@ function price(item) {
   return `TZS ${Number(item.price || 0).toLocaleString()}`;
 }
 
-function pdfBuffer(items) {
+async function loadImageBuffer(source) {
+  if (typeof source !== 'string' || !source) return null;
+  try {
+    if (source.startsWith('data:')) {
+      const match = source.match(/^data:image\/[^;]+;base64,(.+)$/s);
+      return match ? Buffer.from(match[1], 'base64') : null;
+    }
+    if (/^https?:\/\//i.test(source)) {
+      const response = await fetch(source);
+      if (!response.ok) return null;
+      return Buffer.from(await response.arrayBuffer());
+    }
+  } catch (error) {
+    console.warn('Menu image could not be embedded:', error.message);
+  }
+  return null;
+}
+
+async function pdfBuffer(items) {
   return new Promise((resolve) => {
     const document = new PDFDocument({ size: 'A4', margin: 36 });
     const chunks = [];
@@ -38,12 +57,18 @@ function pdfBuffer(items) {
     const groups = groupItems(items);
     const logo = readFileSync(logoPath);
     const hero = readFileSync(heroPath);
+    const imageBuffers = new Map();
+
+    Promise.all(items.map(async (item) => {
+      const buffer = await loadImageBuffer(item.image);
+      if (buffer) imageBuffers.set(item.id, buffer);
+    })).then(() => {
 
     document.rect(0, 0, 595, 842).fill(`#${brand.cream}`);
-    document.image(logo, 48, 48, { fit: [210, 60] });
+    document.image(logo, 48, 48, { fit: [250, 68] });
     document.save();
     document.roundedRect(350, 55, 195, 285, 18).clip();
-    document.image(hero, 350, 55, { cover: [195, 285] });
+    document.image(imageBuffers.get(items.find((item) => item.image)?.id) || hero, 350, 55, { cover: [195, 285] });
     document.restore();
     document.fillColor(`#${brand.red}`).fontSize(11).font('Helvetica-Bold').text('THE WRAP & ROLL MENU BOOK', 48, 150);
     document.fillColor(`#${brand.ink}`).fontSize(34).font('Helvetica-Bold').text('Fresh food,\nmade your way.', 48, 178, { width: 350 });
@@ -54,28 +79,44 @@ function pdfBuffer(items) {
     document.fillColor(`#${brand.gold}`).fontSize(10).text('wrapandrolltz.com', 48, 770);
     document.fillColor(`#${brand.muted}`).fontSize(9).text('Always fresh. Always made for you.', 48, 787);
 
-    Object.entries(groups).forEach(([category, categoryItems], categoryIndex) => {
+    let y = 54;
+    let pageNumber = 1;
+    const startMenuPage = () => {
       document.addPage({ size: 'A4', margin: 36 });
+      pageNumber += 1;
       document.rect(0, 0, 595, 842).fill(`#${brand.cream}`);
-      document.rect(0, 0, 595, 82).fill(`#${brand.red}`);
-      document.fillColor('#FFFFFF').fontSize(24).font('Helvetica-Bold').text(categoryLabel(category), 42, 32);
-      document.fillColor(`#${brand.gold}`).fontSize(9).font('Helvetica-Bold').text(`SECTION ${String(categoryIndex + 1).padStart(2, '0')}  /  WRAP & ROLL`, 420, 38, { width: 130, align: 'right' });
-      let y = 120;
+      y = 54;
+    };
+    const drawCategoryHeading = (category, categoryIndex) => {
+      document.fillColor(`#${brand.red}`).font('Helvetica-Bold').fontSize(9).text(`SECTION ${String(categoryIndex + 1).padStart(2, '0')}  /  WRAP & ROLL`, 42, y, { width: 510, align: 'right' });
+      document.fillColor(`#${brand.ink}`).font('Helvetica-Bold').fontSize(23).text(categoryLabel(category), 42, y + 15);
+      document.moveTo(42, y + 47).lineTo(553, y + 47).strokeColor(`#${brand.red}`).lineWidth(1.5).stroke();
+      y += 64;
+    };
+
+    startMenuPage();
+    Object.entries(groups).forEach(([category, categoryItems], categoryIndex) => {
+      if (y > 690) startMenuPage();
+      drawCategoryHeading(category, categoryIndex);
       categoryItems.forEach((item, index) => {
-        if (y > 755) { document.addPage({ size: 'A4', margin: 36 }); y = 55; }
+        if (index % 2 === 0 && y > 670) startMenuPage();
         const column = index % 2;
-        const row = Math.floor(index / 2);
         const x = column ? 315 : 42;
-        const rowY = y + (row % 6) * 105;
-        if (column === 0 && row > 0 && row % 6 === 0) y += 630;
-        document.roundedRect(x, rowY, 238, 82, 10).fill('#FFFFFF').stroke(`#EAD8C9`);
-        document.fillColor(`#${brand.ink}`).font('Helvetica-Bold').fontSize(11).text(item.name, x + 14, rowY + 14, { width: 150, ellipsis: true });
-        document.fillColor(`#${brand.red}`).fontSize(11).font('Helvetica-Bold').text(price(item), x + 14, rowY + 40);
-        document.fillColor(`#${brand.muted}`).font('Helvetica').fontSize(8).text(item.description || 'Freshly prepared with Wrap & Roll ingredients.', x + 14, rowY + 58, { width: 200, height: 18, ellipsis: true });
+        const rowY = y;
+        document.roundedRect(x, rowY, 238, 112, 10).fill('#FFFFFF').stroke(`#EAD8C9`);
+        const image = imageBuffers.get(item.id);
+        if (image) document.image(image, x + 14, rowY + 14, { fit: [76, 76] });
+        const contentX = image ? x + 102 : x + 14;
+        const contentWidth = image ? 126 : 200;
+        document.fillColor(`#${brand.ink}`).font('Helvetica-Bold').fontSize(12).text(item.name, contentX, rowY + 14, { width: contentWidth, height: 30, ellipsis: true });
+        document.fillColor(`#${brand.red}`).fontSize(12).font('Helvetica-Bold').text(price(item), contentX, rowY + 48, { width: contentWidth, ellipsis: true });
+        document.fillColor(`#${brand.muted}`).font('Helvetica').fontSize(9).text(item.description || 'Freshly prepared with Wrap & Roll ingredients.', contentX, rowY + 70, { width: contentWidth, height: 28, ellipsis: true });
+        if (column === 1 || index === categoryItems.length - 1) y += 130;
       });
-      document.fillColor(`#${brand.muted}`).fontSize(8).text('Prices are in Tanzanian Shillings. Ask our team about customizations and availability.', 42, 805);
     });
-    document.end();
+    document.fillColor(`#${brand.muted}`).fontSize(8).text(`Prices are in Tanzanian Shillings. Ask our team about customizations and availability.  ·  Page ${pageNumber}`, 42, 805);
+      document.end();
+    });
   });
 }
 
