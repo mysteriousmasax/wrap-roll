@@ -1064,6 +1064,10 @@
 .dashboard-sidebar { background: #fffdf9 !important; border-right: 1px solid #eadfd2; box-shadow: 4px 0 18px rgba(62,39,24,.06); }
 .dashboard-sidebar > div:first-child { padding: 18px 16px; border-bottom-color: #eee4d9; }
 .dashboard-sidebar .brand-logo { width: 156px; height: 42px; }
+.dashboard-sidebar-compact > div:first-child { justify-content: center; padding: 12px 8px; }
+.dashboard-sidebar-compact .dashboard-brand-logo { width: 32px; height: 32px; border-radius: 6px; }
+.dashboard-sidebar-compact .dashboard-brand-logo .brand-logo-art { background-size: contain; }
+.dashboard-sidebar-compact .dashboard-brand-logo + p { display: none; }
 .dashboard-sidebar .text-surface-on-variant { color: #8a7c70; }
 .dashboard-sidebar nav { padding: 12px 10px; }
 .dashboard-sidebar nav a { min-height: 44px; border-radius: 9px; color: #665a50; font-weight: 700; }

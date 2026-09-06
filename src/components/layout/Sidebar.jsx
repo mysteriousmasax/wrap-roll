@@ -144,6 +144,7 @@ export default function Sidebar({ isOpen, onClose, compact, onToggleCollapse }) 
         ref={sidebarRef}
         className={clsx(
           'dashboard-sidebar bg-white border-r border-outline-variant flex flex-col h-screen z-50 transition-all duration-300',
+          compact ? 'dashboard-sidebar-compact' : '',
           compact ? 'w-16' : 'w-60',
           compact ? 'relative' : '',
           // Mobile: fixed overlay that slides in/out
