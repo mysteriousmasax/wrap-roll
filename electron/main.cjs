@@ -7,6 +7,11 @@ const fs = require('fs');
 const PORT = Number(process.env.WRAP_ROLL_PORT || 3100);
 let serverProcess;
 let posWindows = [];
+const hasSingleInstance = app.requestSingleInstanceLock();
+
+if (!hasSingleInstance) {
+  app.quit();
+}
 
 function requestHealth() {
   return new Promise((resolve) => {
@@ -62,25 +67,16 @@ function startServer() {
   });
 }
 
-async function createWindow(role, display, partition) {
+async function createWindow(role, bounds, partition) {
   const baseUrl = app.isPackaged ? 'https://wrapandrolltz.com' : `http://127.0.0.1:${PORT}`;
   const appUrl = `${baseUrl}/${role}`;
-  if (!app.isPackaged) {
-    startServer();
-    const ready = await waitForServer();
-    if (!ready) {
-      dialog.showErrorBox('Wrap & Roll POS could not start', 'The local POS service did not become ready. Restart the application and try again.');
-      app.quit();
-      return;
-    }
-  }
 
   const window = new BrowserWindow({
-    x: display.bounds.x,
-    y: display.bounds.y,
-    width: display.bounds.width,
-    height: display.bounds.height,
-    fullscreen: true,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    fullscreen: false,
     title: role === 'pos' ? 'Wrap & Roll POS · FOH' : 'Wrap & Roll POS · KDS',
     minWidth: 1024,
     minHeight: 700,
@@ -116,12 +112,19 @@ app.whenReady().then(async () => {
   const displays = screen.getAllDisplays();
   const primary = screen.getPrimaryDisplay();
   const secondary = displays.find((display) => display.id !== primary.id) || primary;
-  await createWindow('pos', primary, 'persist:wrap-roll-foh');
-  await createWindow('kds', secondary, 'persist:wrap-roll-kds');
+  const primaryBounds = primary.bounds;
+  const fohBounds = displays.length > 1
+    ? primaryBounds
+    : { x: primaryBounds.x, y: primaryBounds.y, width: Math.floor(primaryBounds.width / 2), height: primaryBounds.height };
+  const kdsBounds = displays.length > 1
+    ? secondary.bounds
+    : { x: primaryBounds.x + Math.floor(primaryBounds.width / 2), y: primaryBounds.y, width: primaryBounds.width - Math.floor(primaryBounds.width / 2), height: primaryBounds.height };
+  await createWindow('pos', fohBounds, 'persist:wrap-roll-foh');
+  await createWindow('kds', kdsBounds, 'persist:wrap-roll-kds');
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow('pos', primary, 'persist:wrap-roll-foh');
-      createWindow('kds', secondary, 'persist:wrap-roll-kds');
+      createWindow('pos', fohBounds, 'persist:wrap-roll-foh');
+      createWindow('kds', kdsBounds, 'persist:wrap-roll-kds');
     }
   });
 });
