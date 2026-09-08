@@ -76,15 +76,19 @@ function getCurrentPeriodRevenue(start, end) {
 
 function getOperationalSummaries() {
   const now = new Date();
-  const today = now.toISOString().slice(0, 10);
-  const weekStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6)).toISOString().slice(0, 10);
+  const latestOrderDay = db.prepare("SELECT MAX(substr(created_at, 1, 10)) AS day FROM orders WHERE status != 'cancelled'").get()?.day;
+  const reportDate = latestOrderDay || now.toISOString().slice(0, 10);
+  const reportDateValue = new Date(`${reportDate}T00:00:00Z`);
+  const weekStart = new Date(reportDateValue);
+  weekStart.setUTCDate(weekStart.getUTCDate() - 6);
+  const weekStartValue = weekStart.toISOString().slice(0, 10);
   const pettyCash = db.prepare(`
     SELECT id, description AS item, amount AS total, payment_method AS paymentMethod, expense_date AS date, supplier AS remarks
     FROM business_expenses
     WHERE expense_date >= ? AND status != 'rejected'
       AND (LOWER(category) LIKE '%petty%' OR LOWER(payment_method) = 'cash')
     ORDER BY expense_date DESC, id DESC LIMIT 7
-  `).all(weekStart);
+  `).all(weekStartValue);
   const dailySales = db.prepare(`
     SELECT oi.name AS item, SUM(oi.qty) AS quantity, SUM(oi.qty * oi.price) AS total,
       MAX(oi.price) AS price, COALESCE(i.quantity, 0) AS closingStock,
@@ -95,12 +99,13 @@ function getOperationalSummaries() {
     WHERE substr(o.created_at, 1, 10) = ? AND o.status != 'cancelled'
     GROUP BY oi.name, i.quantity
     ORDER BY total DESC LIMIT 24
-  `).all(today);
+  `).all(reportDate);
   return {
     pettyCash: pettyCash.map((row, index) => ({ id: row.id, item: row.item, rate: Number(row.total || 0), quantity: 1, total: Number(row.total || 0), date: row.date, remarks: row.remarks || row.paymentMethod || 'Cash expense', rowNumber: index + 1 })),
     dailySales: dailySales.map((row, index) => ({ id: `${today}-${index}`, date: today, item: row.item, quantity: Number(row.quantity || 0), openingStock: Number(row.openingStock || 0), closingStock: Number(row.closingStock || 0), price: Number(row.price || 0), difference: Number(row.openingStock || 0) - Number(row.closingStock || 0), total: Number(row.total || 0), remarks: 'Live order activity' })),
     pettyCashTotal: pettyCash.reduce((sum, row) => sum + Number(row.total || 0), 0),
     dailySalesTotal: dailySales.reduce((sum, row) => sum + Number(row.total || 0), 0),
+    reportDate,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -123,6 +128,9 @@ router.get('/summary', authMiddleware, (req, res) => {
 
   const todayRevenue = Number(todayTotals.revenue || 0);
   const avgOrder = todayOrders.length ? todayRevenue / todayOrders.length : 0;
+  const yesterdayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1)).toISOString();
+  const yesterdayTotals = getCurrentPeriodRevenue(yesterdayStart, todayStart);
+  const percentChange = (current, previous) => previous ? Number((((current - previous) / previous) * 100).toFixed(1)) : null;
   const allOrders = getLiveOrders();
   const channelMix = allOrders.reduce((mix, order) => {
     mix[order.order_type] = (mix[order.order_type] || 0) + 1;
@@ -146,6 +154,12 @@ router.get('/summary', authMiddleware, (req, res) => {
     readyOrders: activeOrders.filter((o) => o.status === 'ready').length,
     channelMix,
     channelPercentages,
+    changes: {
+      todayRevenue: percentChange(todayRevenue, Number(yesterdayTotals.revenue || 0)),
+      avgOrderValue: percentChange(avgOrder, yesterdayTotals.orders ? Number(yesterdayTotals.revenue || 0) / yesterdayTotals.orders : 0),
+      monthlyRevenue: percentChange(Number(monthTotals.revenue || 0), Number(getCurrentPeriodRevenue(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString(), monthStart).revenue || 0)),
+      activeKitchenOrders: null,
+    },
     operational: getOperationalSummaries(),
     ranges: summaryRanges,
   });
