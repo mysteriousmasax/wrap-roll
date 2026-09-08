@@ -102,7 +102,7 @@ function getOperationalSummaries() {
   `).all(reportDate);
   return {
     pettyCash: pettyCash.map((row, index) => ({ id: row.id, item: row.item, rate: Number(row.total || 0), quantity: 1, total: Number(row.total || 0), date: row.date, remarks: row.remarks || row.paymentMethod || 'Cash expense', rowNumber: index + 1 })),
-    dailySales: dailySales.map((row, index) => ({ id: `${today}-${index}`, date: today, item: row.item, quantity: Number(row.quantity || 0), openingStock: Number(row.openingStock || 0), closingStock: Number(row.closingStock || 0), price: Number(row.price || 0), difference: Number(row.openingStock || 0) - Number(row.closingStock || 0), total: Number(row.total || 0), remarks: 'Live order activity' })),
+    dailySales: dailySales.map((row, index) => ({ id: `${reportDate}-${index}`, date: reportDate, item: row.item, quantity: Number(row.quantity || 0), openingStock: Number(row.openingStock || 0), closingStock: Number(row.closingStock || 0), price: Number(row.price || 0), difference: Number(row.openingStock || 0) - Number(row.closingStock || 0), total: Number(row.total || 0), remarks: 'Live order activity' })),
     pettyCashTotal: pettyCash.reduce((sum, row) => sum + Number(row.total || 0), 0),
     dailySalesTotal: dailySales.reduce((sum, row) => sum + Number(row.total || 0), 0),
     reportDate,
