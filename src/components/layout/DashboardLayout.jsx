@@ -107,7 +107,7 @@ export default function DashboardLayout() {
           <Outlet />
         </main>
       </div>
-      {!supportOpen && <button className="global-support-fab" onClick={() => setSupportOpen(true)} aria-label="Open customer support" title="Customer chats"><MessageCircle size={18} /><span>Customer chats</span></button>}
+      {!supportOpen && <button className="global-support-fab" onClick={() => setSupportOpen(true)} aria-label="Open customer support" title="Customer chats"><MessageCircle size={19} /><span>Customer chats</span><i aria-hidden="true" /> </button>}
       {supportOpen && <aside ref={supportDrawerRef} className="global-support-drawer"><ChatInbox onClose={() => setSupportOpen(false)} /></aside>}
     </div>
   );
