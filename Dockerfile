@@ -21,6 +21,7 @@ COPY . .
 RUN npm run build
 
 # Runtime environment settings
+RUN mkdir -p /data
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV DB_PATH=/data/wraproll.db
