@@ -84,8 +84,8 @@ function AppRoutes() {
   }, [init]);
 
   useEffect(() => {
+    fetchSettings();
     if (isAuthenticated) {
-      fetchSettings();
       fetchNotifications();
     }
   }, [isAuthenticated, fetchSettings, fetchNotifications]);

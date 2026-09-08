@@ -102,7 +102,7 @@ export default function HomePage() {
   const heroHeadingRef = useRef(null);
   const menuHeadingRef = useRef(null);
 
-  const lipaNambaNumber = useSettingsStore((state) => state.settings.lipa_namba_number || '123456');
+  const lipaNambaNumber = useSettingsStore((state) => state.settings.lipa_namba_number || '45342017');
   const publicSettings = useSettingsStore((state) => state.settings);
   const lipaNambaAccountsValue = useSettingsStore((state) => state.settings.lipa_namba_accounts || '');
   const lipaNambaAccounts = (() => {

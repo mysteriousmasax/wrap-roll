@@ -31,7 +31,7 @@ function parseWeeklyHours(value) {
   return Object.fromEntries(WEEKDAYS.map(([key]) => [key, { closed: false, periods: [{ open: '07:00', close: '23:00' }] }]));
 }
 
-function readLipaAccounts(value, fallback = '123456') {
+function readLipaAccounts(value, fallback = '45342017') {
   try {
     const parsed = JSON.parse(value || '[]');
     if (Array.isArray(parsed) && parsed.length) return parsed.map((account) => ({ ...account, useInternalQr: account.useInternalQr !== false }));

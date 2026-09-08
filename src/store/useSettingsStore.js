@@ -18,7 +18,15 @@ const defaults = {
   payment_card: 'true',
   payment_mobile: 'true',
   payment_cash: 'true',
-  lipa_namba_number: '123456',
+  lipa_namba_number: '45342017',
+  lipa_namba_name: 'PETER JOSEPH MSIRA',
+  lipa_namba_provider: 'TIPS / Mixx by Yas',
+  lipa_namba_accounts: JSON.stringify([
+    { network: 'Mixx by Yas / TIPS', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*01#' },
+    { network: 'Vodacom M-Pesa', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*00#' },
+    { network: 'Airtel Money', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*60#' },
+    { network: 'Halopesa', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*88#' },
+  ]),
   public_animation_enabled: 'true',
   public_animation_style: 'lift',
   public_animation_duration: '650',
@@ -34,7 +42,12 @@ const useSettingsStore = create((set, get) => ({
       const settings = await api.getSettings();
       set({ settings: { ...defaults, ...settings }, loaded: true });
     } catch {
-      set({ loaded: true });
+      try {
+        const publicSettings = await api.getPublicSettings();
+        set({ settings: { ...defaults, ...publicSettings }, loaded: true });
+      } catch {
+        set({ loaded: true });
+      }
     }
   },
 
