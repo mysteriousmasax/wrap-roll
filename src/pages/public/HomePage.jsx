@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { animate, stagger, splitText } from 'animejs';
 import { useParams } from 'react-router-dom';
 import {
   ArrowRight,
@@ -21,7 +20,6 @@ import {
   Mail,
 } from 'lucide-react';
 import { api } from '../../api/client';
-import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency } from '../../utils/format';
 import BrandLogo from '../../components/brand/BrandLogo';
 import useSettingsStore from '../../store/useSettingsStore';
@@ -31,7 +29,6 @@ import LipaNambaPayment from '../../components/public/LipaNambaPayment';
 import LipaPaymentModal from '../../components/public/LipaPaymentModal';
 import RotatingText from '../../components/ui/RotatingText';
 import DepthText from '../../components/ui/DepthText';
-import DriftWall from '../../components/ui/DriftWall';
 
 const categories = [
   { key: 'allMenu', filter: 'all', label: 'All Menu' },
@@ -72,7 +69,7 @@ export default function HomePage() {
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const [language, setLanguage] = useState(() => localStorage.getItem('wraproll_language') || 'English');
   const [displayCurrency, setDisplayCurrency] = useState(
-    () => localStorage.getItem('wraproll_display_currency') || ''
+    () => localStorage.getItem('wraproll_display_currency') || 'TZS'
   );
   const t = useTranslation(language);
   const [outlet, setOutlet] = useState(restaurantLocation.label);
@@ -99,8 +96,6 @@ export default function HomePage() {
   const [mealQuantity, setMealQuantity] = useState(1);
   const [mealInstructions, setMealInstructions] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
-  const heroHeadingRef = useRef(null);
-  const menuHeadingRef = useRef(null);
 
   const lipaNambaNumber = useSettingsStore((state) => state.settings.lipa_namba_number || '45342017');
   const publicSettings = useSettingsStore((state) => state.settings);
@@ -116,7 +111,7 @@ export default function HomePage() {
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.qty, 0);
   const cartSubtotal = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const cartTax = cartSubtotal * (Number(publicSettings.tax_rate || 8) / 100);
+  const cartTax = cartSubtotal * 0.08;
 
   // Group menu items by category
   const menuByCategory = categories.reduce((acc, cat) => {
@@ -125,30 +120,9 @@ export default function HomePage() {
     return acc;
   }, {});
 
-  const displayHours = (() => {
-    try {
-      const schedule = JSON.parse(publicSettings.weekly_hours || '{}');
-      const today = schedule[new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: publicSettings.timezone || 'Africa/Dar_es_Salaam' }).format(new Date()).toLowerCase()];
-      if (today?.closed) return 'Closed today';
-      if (today?.periods?.length) return today.periods.map((period) => `${period.open} - ${period.close}`).join(' · ');
-    } catch {}
-    return publicSettings.operating_hours || '7:00 AM - 11:00 PM';
-  })();
-
-  useEffect(() => {
-    if (!localStorage.getItem('wraproll_currency_user_selected')) {
-      setDisplayCurrency(publicSettings.currency || 'TZS');
-    }
-  }, [publicSettings.currency]);
-
   useEffect(() => {
     api.getPublicMenu().then(setPublicMenu).catch(() => {});
   }, []);
-
-  useWebSocket((event, data) => {
-    if (event === 'menu:updated') api.getPublicMenu().then(setPublicMenu).catch(() => {});
-    if (event === 'settings:updated') useSettingsStore.setState((state) => ({ settings: { ...state.settings, ...data } }));
-  });
 
   useEffect(() => {
     api
@@ -157,52 +131,6 @@ export default function HomePage() {
         useSettingsStore.setState((state) => ({ settings: { ...state.settings, ...settings } }))
       )
       .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const heading = menuHeadingRef.current;
-    if (!heading || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
-
-    const splitter = splitText(heading, { words: true, chars: true });
-    const animation = animate(splitter.chars, {
-      y: [
-        { to: '-2.75rem', ease: 'outExpo', duration: 600 },
-        { to: 0, ease: 'outBounce', duration: 800, delay: 100 },
-      ],
-      rotate: { from: '-1turn', delay: 0 },
-      delay: stagger(50),
-      ease: 'inOutCirc',
-      loopDelay: 1000,
-      loop: true,
-    });
-
-    return () => {
-      animation.revert();
-      splitter.revert();
-    };
-  }, []);
-
-  useEffect(() => {
-    const heading = heroHeadingRef.current;
-    if (!heading || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
-
-    const splitter = splitText(heading, { words: true, chars: true });
-    const animation = animate(splitter.chars, {
-      y: [
-        { to: '-2.75rem', ease: 'outExpo', duration: 600 },
-        { to: 0, ease: 'outBounce', duration: 800, delay: 100 },
-      ],
-      rotate: { from: '-1turn', delay: 0 },
-      delay: stagger(50),
-      ease: 'inOutCirc',
-      loopDelay: 1000,
-      loop: true,
-    });
-
-    return () => {
-      animation.revert();
-      splitter.revert();
-    };
   }, []);
 
   useEffect(() => {
@@ -222,26 +150,14 @@ export default function HomePage() {
     localStorage.setItem('wraproll_customer_phone', customerPhone);
   }, [customerPhone]);
   useEffect(() => {
-    localStorage.setItem('wraproll_customer_name', customerName);
-  }, [customerName]);
-  useEffect(() => {
     localStorage.setItem('wraproll_customer_email', customerEmail);
   }, [customerEmail]);
   useEffect(() => {
     localStorage.setItem('wraproll_language', language);
   }, [language]);
   useEffect(() => {
-    if (localStorage.getItem('wraproll_currency_user_selected')) {
-      localStorage.setItem('wraproll_display_currency', displayCurrency);
-    }
+    localStorage.setItem('wraproll_display_currency', displayCurrency);
   }, [displayCurrency]);
-
-  const chooseCurrency = (currency) => {
-    localStorage.setItem('wraproll_currency_user_selected', 'true');
-    localStorage.setItem('wraproll_display_currency', currency);
-    setDisplayCurrency(currency);
-    setCurrencyOpen(false);
-  };
 
   const scrollTo = (id) => {
     setMobileMenuOpen(false);
@@ -470,21 +386,24 @@ export default function HomePage() {
               <div className="header-menu">
                 <button
                   onClick={() => {
-                    chooseCurrency('TZS');
+                    setDisplayCurrency('TZS');
+                    setCurrencyOpen(false);
                   }}
                 >
                   TZS (TSh)
                 </button>
                 <button
                   onClick={() => {
-                    chooseCurrency('USD');
+                    setDisplayCurrency('USD');
+                    setCurrencyOpen(false);
                   }}
                 >
                   USD ($)
                 </button>
                 <button
                   onClick={() => {
-                    chooseCurrency('KES');
+                    setDisplayCurrency('KES');
+                    setCurrencyOpen(false);
                   }}
                 >
                   KES (KSh)
@@ -512,36 +431,59 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Hero Section with Full Background Image */}
-      <section className="relative min-h-[580px] sm:min-h-[640px] flex items-center overflow-hidden" id="home">
-        {/* Background Image with Gentle Soft Contrast Overlay */}
-        <div className="absolute inset-0 z-0">
-          <img
-            src="/hero-food.jpg"
-            alt="Wrap & Roll Banner"
-            className="w-full h-full object-cover object-center brightness-[0.92]"
-          />
-          {/* Subtle soft dark tint so the food details, colors, and textures remain fully visible */}
-          <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/35 to-black/15" />
+      {/* Hero Section */}
+      <section className="hero-tablet min-h-screen w-full px-6 sm:px-12 py-20 flex items-center justify-start" id="home" style={{backgroundImage: 'linear-gradient(90deg, rgba(0,0,0,0.7), rgba(0,0,0,0.3)), url(/hero-food.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed'}}>
+        <div className="hero-copy space-y-5 max-w-xl">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#fde8d7] text-[#ae002a] text-xs font-bold uppercase tracking-wider">
+            <Sparkles size={14} className="text-[#e6ac29]" /> Fresh, Fast &amp; Delicious
+          </div>
+          <h1 className="text-4xl sm:text-6xl font-bold font-display text-[#1f1d1b] leading-[1.08] tracking-tight">
+            Craving Authentic <em className="not-italic text-[#ae002a]">Wraps &amp; Rolls?</em>
+          </h1>
+          <p className="hero-intro text-base sm:text-lg text-[#6f6861] leading-relaxed max-w-lg">
+            Freshly grilled proteins, crisp garden greens, and homemade signature sauces rolled to perfection in Dar es Salaam.
+          </p>
+
+          <div className="hero-actions flex flex-wrap items-center gap-3 pt-2">
+            <button
+              className="px-6 py-3.5 rounded-2xl bg-[#ae002a] hover:bg-[#920023] text-white font-bold text-sm shadow-md transition-transform active:scale-[0.98] inline-flex items-center gap-2"
+              onClick={() => scrollTo('menu')}
+            >
+              Explore Full Menu <ArrowRight size={17} />
+            </button>
+            <button
+              className="hidden tablet:inline-flex px-6 py-3.5 rounded-2xl bg-[#faeee2] hover:bg-[#f6e0cd] text-[#ae002a] font-bold text-sm transition-colors items-center gap-2 border border-[#ebdccb]"
+              onClick={() => scrollTo('visit')}
+            >
+              <MapPin size={16} /> Find Location
+            </button>
+          </div>
         </div>
 
-        {/* Hero Content */}
-        <div className="relative z-10 max-w-7xl mx-auto px-5 sm:px-8 lg:px-12 py-16 sm:py-24 lg:py-28 w-full">
-          <div className="max-w-2xl space-y-6">
-            <h1 ref={heroHeadingRef} className="hero-heading-animation text-[clamp(2.25rem,6vw,4.5rem)] font-bold font-display text-white leading-[1.06] tracking-tight drop-shadow-[0_4px_14px_rgba(0,0,0,0.85)]">
-              Craving Authentic <span className="text-[#ffc72c]">Wraps &amp; Rolls?</span>
-            </h1>
-            <p className="text-base sm:text-lg text-white leading-relaxed max-w-xl font-medium drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]">
-              Freshly grilled proteins, crisp garden greens, and homemade signature sauces rolled to perfection in Dar es Salaam.
-            </p>
+        <div className="hero-food-banner relative hidden lg:block">
+          <div className="relative overflow-hidden rounded-3xl shadow-2xl border-4 border-white aspect-[4/3]">
+            <img
+              src="/hero-food.jpg"
+              alt="Fresh Wrap and Roll Meal"
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <div className="absolute -bottom-4 -left-4 bg-[#fffdfa] border border-[#ebdccb] p-3.5 rounded-2xl shadow-xl flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#e6ac29] text-[#24211e] flex items-center justify-center font-black">
+              ★
+            </div>
+            <div>
+              <p className="text-xs font-bold text-[#1f1d1b]">100% Fresh Daily</p>
+              <p className="text-[10px] text-[#746e67]">Made fresh to order in minutes</p>
+            </div>
           </div>
         </div>
       </section>
 
       {/* Story Section */}
       <section className="story-section py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="story">
-        <div className="story-feature">
-          <div className="story-feature-image relative overflow-hidden rounded-3xl shadow-xl border-4 border-white">
+        <div className="grid grid-cols-1 tablet:grid-cols-2 lg:grid-cols-2 gap-10 items-center">
+          <div className="relative overflow-hidden rounded-3xl shadow-xl border-4 border-white aspect-video lg:aspect-square">
             <img
               src="/craft-story.jpg"
               alt="Handcrafted wraps"
@@ -549,34 +491,39 @@ export default function HomePage() {
             />
           </div>
 
-          <div className="story-promo">
-            <strong>wrap &amp; roll</strong>
-            <h3>Delivery &amp; Catering</h3>
-            <p>Freshness brought to your doorstep.<br />Perfect for meetings, events, or a cozy night in!</p>
+          <div className="story-copy space-y-4">
+            <p className="text-xs font-bold uppercase tracking-wider text-[#ae002a]">Our Craft</p>
+            <h2 className="text-3xl sm:text-4xl font-bold font-display text-[#1f1d1b]">
+              <RotatingText
+                texts={[
+                  'Fresh wraps crafted with passion.',
+                  'Real ingredients, zero shortcuts.',
+                  'Your daily delicious fuel.',
+                ]}
+                splitBy="words"
+                staggerFrom="last"
+                staggerDuration={0.025}
+                rotationInterval={2400}
+              />
+            </h2>
+            <p className="text-sm sm:text-base text-[#6f6861] leading-relaxed">
+              At Wrap &amp; Roll, we believe fast food should never mean compromising on quality. Every single wrap, roll, and salad is freshly prepared with locally sourced meats, crisp organic vegetables, and our house-made sauces.
+            </p>
             <button
-              className="story-menu-button"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#faeee2] text-[#ae002a] font-bold text-xs hover:bg-[#f6e0cd] transition-colors border border-[#ebdccb]"
               onClick={() => scrollTo('menu')}
             >
-              Order Now
-            </button>
-          </div>
-
-          <div className="story-copy space-y-4">
-            <p>{t('careEyebrow')}</p>
-            <h2>{t('careTitle')}</h2>
-            <p>{t('careBody')}</p>
-            <button className="story-menu-button inline-flex items-center gap-2 text-white" onClick={() => scrollTo('menu')}>
-              {t('checkMenu')} <ArrowRight size={15} />
+              Order Online Today <ArrowRight size={15} />
             </button>
           </div>
         </div>
       </section>
 
       {/* Menu Section */}
-      <section className="py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="menu">
+      <section className="menu-section py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="menu">
         <div className="text-center max-w-xl mx-auto mb-10 space-y-2">
           <p className="text-xs font-bold uppercase tracking-wider text-[#ae002a]">Online Menu</p>
-          <h2 ref={menuHeadingRef} className="menu-heading-animation text-3xl sm:text-4xl font-bold font-display text-[#1f1d1b]">Choose Your Favorite Dish</h2>
+          <h2 className="text-3xl sm:text-4xl font-bold font-display text-[#1f1d1b]">Choose Your Favorite Dish</h2>
           <p className="text-xs sm:text-sm text-[#746e67]">
             Select an item to customize your order or pick bulk quantities for your group.
           </p>
@@ -587,7 +534,6 @@ export default function HomePage() {
           {categories.map((cat) => (
             <button
               key={cat.filter}
-              type="button"
               onClick={() => setActiveCategory(cat.filter)}
               className={
                 'px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ' +
@@ -602,11 +548,8 @@ export default function HomePage() {
         </div>
 
         {/* Food Grid */}
-        {activeCategory === 'all' ? (
-          <DriftWall items={publicMenu} columns={3} tileWidth={300} tileHeight={210} gap={18} speed={28} direction="up" onTileClick={openMealCustomizer} />
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-            {(menuByCategory[activeCategory]?.items || publicMenu).map((item, index) => (
+        <div className="food-grid grid grid-cols-1 sm:grid-cols-2 tablet:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+          {(menuByCategory[activeCategory]?.items || publicMenu).map((item) => (
             <article
               key={item.id}
               className="bg-white border border-[#ebdccb] rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between group cursor-pointer"
@@ -615,7 +558,7 @@ export default function HomePage() {
               <div className="relative aspect-[4/3] overflow-hidden bg-[#faeee2]">
                 <img
                   src={item.image}
-                  alt=""
+                  alt={item.name}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   onError={(e) => {
                     e.currentTarget.src =
@@ -668,9 +611,8 @@ export default function HomePage() {
                 </div>
               </div>
             </article>
-            ))}
-          </div>
-        )}
+          ))}
+        </div>
       </section>
 
       {/* Item Customization Modal for Public Customers */}
@@ -772,22 +714,22 @@ export default function HomePage() {
       )}
 
       {/* Location / Visit Section */}
-      <section className="w-full py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="visit">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
+      <section className="visit-section py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="visit">
+        <div className="grid grid-cols-1 tablet:grid-cols-2 lg:grid-cols-2 gap-10 items-center">
           <div className="map-copy space-y-4">
             <p className="text-xs font-bold uppercase tracking-wider text-[#ae002a]">Dine In &amp; Takeaway</p>
             <h2 className="text-3xl sm:text-4xl font-bold font-display text-[#1f1d1b]">Visit Our Restaurant</h2>
             <p className="text-sm text-[#6f6861] leading-relaxed">
-              {publicSettings.branch_location || restaurantLocation.label}. Check today’s hours before visiting.
+              {restaurantLocation.label}, Dar es Salaam, Tanzania. Open daily for breakfast, lunch, dinner, and late cravings.
             </p>
             <div className="space-y-2 text-xs font-semibold text-[#554e46]">
-              <p className="flex items-center gap-2"><Clock size={16} className="text-[#ae002a]" /> Today: {displayHours}</p>
-              <p className="flex items-center gap-2"><Phone size={16} className="text-[#ae002a]" /> {publicSettings.phone || '+255 746 222 889'}</p>
-              <p className="flex items-center gap-2"><Mail size={16} className="text-[#ae002a]" /> {publicSettings.email || 'info@wrapandrolltz.com'}</p>
+              <p className="flex items-center gap-2"><Clock size={16} className="text-[#ae002a]" /> Daily: 7:00 AM &ndash; 11:00 PM</p>
+              <p className="flex items-center gap-2"><Phone size={16} className="text-[#ae002a]" /> +255 746 222 889</p>
+              <p className="flex items-center gap-2"><Mail size={16} className="text-[#ae002a]" /> info@wrapandrolltz.com</p>
             </div>
             <a
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ae002a] text-white font-bold text-xs shadow-md hover:bg-[#920023] transition-colors"
-              href={publicSettings.google_maps_url || restaurantLocation.mapsUrl}
+              href={restaurantLocation.mapsUrl}
               target="_blank"
               rel="noreferrer"
             >
@@ -799,7 +741,7 @@ export default function HomePage() {
             <iframe
               title="Wrap & Roll location"
               className="w-full h-full border-0"
-              src={publicSettings.google_maps_embed_url || 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3962.0852270366922!2d39.251722599999994!3d-6.7594617!2m3!1f0!2f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x185c4d08cb7bb7f1%3A0x2fca94e306e228d4!2sWrap%20%26%20Roll!5e0!3m2!1sen!2stz!4v1787495167004!5m2!1sen!2stz'}
+              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3962.0852270366922!2d39.251722599999994!3d-6.7594617!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x185c4d08cb7bb7f1%3A0x2fca94e306e228d4!2sWrap%20%26%20Roll!5e0!3m2!1sen!2stz!4v1787495167004!5m2!1sen!2stz"
               allowFullScreen
               loading="lazy"
             />
@@ -807,7 +749,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <CustomerChat t={t} cartItems={cartItems} deliveryAddress={deliveryAddress} onOpenCart={() => setCartOpen(true)} />
+      <CustomerChat t={t} />
 
       {/* Cart Drawer Modal */}
       {cartOpen && (
@@ -905,24 +847,24 @@ export default function HomePage() {
       {/* Floating Cart Button */}
       {cartCount > 0 && (
         <button
-          className="public-order-trigger fixed right-0 top-1/2 -translate-y-1/2 z-40 max-w-[min(42vw,260px)] px-3 py-2.5 sm:px-4 sm:py-3 rounded-l-full bg-[#ae002a] text-white text-xs sm:text-sm font-bold shadow-2xl flex items-center gap-2 transition-transform"
+          className="fixed bottom-6 right-6 z-40 px-4 py-3 rounded-full bg-[#ae002a] text-white font-bold shadow-2xl flex items-center gap-2.5 hover:scale-105 transition-transform"
           onClick={() => setCartOpen(true)}
         >
           <ShoppingBag size={18} />
-          <span className="truncate">{cartCount} items</span>
-          <span className="bg-white/20 px-2 py-0.5 rounded-full text-[10px] sm:text-xs whitespace-nowrap">
+          <span>{cartCount} items</span>
+          <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
             {formatCurrency(cartSubtotal + cartTax, displayCurrency)}
           </span>
         </button>
       )}
 
       {/* Footer */}
-      <footer className="w-full bg-[#1f1d1b] text-white py-14 px-6 sm:px-12 border-t border-white/10 mt-16" id="contact">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+      <footer className="public-footer bg-[#1f1d1b] text-white py-12 px-6 sm:px-12 border-t border-white/10 mt-16" id="contact">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 tablet:grid-cols-3 lg:grid-cols-4 gap-8">
           <div className="space-y-3">
             <BrandLogo variant="dark" />
             <p className="text-xs text-white/70 leading-relaxed">
-              {publicSettings.restaurant_name || 'Wrap & Roll Tanzania'}. Dedicated to crafting healthy, mouth-watering wraps, rolls, and meals with pure fresh ingredients.
+              Wrap &amp; Roll Tanzania. Dedicated to crafting healthy, mouth-watering wraps, rolls, and meals with pure fresh ingredients.
             </p>
           </div>
           <div>
@@ -937,15 +879,14 @@ export default function HomePage() {
           <div>
             <h4 className="font-bold text-sm mb-3 text-[#ffc72c]">Location</h4>
             <p className="text-xs text-white/70 leading-relaxed">
-              {publicSettings.branch_location || 'Wikicha Tower, Mwai Kibaki Rd, Mikocheni, Dar es Salaam.'}<br />
-              Open: {displayHours}
+              Wikicha Tower, Mwai Kibaki Rd, Mikocheni, Dar es Salaam.<br />
+              Open daily: 7:00 AM &ndash; 11:00 PM
             </p>
           </div>
           <div>
             <h4 className="font-bold text-sm mb-3 text-[#ffc72c]">Contact Us</h4>
-            <p className="text-xs text-white/70">Phone: {publicSettings.phone || '+255 746 222 889'}</p>
-            <p className="text-xs text-white/70 mt-1">Email: {publicSettings.email || 'info@wrapandrolltz.com'}</p>
-            <a href="/privacy-policy" className="mt-3 inline-flex text-xs font-semibold text-white/70 hover:text-white">Privacy Policy</a>
+            <p className="text-xs text-white/70">Phone: +255 746 222 889</p>
+            <p className="text-xs text-white/70 mt-1">Email: info@wrapandrolltz.com</p>
           </div>
         </div>
         <div className="max-w-7xl mx-auto pt-8 mt-8 border-t border-white/10 text-center text-xs text-white/50">

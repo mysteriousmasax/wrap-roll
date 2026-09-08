@@ -9,6 +9,7 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency } from '../../utils/format';
 import importPhoto from '../../utils/importPhoto';
 import { downloadAsset } from '../../utils/downloadAsset';
+import { downloadBlob } from '../../utils/downloadBlob';
 import {
   Plus,
   Edit3,
@@ -425,17 +426,7 @@ export default function MenuEditorPage() {
     setMenuExporting(format);
     try {
       const result = await api.exportMenuBook(format);
-      const url = URL.createObjectURL(result.blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = result.filename;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      window.setTimeout(() => {
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      }, 1000);
+      downloadBlob(result.blob, result.filename);
     } catch (error) {
       setLoadError(error.message || 'Unable to export the menu book.');
     } finally {
@@ -449,14 +440,7 @@ export default function MenuEditorPage() {
     try {
       for (const format of ['pdf', 'docx', 'pptx', 'xlsx']) {
         const result = await api.exportMenuBook(format);
-        const url = URL.createObjectURL(result.blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = result.filename;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
+        downloadBlob(result.blob, result.filename);
       }
     } catch (error) {
       setLoadError(error.message || 'Unable to download all menu documents.');

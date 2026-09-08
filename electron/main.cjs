@@ -68,8 +68,7 @@ function startServer() {
 }
 
 async function createWindow(role, bounds, partition) {
-  const baseUrl = app.isPackaged ? 'https://wrapandrolltz.com' : `http://127.0.0.1:${PORT}`;
-  const appUrl = `${baseUrl}/${role}`;
+  const appUrl = `http://127.0.0.1:${PORT}/${role}`;
 
   const window = new BrowserWindow({
     x: bounds.x,
@@ -100,14 +99,12 @@ async function createWindow(role, bounds, partition) {
 
 app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
-  if (!app.isPackaged) {
-    startServer();
-    const ready = await waitForServer();
-    if (!ready) {
-      dialog.showErrorBox('Wrap & Roll POS could not start', 'The local POS service did not become ready. Restart the application and try again.');
-      app.quit();
-      return;
-    }
+  startServer();
+  const ready = await waitForServer();
+  if (!ready) {
+    dialog.showErrorBox('Wrap & Roll POS could not start', 'The local POS service did not become ready. Restart the application and try again.');
+    app.quit();
+    return;
   }
   const displays = screen.getAllDisplays();
   const primary = screen.getPrimaryDisplay();

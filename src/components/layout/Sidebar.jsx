@@ -91,7 +91,6 @@ export default function Sidebar({ isOpen, onClose, compact, onToggleCollapse }) 
           <NavLink
             key={item.path}
             to={item.path}
-            onPointerDown={() => onClose?.()}
             onClick={() => onClose?.()}
             className={({ isActive }) =>
               clsx(

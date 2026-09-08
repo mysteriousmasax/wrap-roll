@@ -30,17 +30,25 @@ function price(item) {
   return `TZS ${Number(item.price || 0).toLocaleString()}`;
 }
 
+function isPdfImageBuffer(buffer) {
+  return buffer.length >= 8
+    && ((buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff)
+      || buffer.subarray(0, 8).equals(Buffer.from('\x89PNG\r\n\x1a\n', 'binary')));
+}
+
 async function loadImageBuffer(source) {
   if (typeof source !== 'string' || !source) return null;
   try {
     if (source.startsWith('data:')) {
       const match = source.match(/^data:image\/[^;]+;base64,(.+)$/s);
-      return match ? Buffer.from(match[1], 'base64') : null;
+      const buffer = match ? Buffer.from(match[1], 'base64') : null;
+      return buffer && isPdfImageBuffer(buffer) ? buffer : null;
     }
     if (/^https?:\/\//i.test(source)) {
       const response = await fetch(source);
       if (!response.ok) return null;
-      return Buffer.from(await response.arrayBuffer());
+      const buffer = Buffer.from(await response.arrayBuffer());
+      return isPdfImageBuffer(buffer) ? buffer : null;
     }
   } catch (error) {
     console.warn('Menu image could not be embedded:', error.message);

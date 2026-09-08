@@ -7,6 +7,7 @@ import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
 import { api } from '../../api/client';
 import { formatCurrency } from '../../utils/format';
+import { downloadBlob } from '../../utils/downloadBlob';
 import { DollarSign, TrendingUp, Download, FileText, PieChart, Sparkles, Eye } from 'lucide-react';
 
 export default function ReportsPage() {
@@ -44,12 +45,7 @@ export default function ReportsPage() {
     setExporting(true);
     try {
       const result = await api.exportFinancialReport(reportType, exportFormat);
-      const url = URL.createObjectURL(result.blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = result.filename;
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(result.blob, result.filename);
     } catch (error) {
       setAiError(error.message || 'Unable to export the financial report');
     } finally {
