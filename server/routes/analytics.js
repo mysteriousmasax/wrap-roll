@@ -67,11 +67,47 @@ function getSeriesForRange(range) {
 }
 
 function getLiveOrders() {
-  return db.prepare("SELECT created_at, total, order_type, status FROM orders WHERE created_at IS NOT NULL AND status != 'cancelled'").all();
+  return db.prepare("SELECT created_at, total, order_type, status FROM orders WHERE created_at IS NOT NULL AND status = 'completed' AND payment_status IN ('paid', 'completed')").all();
 }
 
 function getCurrentPeriodRevenue(start, end) {
-  return db.prepare("SELECT COALESCE(SUM(total), 0) AS revenue, COUNT(*) AS orders FROM orders WHERE created_at >= ? AND created_at < ? AND status != 'cancelled'").get(start, end);
+  return db.prepare("SELECT COALESCE(SUM(total), 0) AS revenue, COUNT(*) AS orders FROM orders WHERE created_at >= ? AND created_at < ? AND status = 'completed' AND payment_status IN ('paid', 'completed')").get(start, end);
+}
+
+function getOperationalSummaries() {
+  const now = new Date();
+  const latestOrderDay = db.prepare("SELECT MAX(substr(created_at, 1, 10)) AS day FROM orders WHERE status = 'completed' AND payment_status IN ('paid', 'completed')").get()?.day;
+  const reportDate = latestOrderDay || now.toISOString().slice(0, 10);
+  const reportDateValue = new Date(`${reportDate}T00:00:00Z`);
+  const weekStart = new Date(reportDateValue);
+  weekStart.setUTCDate(weekStart.getUTCDate() - 6);
+  const weekStartValue = weekStart.toISOString().slice(0, 10);
+  const pettyCash = db.prepare(`
+    SELECT id, description AS item, amount AS total, payment_method AS paymentMethod, expense_date AS date, supplier AS remarks
+    FROM business_expenses
+    WHERE expense_date >= ? AND status != 'rejected'
+      AND (LOWER(category) LIKE '%petty%' OR LOWER(payment_method) = 'cash')
+    ORDER BY expense_date DESC, id DESC LIMIT 7
+  `).all(weekStartValue);
+  const dailySales = db.prepare(`
+    SELECT oi.name AS item, SUM(oi.qty) AS quantity, SUM(oi.qty * oi.price) AS total,
+      MAX(oi.price) AS price, COALESCE(i.quantity, 0) AS closingStock,
+      COALESCE(i.quantity, 0) + SUM(oi.qty) AS openingStock
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    LEFT JOIN inventory i ON LOWER(TRIM(i.name)) = LOWER(TRIM(oi.name))
+    WHERE substr(o.created_at, 1, 10) = ? AND o.status = 'completed' AND o.payment_status IN ('paid', 'completed')
+    GROUP BY oi.name, i.quantity
+    ORDER BY total DESC LIMIT 24
+  `).all(reportDate);
+  return {
+    pettyCash: pettyCash.map((row, index) => ({ id: row.id, item: row.item, rate: Number(row.total || 0), quantity: 1, total: Number(row.total || 0), date: row.date, remarks: row.remarks || row.paymentMethod || 'Cash expense', rowNumber: index + 1 })),
+    dailySales: dailySales.map((row, index) => ({ id: `${reportDate}-${index}`, date: reportDate, item: row.item, quantity: Number(row.quantity || 0), openingStock: Number(row.openingStock || 0), closingStock: Number(row.closingStock || 0), price: Number(row.price || 0), difference: Number(row.openingStock || 0) - Number(row.closingStock || 0), total: Number(row.total || 0), remarks: 'Live order activity' })),
+    pettyCashTotal: pettyCash.reduce((sum, row) => sum + Number(row.total || 0), 0),
+    dailySalesTotal: dailySales.reduce((sum, row) => sum + Number(row.total || 0), 0),
+    reportDate,
+    generatedAt: new Date().toISOString(),
+  };
 }
 
 router.get('/summary', authMiddleware, (req, res) => {
@@ -92,6 +128,9 @@ router.get('/summary', authMiddleware, (req, res) => {
 
   const todayRevenue = Number(todayTotals.revenue || 0);
   const avgOrder = todayOrders.length ? todayRevenue / todayOrders.length : 0;
+  const yesterdayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1)).toISOString();
+  const yesterdayTotals = getCurrentPeriodRevenue(yesterdayStart, todayStart);
+  const percentChange = (current, previous) => previous ? Number((((current - previous) / previous) * 100).toFixed(1)) : null;
   const allOrders = getLiveOrders();
   const channelMix = allOrders.reduce((mix, order) => {
     mix[order.order_type] = (mix[order.order_type] || 0) + 1;
@@ -115,6 +154,13 @@ router.get('/summary', authMiddleware, (req, res) => {
     readyOrders: activeOrders.filter((o) => o.status === 'ready').length,
     channelMix,
     channelPercentages,
+    changes: {
+      todayRevenue: percentChange(todayRevenue, Number(yesterdayTotals.revenue || 0)),
+      avgOrderValue: percentChange(avgOrder, yesterdayTotals.orders ? Number(yesterdayTotals.revenue || 0) / yesterdayTotals.orders : 0),
+      monthlyRevenue: percentChange(Number(monthTotals.revenue || 0), Number(getCurrentPeriodRevenue(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString(), monthStart).revenue || 0)),
+      activeKitchenOrders: null,
+    },
+    operational: getOperationalSummaries(),
     ranges: summaryRanges,
   });
 });
@@ -123,7 +169,7 @@ router.get('/categories', authMiddleware, (req, res) => {
   const rows = db.prepare(`
     SELECT mi.category, SUM(oi.price * oi.qty) as revenue
     FROM order_items oi
-    INNER JOIN orders o ON o.id = oi.order_id AND o.status != 'cancelled'
+    INNER JOIN orders o ON o.id = oi.order_id AND o.status = 'completed' AND o.payment_status IN ('paid', 'completed')
     LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
     GROUP BY mi.category
     ORDER BY revenue DESC
@@ -146,14 +192,14 @@ router.get('/reports', authMiddleware, (req, res) => {
   const categoryRows = db.prepare(`
     SELECT mi.category, COALESCE(SUM(oi.price * oi.qty), 0) AS amount
     FROM order_items oi
-    INNER JOIN orders o ON o.id = oi.order_id AND o.status != 'cancelled'
+    INNER JOIN orders o ON o.id = oi.order_id AND o.status = 'completed' AND o.payment_status IN ('paid', 'completed')
     LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
     GROUP BY mi.category
   `).all();
   const paymentRows = db.prepare(`
     SELECT payment_method AS method, COALESCE(SUM(total), 0) AS amount
     FROM orders
-    WHERE status != 'cancelled' AND payment_method IS NOT NULL
+    WHERE status = 'completed' AND payment_status IN ('paid', 'completed') AND payment_method IS NOT NULL
     GROUP BY payment_method
     ORDER BY amount DESC
   `).all();
@@ -185,7 +231,7 @@ router.get('/reports', authMiddleware, (req, res) => {
   const currentMonth = now.toISOString().slice(0, 7);
   const previousMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
   const previousMonth = previousMonthDate.toISOString().slice(0, 7);
-  const periodRevenue = (month) => Number(db.prepare("SELECT COALESCE(SUM(total), 0) AS amount FROM orders WHERE status != 'cancelled' AND substr(created_at, 1, 7) = ?").get(month).amount || 0);
+  const periodRevenue = (month) => Number(db.prepare("SELECT COALESCE(SUM(total), 0) AS amount FROM orders WHERE status = 'completed' AND payment_status IN ('paid', 'completed') AND substr(created_at, 1, 7) = ?").get(month).amount || 0);
   const periodExpenses = (month) => Number(db.prepare("SELECT COALESCE(SUM(amount), 0) AS amount FROM business_expenses WHERE status != 'rejected' AND substr(expense_date, 1, 7) = ?").get(month).amount || 0);
   const periodPayroll = (month) => Number(db.prepare("SELECT COALESCE(SUM(net_pay), 0) AS amount FROM payroll_records WHERE substr(pay_period, 1, 7) = ?").get(month).amount || 0);
   const currentPeriodRevenue = periodRevenue(currentMonth);
@@ -244,7 +290,7 @@ router.get('/reports', authMiddleware, (req, res) => {
 
 function getFinancialReport(type) {
   const sales = getSeriesForRange('month');
-  const orders = db.prepare("SELECT id, created_at, status, order_type, order_source, payment_method, payment_status, total FROM orders WHERE status != 'cancelled' ORDER BY created_at DESC").all();
+  const orders = db.prepare("SELECT id, created_at, status, order_type, order_source, payment_method, payment_status, total FROM orders WHERE status = 'completed' AND payment_status IN ('paid', 'completed') ORDER BY created_at DESC").all();
   const revenue = orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
   const vatRate = Number(db.prepare("SELECT value FROM settings WHERE key = 'vat_rate'").get()?.value || 0);
   const tax = revenue * (vatRate / 100);

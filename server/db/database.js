@@ -386,6 +386,27 @@ export async function initDatabase() {
     );
   `);
 
+  const inventoryColumns = [
+    ['delivery_date', 'TEXT DEFAULT \'\''],
+    ['back_freezer_chiller', 'REAL DEFAULT 0'],
+    ['refrigerator', 'REAL DEFAULT 0'],
+    ['front_sandwich', 'REAL DEFAULT 0'],
+    ['front_pizza', 'REAL DEFAULT 0'],
+    ['front_burger', 'REAL DEFAULT 0'],
+  ];
+  const existingInventoryColumns = new Set(db.prepare('PRAGMA table_info(inventory)').all().map((column) => column.name));
+  inventoryColumns.forEach(([name, definition]) => {
+    if (!existingInventoryColumns.has(name)) db.exec(`ALTER TABLE inventory ADD COLUMN ${name} ${definition}`);
+  });
+
+  const stockSheetItems = {
+    'Stock items': ['Tuna', 'Cheese Block', 'Cheese Slice', 'Pastrami', 'Smoked Beef', 'Steak', 'Chicken Strips', 'Lemon', 'Sweet Chicken', 'Beef Burger', 'Chicken Burger', 'Chicken Tandoori', 'Mozarella', 'Sausage', 'Beef Pizza', 'Chicken Pizza'],
+    Sauces: ['Honey', 'Honey Mustard', 'Sweet Onion', 'Sweet Sauce', 'Ketchup Tomato', 'Hot Chilli Sauce', 'Olive Oil', 'Vinegar', '1000 Island', 'Mustard', 'Mayonnaise', 'BBQ Sauce', 'White Vinegar', 'Olive Oil (second line)', 'Pizza Sauce'],
+    Other: ['Others', 'Sesame Seed', 'Black Pepper', 'Salt', 'Ginger & Garlic', 'Coriander', 'Cooking Oil Fries', 'Flour', 'Kimbo', 'Oregano', 'Package', 'Fork & Knife Set', 'Salad Plate', 'Deli Paper', 'Coffee Cups', 'Coffee Lids'],
+  };
+  const insertStockSheetItem = db.prepare(`INSERT OR IGNORE INTO inventory (name, quantity, unit, threshold, category, sku, delivery_date, back_freezer_chiller, refrigerator, front_sandwich, front_pizza, front_burger, storage_location) VALUES (?, 0, 'pcs', 0, ?, ?, '', 0, 0, 0, 0, 0, 'Stock sheet')`);
+  Object.entries(stockSheetItems).forEach(([group, names]) => names.forEach((name, index) => insertStockSheetItem.run(name, group.toLowerCase(), `STOCK-${group.slice(0, 3).toUpperCase()}-${String(index + 1).padStart(2, '0')}`)));
+
   migrateSchema(db);
 
   const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get();

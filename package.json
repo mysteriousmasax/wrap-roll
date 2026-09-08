@@ -7,7 +7,7 @@
     "dev": "concurrently \"npm run dev --prefix server\" \"vite\"",
     "dev:client": "vite",
     "dev:server": "npm run dev --prefix server",
-    "build": "vite build",
+    "build": "node ./node_modules/vite/bin/vite.js build",
     "desktop:dev": "npm run build && electron electron/main.cjs",
     "desktop:build": "npm run build && electron-builder --win nsis",
     "start": "node server/index.js",

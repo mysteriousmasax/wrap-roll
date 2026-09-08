@@ -20,6 +20,13 @@ function mapInventory(row) {
     unitCost: row.unit_cost || 0,
     expiryDate: row.expiry_date,
     storageLocation: row.storage_location,
+    deliveryDate: row.delivery_date || '',
+    backFreezerChiller: row.back_freezer_chiller || 0,
+    refrigerator: row.refrigerator || 0,
+    frontSandwich: row.front_sandwich || 0,
+    frontPizza: row.front_pizza || 0,
+    frontBurger: row.front_burger || 0,
+    total: (row.back_freezer_chiller || 0) + (row.refrigerator || 0) + (row.front_sandwich || 0) + (row.front_pizza || 0) + (row.front_burger || 0),
   };
 }
 
@@ -34,7 +41,7 @@ router.get('/', authMiddleware, (req, res) => {
 });
 
 router.post('/', authMiddleware, (req, res) => {
-  const { name, quantity, unit, threshold, supplier, imageUrl, category, sku, unitCost, expiryDate, storageLocation } = req.body;
+  const { name, quantity, unit, threshold, supplier, imageUrl, category, sku, unitCost, expiryDate, storageLocation, deliveryDate, backFreezerChiller, refrigerator, frontSandwich, frontPizza, frontBurger } = req.body;
   if (!name || quantity == null) return res.status(400).json({ error: 'Name and quantity required' });
   const today = new Date().toISOString().slice(0, 10);
   const normalizedName = String(name).trim();
@@ -43,8 +50,8 @@ router.post('/', authMiddleware, (req, res) => {
   if (existing) {
     const received = Number(quantity);
     const nextQuantity = existing.quantity + received;
-    db.prepare('UPDATE inventory SET quantity = ?, threshold = ?, supplier = ?, last_restocked = ?, image_url = ?, category = ?, unit_cost = ?, expiry_date = ?, storage_location = ? WHERE id = ?')
-      .run(nextQuantity, threshold ?? existing.threshold, supplier || existing.supplier, today, imageUrl || existing.image_url, category || existing.category, Number(unitCost) || existing.unit_cost, expiryDate || existing.expiry_date, storageLocation || existing.storage_location, existing.id);
+    db.prepare('UPDATE inventory SET quantity = ?, threshold = ?, supplier = ?, last_restocked = ?, image_url = ?, category = ?, unit_cost = ?, expiry_date = ?, storage_location = ?, delivery_date = ?, back_freezer_chiller = ?, refrigerator = ?, front_sandwich = ?, front_pizza = ?, front_burger = ? WHERE id = ?')
+      .run(nextQuantity, threshold ?? existing.threshold, supplier || existing.supplier, today, imageUrl || existing.image_url, category || existing.category, Number(unitCost) || existing.unit_cost, expiryDate || existing.expiry_date, storageLocation || existing.storage_location, deliveryDate ?? existing.delivery_date, Number(backFreezerChiller) || 0, Number(refrigerator) || 0, Number(frontSandwich) || 0, Number(frontPizza) || 0, Number(frontBurger) || 0, existing.id);
     const item = mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(existing.id));
     auditInventoryChange(item.id, 'updated', req.user, {
       quantity: { from: existing.quantity, to: item.quantity },
@@ -53,8 +60,8 @@ router.post('/', authMiddleware, (req, res) => {
     return res.status(200).json({ ...item, merged: true });
   }
   const result = db.prepare(
-    'INSERT INTO inventory (name, quantity, unit, threshold, supplier, last_restocked, image_url, category, sku, unit_cost, expiry_date, storage_location) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(normalizedName, Number(quantity), normalizedUnit, threshold ?? 10, supplier || '', today, imageUrl || '', category || 'ingredients', sku || `INV-${Date.now().toString().slice(-6)}`, Number(unitCost) || 0, expiryDate || '', storageLocation || 'Main store');
+    'INSERT INTO inventory (name, quantity, unit, threshold, supplier, last_restocked, image_url, category, sku, unit_cost, expiry_date, storage_location, delivery_date, back_freezer_chiller, refrigerator, front_sandwich, front_pizza, front_burger) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(normalizedName, Number(quantity), normalizedUnit, threshold ?? 10, supplier || '', today, imageUrl || '', category || 'ingredients', sku || `INV-${Date.now().toString().slice(-6)}`, Number(unitCost) || 0, expiryDate || '', storageLocation || 'Main store', deliveryDate || '', Number(backFreezerChiller) || 0, Number(refrigerator) || 0, Number(frontSandwich) || 0, Number(frontPizza) || 0, Number(frontBurger) || 0);
   const item = mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(result.lastInsertRowid));
   auditInventoryChange(item.id, 'created', req.user, { item: { from: null, to: item.name }, quantity: { from: null, to: item.quantity }, unit: { from: null, to: item.unit } });
   if (item.quantity <= item.threshold) {
@@ -70,9 +77,9 @@ router.post('/', authMiddleware, (req, res) => {
 router.put('/:id', authMiddleware, (req, res) => {
   const existing = db.prepare('SELECT * FROM inventory WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Item not found' });
-  const { name, quantity, unit, threshold, supplier, lastRestocked, imageUrl, category, sku, unitCost, expiryDate, storageLocation } = req.body;
+  const { name, quantity, unit, threshold, supplier, lastRestocked, imageUrl, category, sku, unitCost, expiryDate, storageLocation, deliveryDate, backFreezerChiller, refrigerator, frontSandwich, frontPizza, frontBurger } = req.body;
   db.prepare(
-    'UPDATE inventory SET name = ?, quantity = ?, unit = ?, threshold = ?, supplier = ?, last_restocked = ?, image_url = ?, category = ?, sku = ?, unit_cost = ?, expiry_date = ?, storage_location = ? WHERE id = ?'
+    'UPDATE inventory SET name = ?, quantity = ?, unit = ?, threshold = ?, supplier = ?, last_restocked = ?, image_url = ?, category = ?, sku = ?, unit_cost = ?, expiry_date = ?, storage_location = ?, delivery_date = ?, back_freezer_chiller = ?, refrigerator = ?, front_sandwich = ?, front_pizza = ?, front_burger = ? WHERE id = ?'
   ).run(
     name ?? existing.name,
     quantity ?? existing.quantity,
@@ -86,6 +93,12 @@ router.put('/:id', authMiddleware, (req, res) => {
     unitCost ?? existing.unit_cost,
     expiryDate ?? existing.expiry_date,
     storageLocation ?? existing.storage_location,
+    deliveryDate ?? existing.delivery_date,
+    backFreezerChiller ?? existing.back_freezer_chiller,
+    refrigerator ?? existing.refrigerator,
+    frontSandwich ?? existing.front_sandwich,
+    frontPizza ?? existing.front_pizza,
+    frontBurger ?? existing.front_burger,
     req.params.id
   );
   const updated = mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(req.params.id));

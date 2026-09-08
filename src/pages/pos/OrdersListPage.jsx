@@ -5,6 +5,7 @@ import Modal from '../../components/ui/Modal';
 import SplitFlapText from '../../components/ui/SplitFlapText';
 import { formatCurrency } from '../../utils/format';
 import useOrderStore from '../../store/useOrderStore';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import { CalendarDays, ChevronRight, Clock3, CreditCard, MapPin, Search, ShoppingBag, UserRound, Utensils } from 'lucide-react';
 
 const filters = [
@@ -131,6 +132,17 @@ function OrderDetails({ order, onClose }) {
   );
 }
 
+function OrderCard({ order, now, onSelect }) {
+  const itemCount = order.items?.reduce((sum, item) => sum + item.qty, 0) || 0;
+  return <article className="flex min-h-[285px] flex-col rounded-2xl border border-outline-variant bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
+    <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-surface-on">{order.id}</p><p className="mt-1 text-[10px] text-surface-on-variant">{itemCount} item{itemCount === 1 ? '' : 's'}</p></div><StatusBadge status={order.status} /></div>
+    <div className="mt-4 flex items-start gap-2"><span className="mt-0.5 text-primary"><OrderTypeIcon type={order.type} /></span><div className="min-w-0"><p className="truncate text-sm font-semibold">{order.customer || 'Walk-in customer'}</p><p className="mt-1 text-xs capitalize text-surface-on-variant">{order.type}{order.table ? ` · Table ${order.table}` : ''}</p>{order.deliveryAddress && <p className="mt-1 truncate text-[10px] text-surface-on-variant">{order.deliveryAddress}</p>}</div></div>
+    <div className="mt-4 flex-1 rounded-xl bg-surface-container-low p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-surface-on-variant">Items</p>{order.items?.length ? <p className="mt-1 line-clamp-3 text-xs text-surface-on">{order.items.map((item) => `${item.qty}x ${item.name}`).join(', ')}</p> : <p className="mt-1 text-xs text-surface-on-variant">No item details recorded</p>}</div>
+    <div className="mt-4 flex items-end justify-between gap-3"><div><p className="text-[10px] text-surface-on-variant">Placed</p><p className="mt-1 text-xs font-semibold">{new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p><p className="mt-1 text-[10px] text-surface-on-variant">{new Date(order.createdAt).toLocaleDateString()}</p></div><div className="text-right"><p className="text-lg font-bold text-primary">{formatCurrency(order.total || 0)}</p><p className="mt-1 text-[10px] font-semibold text-warning">{getCountdownText(order, now)}</p></div></div>
+    <button onClick={() => onSelect(order)} className="mt-4 flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5">View details <ChevronRight size={14} /></button>
+  </article>;
+}
+
 export default function OrdersListPage() {
   const orders = useOrderStore((s) => s.orders);
   const fetchOrders = useOrderStore((s) => s.fetchOrders);
@@ -143,6 +155,10 @@ export default function OrdersListPage() {
   useEffect(() => {
     fetchOrders().finally(() => setLoading(false));
   }, [fetchOrders]);
+
+  useWebSocket((event) => {
+    if (event === 'order:created' || event === 'order:updated') fetchOrders();
+  });
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -160,17 +176,10 @@ export default function OrdersListPage() {
       <PageHeader title="All Orders" subtitle="Track every order from the website, FOH, and delivery channel" />
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4"><div className="orders-summary-card border-l-4 border-primary"><p>All orders</p><strong>{orders.length}</strong><span>Across all channels</span></div><div className="orders-summary-card border-l-4 border-secondary"><p>Pending</p><strong>{statusCount('pending')}</strong><span>Waiting for kitchen</span></div><div className="orders-summary-card border-l-4 border-warning"><p>Preparing</p><strong>{statusCount('preparing')}</strong><span>Currently cooking</span></div><div className="orders-summary-card border-l-4 border-success"><p>Ready</p><strong>{statusCount('ready')}</strong><span>Ready to serve</span></div></div>
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex gap-2 overflow-x-auto">{filters.map((filter) => <button key={filter.id} onClick={() => setActiveFilter(filter.id)} className={`whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold transition-colors ${activeFilter === filter.id ? 'bg-primary text-white' : 'bg-white text-surface-on hover:bg-surface-container-low'}`}>{filter.label}{filter.id !== 'all' && <span className="ml-2 opacity-70">{statusCount(filter.id)}</span>}</button>)}</div><div className="relative w-full lg:w-72"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order, customer, item..." className="input-field pl-9" /></div></div>
-      <div className="card overflow-hidden p-0">
-        {loading ? <p className="p-6 text-sm text-surface-on-variant">Loading orders...</p> : visibleOrders.length === 0 ? <div className="p-10 text-center"><ShoppingBag size={30} className="mx-auto mb-2 text-outline" /><p className="text-sm font-semibold">No orders found</p><p className="mt-1 text-xs text-surface-on-variant">Try another search or status filter.</p></div> : <div className="overflow-x-auto"><table className="w-full min-w-[850px]">
-            <thead>
-              <tr className="border-b border-outline-variant bg-surface-container-low">
-                {['Order', 'Customer / Type', 'Items', 'Total', 'Status', 'Placed', ''].map((heading) => <th key={heading} className="p-4 text-left text-[10px] font-bold uppercase tracking-wide text-surface-on-variant">{heading}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {visibleOrders.map((order) => (<tr key={order.id} className="group border-b border-outline-variant/50 transition-colors hover:bg-surface-container-low/60"><td className="p-4"><p className="text-sm font-bold">{order.id}</p><p className="mt-1 text-[10px] text-surface-on-variant">#{order.items?.reduce((sum, item) => sum + item.qty, 0) || 0} items</p></td><td className="p-4"><p className="max-w-[150px] truncate text-sm font-semibold">{order.customer || 'Walk-in customer'}</p><p className="mt-1 flex items-center gap-1 text-xs capitalize text-surface-on-variant"><OrderTypeIcon type={order.type} />{order.type}{order.table ? ` · Table ${order.table}` : ''}</p>{order.deliveryAddress && <p className="mt-1 max-w-[170px] truncate text-[10px] text-surface-on-variant">{order.deliveryAddress}</p>}</td><td className="max-w-[280px] p-4"><div className="flex items-center gap-2"><div className="order-row-photos">{order.items?.slice(0, 2).map((item, index) => <div key={`${item.name}-${index}`} className="order-row-photo" style={{ backgroundImage: `url(${item.image || 'https://wrapandrolltz.com/uploads/photo_gallery/d706fc0ef56440dd131465fd75aae870.jpg'})` }} />)}{order.items?.length > 2 && <span className="order-more-items">+{order.items.length - 2}</span>}</div><span className="line-clamp-2 text-sm text-surface-on-variant">{order.items?.slice(0, 2).map((item) => `${item.qty}x ${item.name}`).join(', ')}{order.items?.length > 2 ? '...' : ''}</span></div></td><td className="p-4 text-sm font-bold text-primary">{formatCurrency(order.total || 0)}</td><td className="p-4"><StatusBadge status={order.status} /></td><td className="p-4"><p className="flex items-center gap-1 text-xs font-semibold"><Clock3 size={13} />{new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p><p className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-warning"><Clock3 size={11} /><span>{order.status === 'ready' ? 'Ready in' : 'Countdown'} <SplitFlapText text={getCountdownText(order, now)} /></span></p><p className="mt-1 flex items-center gap-1 text-[10px] text-surface-on-variant"><CalendarDays size={11} />{new Date(order.createdAt).toLocaleDateString()}</p></td><td className="p-4 text-right"><button onClick={() => setSelectedOrder(order)} className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs font-semibold text-primary opacity-70 transition-all hover:bg-primary/5 hover:opacity-100">Details <ChevronRight size={14} /></button></td></tr>))}
-            </tbody>
-          </table></div>}
+      <div>
+        {loading ? <div className="card p-6 text-sm text-surface-on-variant">Loading orders...</div> : visibleOrders.length === 0 ? <div className="card p-10 text-center"><ShoppingBag size={30} className="mx-auto mb-2 text-outline" /><p className="text-sm font-semibold">No orders found</p><p className="mt-1 text-xs text-surface-on-variant">Try another search or status filter.</p></div> : <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {visibleOrders.map((order) => <OrderCard key={order.id} order={order} now={now} onSelect={setSelectedOrder} />)}
+        </div>}
       </div>
       <OrderDetails order={selectedOrder} onClose={() => setSelectedOrder(null)} />
     </div>
