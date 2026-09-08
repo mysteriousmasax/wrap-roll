@@ -10,7 +10,7 @@ import { downloadAsset } from '../../utils/downloadAsset';
 import { Package, AlertTriangle, CalendarClock, Edit3, Search, Plus, MapPin, Truck, X, Upload, History, SlidersHorizontal, Download } from 'lucide-react';
 
 const fallbackImage = 'https://images.unsplash.com/photo-1547592180-85f173990554?w=240&h=180&fit=crop';
-const emptyForm = { name: '', quantity: '', unit: 'kg', threshold: '10', supplier: '', imageUrl: '', category: 'ingredients', sku: '', unitCost: '', expiryDate: '', storageLocation: 'Main store' };
+const emptyForm = { name: '', quantity: '', unit: 'pcs', threshold: '0', supplier: '', imageUrl: '', category: 'Stock items', sku: '', unitCost: '', expiryDate: '', storageLocation: 'Stock sheet', deliveryDate: '', backFreezerChiller: '0', refrigerator: '0', frontSandwich: '0', frontPizza: '0', frontBurger: '0' };
 
 function daysUntil(date) {
   if (!date) return null;
@@ -59,7 +59,7 @@ export default function InventoryPage({ embedded = false }) {
 
   const lowStock = items.filter((item) => item.quantity <= item.threshold);
   const expiringSoon = items.filter((item) => { const days = daysUntil(item.expiryDate); return days !== null && days <= 7; });
-  const stockValue = items.reduce((sum, item) => sum + (item.quantity * (item.unitCost || 0)), 0);
+  const stockValue = items.reduce((sum, item) => sum + ((item.total > 0 ? item.total : item.quantity) * (item.unitCost || 0)), 0);
   const categories = useMemo(() => ['all', ...new Set(items.map((item) => item.category || 'ingredients'))], [items]);
   const filteredItems = items.filter((item) => {
     const text = `${item.name} ${item.supplier} ${item.sku}`.toLowerCase();
@@ -105,6 +105,12 @@ export default function InventoryPage({ embedded = false }) {
     load();
   };
 
+  const updateSheetField = async (item, field, value) => {
+    const nextItem = { ...item, [field]: value };
+    await api.updateInventory(item.id, { [field]: field === 'deliveryDate' ? value : Number(value) || 0 });
+    setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, ...nextItem, total: ['backFreezerChiller', 'refrigerator', 'frontSandwich', 'frontPizza', 'frontBurger'].reduce((sum, key) => sum + (Number(nextItem[key]) || 0), 0) } : entry));
+  };
+
   const downloadInventoryImage = async (item) => {
     if (!item.imageUrl) return;
     try {
@@ -131,7 +137,14 @@ export default function InventoryPage({ embedded = false }) {
       <div className="mb-4 flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="relative w-full shrink-0 lg:w-72"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search item, SKU, supplier..." className="input-field w-full pl-9" /></div><div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-1 lg:pl-2">{categories.map((entry) => <button key={entry} onClick={() => setCategory(entry)} className={'shrink-0 whitespace-nowrap rounded-full px-2.5 py-1.5 text-[11px] font-semibold capitalize ' + (category === entry ? 'bg-primary text-white' : 'bg-white text-surface-on hover:bg-surface-container')}>{entry}</button>)}</div></div>
       {error && <div className="mb-4 flex items-center justify-between rounded-xl border border-error/20 bg-error/5 p-3 text-sm text-error"><span>{error}</span><button onClick={() => { setError(''); load(); }}><X size={16} /></button></div>}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="overflow-x-auto rounded-2xl border border-outline-variant bg-white shadow-sm">
+        <table className="w-full min-w-[1120px] border-collapse text-left text-xs">
+          <thead className="bg-surface-container text-[10px] uppercase tracking-wide text-surface-on-variant"><tr><th className="border-b border-outline-variant px-3 py-3">Item type</th><th className="border-b border-outline-variant px-3 py-3">Delivery date</th><th className="border-b border-outline-variant px-3 py-3">Quantity</th><th className="border-b border-outline-variant px-3 py-3">Back / freezer / chiller</th><th className="border-b border-outline-variant px-3 py-3">Refrigerator</th><th className="border-b border-outline-variant px-3 py-3">Front sandwich</th><th className="border-b border-outline-variant px-3 py-3">Front pizza</th><th className="border-b border-outline-variant px-3 py-3">Front burger</th><th className="border-b border-outline-variant px-3 py-3">Total</th><th className="border-b border-outline-variant px-3 py-3" aria-label="Actions" /></tr></thead>
+          <tbody>{filteredItems.map((item) => <tr key={item.id} className="border-b border-outline-variant/60 last:border-b-0 hover:bg-surface-container-low"><td className="px-3 py-2"><button className="text-left font-semibold text-primary hover:underline" onClick={() => openEdit(item)}>{item.name}<span className="mt-0.5 block text-[10px] font-normal capitalize text-surface-on-variant">{item.category || 'Stock items'}</span></button></td><td className="px-3 py-2"><input aria-label={`${item.name} delivery date`} type="date" defaultValue={item.deliveryDate} onBlur={(event) => updateSheetField(item, 'deliveryDate', event.target.value)} className="input-field w-32 px-2 py-1 text-xs" /></td><td className="px-3 py-2"><input aria-label={`${item.name} quantity`} type="number" defaultValue={item.quantity} onBlur={(event) => updateSheetField(item, 'quantity', event.target.value)} className="input-field w-20 px-2 py-1 text-xs" /></td><td className="px-3 py-2"><input aria-label={`${item.name} back freezer chiller`} type="number" defaultValue={item.backFreezerChiller} onBlur={(event) => updateSheetField(item, 'backFreezerChiller', event.target.value)} className="input-field w-20 px-2 py-1 text-xs" /></td><td className="px-3 py-2"><input aria-label={`${item.name} refrigerator`} type="number" defaultValue={item.refrigerator} onBlur={(event) => updateSheetField(item, 'refrigerator', event.target.value)} className="input-field w-20 px-2 py-1 text-xs" /></td><td className="px-3 py-2"><input aria-label={`${item.name} front sandwich`} type="number" defaultValue={item.frontSandwich} onBlur={(event) => updateSheetField(item, 'frontSandwich', event.target.value)} className="input-field w-20 px-2 py-1 text-xs" /></td><td className="px-3 py-2"><input aria-label={`${item.name} front pizza`} type="number" defaultValue={item.frontPizza} onBlur={(event) => updateSheetField(item, 'frontPizza', event.target.value)} className="input-field w-20 px-2 py-1 text-xs" /></td><td className="px-3 py-2"><input aria-label={`${item.name} front burger`} type="number" defaultValue={item.frontBurger} onBlur={(event) => updateSheetField(item, 'frontBurger', event.target.value)} className="input-field w-20 px-2 py-1 text-xs" /></td><td className="px-3 py-2 text-base font-bold text-primary">{item.total}</td><td className="px-3 py-2"><button title="Edit inventory item" onClick={() => openEdit(item)} className="rounded-lg p-2 hover:bg-surface-container"><Edit3 size={15} className="text-surface-on-variant" /></button></td></tr>)}{!filteredItems.length && <tr><td colSpan="10" className="p-10 text-center text-sm text-surface-on-variant">No inventory items match your filters.</td></tr>}</tbody>
+        </table>
+      </div>
+
+      <div className="hidden">
         {filteredItems.map((item) => {
           const isLow = item.quantity <= item.threshold;
           const expiryDays = daysUntil(item.expiryDate);
