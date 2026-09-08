@@ -1,31 +1,55 @@
 /**
- * Payment Routes - Secure payment processing endpoints
+ * Payment Routes - Wrap & Roll Tanzania
+ * Endpoints for:
+ * - Payment intent creation (Lipa Namba, TIPS QR, M-Pesa, Mixx, Airtel, Halopesa)
+ * - Customer manual payment reference submission (I Have Paid -> MANUAL_REVIEW)
+ * - Automated Webhook processing (Signature, amount verification, idempotency)
+ * - Admin manual verification and rejection
+ * - Real-time customer payment status checking
+ * - Admin payment dashboard listing & filters
  */
 
 import express from 'express';
-import crypto from 'crypto';
-import {
-  createPesapalOrder,
-  checkPaymentStatus,
-  validatePaymentWebhook,
-  refundPayment,
-  PESAPAL_PAYMENT_METHODS,
-} from '../utils/payment.js';
-import { authMiddleware } from '../middleware/auth.js';
 import db from '../db/database.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { broadcast } from '../ws.js';
+import { getOrderById } from '../utils/orders.js';
+import {
+  manualLipaProvider,
+  genericWebhookProvider,
+  MOBILE_NETWORKS,
+  PAYMENT_STATUSES,
+  ORDER_STATUSES,
+} from '../utils/paymentProviders.js';
 
 const router = express.Router();
 
 /**
- * Get available payment methods
+ * Get available payment methods & Lipa Namba info
  * GET /api/payments/methods
  */
 router.get('/methods', (req, res) => {
   try {
+    const lipaNumber = process.env.LIPA_NUMBER || '45342017';
+    const merchantName = process.env.MERCHANT_NAME || 'PETER JOSEPH MSIRA';
+    const provider = process.env.LIPA_PROVIDER || 'TIPS / Mixx by Yas';
+
     res.json({
       success: true,
-      methods: [{ id: 'lipa_namba', label: 'Lipa Namba QR', description: 'Scan the restaurant QR code and wait for staff confirmation.' }],
+      lipaNumber,
+      merchantName,
+      provider,
       supportedCurrencies: ['TZS', 'USD', 'KES'],
+      methods: [
+        {
+          id: 'lipa_namba',
+          label: 'Lipa Namba (TIPS)',
+          description: 'Lipa kutoka mitandao yote ya simu (Mixx, M-Pesa, Airtel, Halopesa) na Benki',
+          number: lipaNumber,
+          name: merchantName,
+        },
+      ],
+      networks: MOBILE_NETWORKS,
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -33,272 +57,316 @@ router.get('/methods', (req, res) => {
 });
 
 /**
- * Initiate payment for an order
- * POST /api/payments/initiate
- * Body: { orderId, amount, currency, customerEmail, customerPhone, paymentMethod }
+ * Create payment intent for an order
+ * POST /api/payments/create-intent
+ * Body: { orderId, provider, senderPhone }
  */
-router.post('/initiate', async (req, res) => {
-  const { orderId, amount, currency = 'TZS', customerEmail, customerPhone, paymentMethod } = req.body;
+router.post('/create-intent', async (req, res) => {
+  const { orderId, provider = 'lipa_namba', senderPhone = '' } = req.body;
 
-  // Input validation
-  if (!orderId || !amount || !customerEmail || !paymentMethod) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required fields: orderId, amount, customerEmail, paymentMethod',
-    });
-  }
-
-  // Validate payment method
-  const validMethod = PESAPAL_PAYMENT_METHODS.find((m) => m.id === paymentMethod);
-  if (!validMethod) {
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid payment method',
-      availableMethods: PESAPAL_PAYMENT_METHODS.map((m) => m.id),
-    });
-  }
-
-  // Validate amount
-  if (isNaN(amount) || amount <= 0) {
-    return res.status(400).json({ success: false, error: 'Invalid amount' });
+  if (!orderId) {
+    return res.status(400).json({ success: false, error: 'orderId is required' });
   }
 
   try {
-    // Verify order exists in database
-    const orderExists = db.prepare('SELECT id, total FROM orders WHERE id = ?').get(orderId);
-    if (!orderExists) {
-      return res.status(404).json({ success: false, error: 'Order not found' });
+    const order = getOrderById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, error: `Order ${orderId} not found` });
     }
 
-    // Get callback URLs from environment or request
-    const baseUrl = process.env.API_BASE_URL || `${req.protocol}://${req.get('host')}`;
-    const callbackUrl = `${baseUrl}/api/payments/webhook`;
-    const redirectUrl = `${baseUrl}/pos/success?orderId=${orderId}`;
+    const paymentRef = order.paymentReference || `WRPAY-${order.id.replace(/^WR-/, '')}`;
+    
+    // Ensure order record has payment reference stored
+    db.prepare('UPDATE orders SET payment_reference = ? WHERE id = ?').run(paymentRef, order.id);
 
-    // Initiate Pesapal order
-    const paymentOrder = await createPesapalOrder({
-      orderId,
-      amount,
-      currency,
-      description: `Wrap & Roll Order - ${orderId}`,
-      customerEmail,
-      customerPhone,
-      paymentMethod,
-      callbackUrl,
-      redirectUrl,
+    const intent = await manualLipaProvider.createPaymentIntent({
+      order,
+      paymentReference: paymentRef,
+      provider,
+      senderPhone: senderPhone || order.customerPhone,
     });
-
-    // Store payment record in database
-    const paymentId = `PAY-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-    db.prepare(
-      `
-      INSERT INTO payments (
-        id, order_id, amount, currency, payment_method, 
-        pesapal_order_id, status, initiated_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    ).run(
-      paymentId,
-      orderId,
-      amount,
-      currency,
-      paymentMethod,
-      paymentOrder.orderTrackingId,
-      'initiated',
-      new Date().toISOString(),
-      new Date().toISOString()
-    );
 
     res.json({
       success: true,
-      paymentId,
-      orderTrackingId: paymentOrder.orderTrackingId,
-      redirectUrl: paymentOrder.redirectUrl,
-      amount,
-      currency,
-      paymentMethod: validMethod.label,
+      ...intent,
     });
   } catch (error) {
-    console.error('Payment initiation failed:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to initiate payment',
-      details: error.message,
-    });
+    console.error('Create payment intent error:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
- * Check payment status
- * GET /api/payments/:paymentId/status
+ * Customer submits manual transaction code / clicks "I Have Paid"
+ * POST /api/payments/submit-manual
+ * Body: { paymentReference, transactionId, senderPhone, senderName, notes }
+ * RESULT: Sets payment_status = 'manual_review', order_status remains 'pending_payment'
  */
-router.get('/:paymentId/status', async (req, res) => {
-  const { paymentId } = req.params;
+router.post('/submit-manual', async (req, res) => {
+  const { paymentReference, transactionId, senderPhone, senderName, notes } = req.body;
+
+  if (!paymentReference) {
+    return res.status(400).json({ success: false, error: 'paymentReference is required' });
+  }
 
   try {
-    const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId);
+    const result = await manualLipaProvider.submitManualPayment({
+      paymentReference: paymentReference.trim(),
+      transactionId: transactionId?.trim(),
+      senderPhone: senderPhone?.trim(),
+      senderName: senderName?.trim(),
+      notes: notes?.trim(),
+    });
+
+    const updatedOrder = getOrderById(result.orderId);
+    if (updatedOrder) {
+      broadcast('order:updated', updatedOrder);
+      broadcast('payment:manual_review', {
+        orderId: result.orderId,
+        paymentReference,
+        transactionId: transactionId?.trim(),
+      });
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error('Submit manual payment error:', error);
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Public payment status check endpoint for customer tracking
+ * GET /api/payments/:paymentReference/status
+ */
+router.get('/:paymentReference/status', (req, res) => {
+  const { paymentReference } = req.params;
+
+  try {
+    const payment = db.prepare(
+      'SELECT * FROM payments WHERE payment_reference = ? OR order_id = ? ORDER BY created_at DESC LIMIT 1'
+    ).get(paymentReference, paymentReference);
 
     if (!payment) {
-      return res.status(404).json({ success: false, error: 'Payment not found' });
+      // If no payment record yet, check order directly
+      const order = db.prepare('SELECT id, status, payment_status, total, payment_reference FROM orders WHERE id = ? OR payment_reference = ?').get(paymentReference, paymentReference);
+      if (!order) {
+        return res.status(404).json({ success: false, error: 'Payment or order reference not found' });
+      }
+      return res.json({
+        success: true,
+        orderId: order.id,
+        paymentReference: order.payment_reference || paymentReference,
+        status: order.payment_status || 'pending',
+        orderStatus: order.status || 'pending_payment',
+        amount: order.total,
+        paidAt: null,
+      });
     }
 
-    // Check status with Pesapal
-    const statusResult = await checkPaymentStatus(payment.pesapal_order_id);
-
-    // Update payment status in database
-    db.prepare(
-      'UPDATE payments SET status = ?, updated_at = ? WHERE id = ?'
-    ).run(statusResult.statusCode === 1 ? 'completed' : 'pending', new Date().toISOString(), paymentId);
+    const order = db.prepare('SELECT status, payment_status FROM orders WHERE id = ?').get(payment.order_id);
 
     res.json({
       success: true,
-      paymentId,
+      paymentId: payment.id,
       orderId: payment.order_id,
-      status: statusResult.status,
+      paymentReference: payment.payment_reference,
+      status: payment.status,
+      orderStatus: order?.status || 'pending_payment',
       amount: payment.amount,
       currency: payment.currency,
-      paymentMethod: payment.payment_method,
-      updatedAt: statusResult.lastUpdated,
+      provider: payment.provider,
+      transactionId: payment.transaction_id,
+      notes: payment.notes,
+      paidAt: payment.paid_at,
+      verifiedBy: payment.verified_by,
+      updatedAt: payment.updated_at,
     });
   } catch (error) {
-    console.error('Status check failed:', error);
-    res.status(500).json({ success: false, error: 'Failed to check payment status' });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
- * Webhook endpoint for Pesapal payment notifications
+ * Automated Webhook endpoint for Mobile Money / Payment Gateway notifications
  * POST /api/payments/webhook
  */
 router.post('/webhook', async (req, res) => {
-  const { order_tracking_id, status } = req.body;
-
-  // Validate webhook signature (important for security)
-  const signature = req.headers['x-pesapal-signature'];
-  if (!signature) {
-    console.warn('Webhook received without signature');
-    // For production, this should reject the request
-  }
-
   try {
-    // Find payment by Pesapal order ID
-    const payment = db.prepare('SELECT * FROM payments WHERE pesapal_order_id = ?').get(order_tracking_id);
-
-    if (!payment) {
-      console.warn(`Webhook received for unknown order: ${order_tracking_id}`);
-      return res.status(404).json({ success: false, error: 'Order not found' });
-    }
-
-    // Validate webhook with Pesapal
-    const validation = await validatePaymentWebhook(order_tracking_id, req.body);
-
-    if (!validation.valid) {
-      console.error(`Webhook validation failed: ${validation.reason}`);
-      return res.status(400).json({ success: false, error: 'Webhook validation failed' });
-    }
-
-    // Determine payment status
-    let newStatus = 'pending';
-    if (validation.statusCode === 1) {
-      newStatus = 'completed';
-
-      // Update order status in database
-      db.prepare('UPDATE orders SET payment_status = ? WHERE id = ?').run('paid', payment.order_id);
-      const order = db.prepare('SELECT total, payment_method FROM orders WHERE id = ?').get(payment.order_id);
-      db.prepare('INSERT INTO notifications (type, title, message, read, created_at) VALUES (?, ?, ?, 0, ?)').run(
-        'success', 'Payment Received', `Order ${payment.order_id} - ${order?.total || payment.amount} via ${order?.payment_method || payment.payment_method}`, new Date().toISOString()
-      );
-
-      console.log(`✓ Payment confirmed for order: ${payment.order_id}`);
-    } else if (validation.statusCode === 2) {
-      newStatus = 'pending';
-    } else {
-      newStatus = 'failed';
-      db.prepare('UPDATE orders SET payment_status = ? WHERE id = ?').run('failed', payment.order_id);
-    }
-
-    // Update payment record
-    db.prepare('UPDATE payments SET status = ?, updated_at = ? WHERE id = ?').run(
-      newStatus,
-      new Date().toISOString(),
-      payment.id
-    );
-
-    res.json({
-      success: true,
-      orderId: payment.order_id,
-      status: newStatus,
+    const result = await genericWebhookProvider.handleWebhook({
+      payload: req.body,
+      headers: req.headers,
     });
+
+    if (result.orderId) {
+      const updatedOrder = getOrderById(result.orderId);
+      if (updatedOrder) {
+        broadcast('order:updated', updatedOrder);
+        if (result.status === PAYMENT_STATUSES.PAID) {
+          broadcast('order:confirmed', updatedOrder);
+          broadcast('payment:confirmed', {
+            orderId: result.orderId,
+            paymentReference: result.paymentReference,
+            amount: result.amount,
+            transactionId: result.transactionId,
+          });
+        }
+      }
+    }
+
+    res.json(result);
   } catch (error) {
-    console.error('Webhook processing failed:', error);
-    res.status(500).json({ success: false, error: 'Webhook processing failed' });
+    console.error('Payment webhook error:', error);
+    res.status(400).json({ success: false, error: error.message });
   }
 });
 
 /**
- * Refund payment
- * POST /api/payments/:paymentId/refund
+ * Admin manual payment verification
+ * POST /api/payments/:paymentReference/verify-manual
  */
-router.post('/:paymentId/refund', authMiddleware, async (req, res) => {
-  const { paymentId } = req.params;
-  const { reason, amount } = req.body;
-
-  // Only admin or manager can process refunds
-  if (!['admin', 'manager'].includes(req.user.role)) {
-    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
-  }
+router.post('/:paymentReference/verify-manual', authMiddleware, async (req, res) => {
+  const { paymentReference } = req.params;
+  const { notes } = req.body || {};
+  const staffName = req.user?.name || req.user?.username || 'Admin';
 
   try {
-    const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId);
+    const result = await manualLipaProvider.verifyManualPayment({
+      paymentReference,
+      verifiedBy: staffName,
+      notes,
+    });
 
-    if (!payment) {
-      return res.status(404).json({ success: false, error: 'Payment not found' });
+    const updatedOrder = getOrderById(result.orderId);
+    if (updatedOrder) {
+      broadcast('order:updated', updatedOrder);
+      broadcast('order:confirmed', updatedOrder);
+      broadcast('payment:confirmed', {
+        orderId: result.orderId,
+        paymentReference,
+        verifiedBy: staffName,
+      });
     }
 
-    if (payment.status !== 'completed') {
-      return res.status(400).json({ success: false, error: 'Only completed payments can be refunded' });
+    res.json(result);
+  } catch (error) {
+    console.error('Verify manual payment error:', error);
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Admin manual payment rejection
+ * POST /api/payments/:paymentReference/reject-manual
+ */
+router.post('/:paymentReference/reject-manual', authMiddleware, async (req, res) => {
+  const { paymentReference } = req.params;
+  const { reason = 'Payment rejected by staff' } = req.body || {};
+  const staffName = req.user?.name || req.user?.username || 'Admin';
+
+  try {
+    const result = await manualLipaProvider.rejectManualPayment({
+      paymentReference,
+      verifiedBy: staffName,
+      reason,
+    });
+
+    const updatedOrder = getOrderById(result.orderId);
+    if (updatedOrder) {
+      broadcast('order:updated', updatedOrder);
+      broadcast('payment:rejected', {
+        orderId: result.orderId,
+        paymentReference,
+        reason,
+        verifiedBy: staffName,
+      });
     }
 
-    // Process refund
-    const refundResult = await refundPayment(payment.pesapal_order_id, amount);
+    res.json(result);
+  } catch (error) {
+    console.error('Reject manual payment error:', error);
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
 
-    // Record refund in database
-    const refundId = `REF-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-    db.prepare(
-      `
-      INSERT INTO refunds (
-        id, payment_id, order_id, amount, reason, pesapal_refund_id, 
-        status, requested_at, processed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    ).run(
-      refundId,
-      paymentId,
-      payment.order_id,
-      amount || payment.amount,
-      reason || 'Customer requested',
-      refundResult.refundId,
-      'processed',
-      new Date().toISOString(),
-      new Date().toISOString()
-    );
+/**
+ * Admin payments list with search and filters
+ * GET /api/payments/list
+ */
+router.get('/list', authMiddleware, (req, res) => {
+  const { status, search, limit = 50, offset = 0 } = req.query;
 
-    // Update order status
-    db.prepare('UPDATE orders SET payment_status = ? WHERE id = ?').run('refunded', payment.order_id);
+  try {
+    let sql = `
+      SELECT p.*, o.order_number, o.customer_name, o.customer_phone, o.total AS order_total, o.status AS order_status
+      FROM payments p
+      LEFT JOIN orders o ON p.order_id = o.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (status && status !== 'all') {
+      const statuses = status.split(',').map((s) => s.trim().toLowerCase());
+      sql += ` AND lower(p.status) IN (${statuses.map(() => '?').join(',')})`;
+      params.push(...statuses);
+    }
+
+    if (search) {
+      const term = `%${search.trim().toLowerCase()}%`;
+      sql += ` AND (
+        lower(p.payment_reference) LIKE ? OR
+        lower(p.order_id) LIKE ? OR
+        lower(COALESCE(o.order_number, '')) LIKE ? OR
+        lower(COALESCE(p.transaction_id, '')) LIKE ? OR
+        lower(COALESCE(p.sender_phone, '')) LIKE ? OR
+        lower(COALESCE(o.customer_phone, '')) LIKE ? OR
+        lower(COALESCE(p.sender_name, '')) LIKE ? OR
+        lower(COALESCE(o.customer_name, '')) LIKE ?
+      )`;
+      params.push(term, term, term, term, term, term, term, term);
+    }
+
+    sql += ' ORDER BY p.created_at DESC LIMIT ? OFFSET ?';
+    params.push(Number(limit), Number(offset));
+
+    const rows = db.prepare(sql).all(...params);
+
+    const counts = {
+      all: db.prepare('SELECT COUNT(*) as count FROM payments').get().count,
+      manual_review: db.prepare("SELECT COUNT(*) as count FROM payments WHERE status = 'manual_review'").get().count,
+      paid: db.prepare("SELECT COUNT(*) as count FROM payments WHERE status = 'paid'").get().count,
+      pending: db.prepare("SELECT COUNT(*) as count FROM payments WHERE status = 'pending'").get().count,
+      failed: db.prepare("SELECT COUNT(*) as count FROM payments WHERE status = 'failed'").get().count,
+    };
 
     res.json({
       success: true,
-      refundId,
-      amount: refundResult.amount,
-      status: refundResult.status,
+      payments: rows.map((r) => ({
+        id: r.id,
+        orderId: r.order_id,
+        orderNumber: r.order_number || r.order_id,
+        paymentReference: r.payment_reference,
+        provider: r.provider,
+        amount: r.amount,
+        currency: r.currency,
+        transactionId: r.transaction_id,
+        senderPhone: r.sender_phone || r.customer_phone,
+        senderName: r.sender_name || r.customer_name,
+        customerName: r.customer_name,
+        customerPhone: r.customer_phone,
+        status: r.status,
+        orderStatus: r.order_status,
+        notes: r.notes,
+        verifiedBy: r.verified_by,
+        paidAt: r.paid_at,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      })),
+      counts,
     });
   } catch (error) {
-    console.error('Refund processing failed:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to process refund',
-      details: error.message,
-    });
+    console.error('List payments error:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

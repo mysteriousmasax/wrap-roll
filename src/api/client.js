@@ -63,12 +63,35 @@ export const api = {
   updateMenuItem: (id, data) => request(`/menu/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteMenuItem: (id) => request(`/menu/${id}`, { method: 'DELETE' }),
 
-  getOrders: (status) => request(`/orders${status ? `?status=${status}` : ''}`),
+  getOrders: (status, paymentStatus) => {
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    if (paymentStatus) params.append('paymentStatus', paymentStatus);
+    const qs = params.toString();
+    return request(`/orders${qs ? `?${qs}` : ''}`);
+  },
   getOrder: (id) => request(`/orders/${id}`),
+  getPublicOrder: (idOrRef) => request(`/orders/public/${encodeURIComponent(idOrRef)}`),
   createOrder: (data) => request('/orders', { method: 'POST', body: JSON.stringify(data) }),
   createPublicOrder: (data) => request('/orders/public', { method: 'POST', body: JSON.stringify(data) }),
   updateOrderStatus: (id, status) => request(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
-  updateOrderPaymentStatus: (id, paymentStatus) => request(`/orders/${id}/payment-status`, { method: 'PATCH', body: JSON.stringify({ paymentStatus }) }),
+  updateOrderPaymentStatus: (id, paymentStatus, notes) => request(`/orders/${id}/payment-status`, { method: 'PATCH', body: JSON.stringify({ paymentStatus, notes }) }),
+
+  getPaymentMethods: () => request('/payments/methods'),
+  createPaymentIntent: (data) => request('/payments/create-intent', { method: 'POST', body: JSON.stringify(data) }),
+  submitManualPayment: (data) => request('/payments/submit-manual', { method: 'POST', body: JSON.stringify(data) }),
+  getPaymentStatus: (ref) => request(`/payments/${encodeURIComponent(ref)}/status`),
+  getPaymentsList: (filter = {}) => {
+    const params = new URLSearchParams();
+    if (filter.status) params.append('status', filter.status);
+    if (filter.search) params.append('search', filter.search);
+    if (filter.limit) params.append('limit', filter.limit);
+    if (filter.offset) params.append('offset', filter.offset);
+    const qs = params.toString();
+    return request(`/payments/list${qs ? `?${qs}` : ''}`);
+  },
+  verifyManualPayment: (ref, notes) => request(`/payments/${encodeURIComponent(ref)}/verify-manual`, { method: 'POST', body: JSON.stringify({ notes }) }),
+  rejectManualPayment: (ref, reason) => request(`/payments/${encodeURIComponent(ref)}/reject-manual`, { method: 'POST', body: JSON.stringify({ reason }) }),
 
   getTables: () => request('/tables'),
   getPublicTable: (tagId) => request(`/tables/public/${encodeURIComponent(tagId)}`),

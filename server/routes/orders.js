@@ -2,8 +2,9 @@ import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
-import { getOrderById, getOrders, nextOrderId } from '../utils/orders.js';
+import { getOrderById, getOrders, nextOrderId, nextPaymentReference } from '../utils/orders.js';
 import { buildOrderConfirmationMessage, getCustomerNotificationChannels } from '../utils/orderNotifications.js';
+import { PAYMENT_STATUSES, ORDER_STATUSES } from '../utils/paymentProviders.js';
 
 const router = Router();
 
@@ -31,138 +32,303 @@ function priceOrderItems(items) {
   return { items: pricedItems, subtotal: pricedItems.reduce((sum, item) => sum + item.price * item.qty, 0) };
 }
 
-function createOrderRecord({ items, orderType, tableNumber, customerName, customerPhone, customerEmail, deliveryAddress, deliveryLatitude, deliveryLongitude, paymentMethod, scheduledFor, paymentTiming, orderSource, paymentReference }, staffId = null) {
+function createOrderRecord(
+  {
+    items,
+    orderType,
+    tableNumber,
+    customerName,
+    customerPhone,
+    customerEmail,
+    deliveryAddress,
+    deliveryLatitude,
+    deliveryLongitude,
+    paymentMethod = 'lipa_namba',
+    scheduledFor,
+    paymentTiming = 'pay-now',
+    orderSource = 'website',
+    paymentReference = null,
+  },
+  staffId = null
+) {
   const priced = priceOrderItems(items);
   const subtotal = priced.subtotal;
   const taxRate = Number(db.prepare("SELECT value FROM settings WHERE key = 'tax_rate'").get()?.value || 8) / 100;
   const tax = subtotal * taxRate;
   const total = subtotal + tax;
+
   if (orderType === 'dine-in') {
     if (!tableNumber) throw new Error('A table number is required for dine-in orders');
     const table = db.prepare('SELECT status FROM tables WHERE number = ?').get(Number(tableNumber));
     if (!table) throw new Error('Table not found');
-    if (table.status !== 'available') throw new Error('Table is not available');
+    if (table.status !== 'available' && table.status !== 'occupied') throw new Error('Table is not available');
   }
+
   const id = nextOrderId();
+  const paymentRef = (paymentReference?.trim()) || nextPaymentReference(id);
   const now = new Date().toISOString();
+
+  // Determine initial status based on payment and source
+  const isStaffCashImmediate = staffId && (paymentMethod === 'cash' || paymentTiming === 'paid-cash');
+  const initialPaymentStatus = isStaffCashImmediate ? PAYMENT_STATUSES.PAID : PAYMENT_STATUSES.PENDING;
+  const initialOrderStatus = isStaffCashImmediate ? ORDER_STATUSES.CONFIRMED : ORDER_STATUSES.PENDING_PAYMENT;
+  const paidAt = isStaffCashImmediate ? now : null;
+
   const insertOrder = db.prepare(`
-    INSERT INTO orders (id, order_type, table_number, customer_name, customer_phone, customer_email, delivery_address, delivery_latitude, delivery_longitude, delivery_scheduled_for, subtotal, tax, total, payment_method, payment_status, order_source, payment_reference, status, created_at, updated_at, staff_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+    INSERT INTO orders (
+      id, order_number, order_type, table_number, customer_name, customer_phone, customer_email,
+      delivery_address, delivery_latitude, delivery_longitude, delivery_scheduled_for,
+      subtotal, tax, total, payment_method, payment_status, order_source, payment_reference,
+      status, paid_at, created_at, updated_at, staff_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+
   const insertItem = db.prepare(`
     INSERT INTO order_items (order_id, menu_item_id, name, qty, price, prep_time_minutes, modifiers, special_instructions)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const insertEvent = db.prepare('INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata) VALUES (?, ?, ?, ?, ?, ?)');
+
+  const insertPayment = db.prepare(`
+    INSERT INTO payments (
+      id, order_id, payment_reference, provider, payment_method, amount, currency,
+      sender_phone, sender_name, status, paid_at, initiated_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'TZS', ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const insertEvent = db.prepare(`
+    INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
   const tx = db.transaction(() => {
+    // Customer loyalty & record sync
     if (customerName?.trim()) {
       const existingCustomer = customerPhone ? db.prepare('SELECT * FROM customers WHERE phone = ?').get(customerPhone.trim()) : null;
       if (existingCustomer) {
-        db.prepare('UPDATE customers SET name = ?, email = ?, last_visit = ?, visits = visits + 1, lifetime_value = lifetime_value + ?, favorite_items = ? WHERE id = ?').run(customerName.trim(), customerEmail || '', now.slice(0, 10), total, JSON.stringify(priced.items.map((item) => item.name)), existingCustomer.id);
-
-        const customerHasTag = db.prepare('SELECT id FROM loyalty_items WHERE customer_id = ? AND item_type = ?').get(existingCustomer.id, 'nfc_tag');
-        if (!customerHasTag) {
-          const tagCode = `WR-${String(existingCustomer.id).padStart(4, '0')}-${Date.now().toString().slice(-6)}`;
-          db.prepare('INSERT INTO loyalty_items (customer_id, item_name, item_type, item_code, status, issue_date, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-            .run(existingCustomer.id, 'First Order NFC Tag', 'nfc_tag', tagCode, 'active', now.slice(0, 10), 'Issued automatically on first order', now);
-          db.prepare('UPDATE customers SET nfc_tag_code = ?, nfc_tag_type = ?, preferred_channel = COALESCE(?, preferred_channel), customer_segment = COALESCE(?, customer_segment) WHERE id = ?')
-            .run(tagCode, 'key_holder', orderSource || 'pos', 'first_order', existingCustomer.id);
-        }
+        db.prepare(
+          'UPDATE customers SET name = ?, email = ?, last_visit = ?, visits = visits + 1, lifetime_value = lifetime_value + ?, favorite_items = ? WHERE id = ?'
+        ).run(
+          customerName.trim(),
+          customerEmail || '',
+          now.slice(0, 10),
+          total,
+          JSON.stringify(priced.items.map((item) => item.name)),
+          existingCustomer.id
+        );
       } else {
-        const createdCustomer = db.prepare('INSERT INTO customers (name, phone, email, favorite_items, lifetime_value, last_visit, visits, customer_segment, nfc_tag_type, preferred_channel) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)')
-          .run(customerName.trim(), customerPhone || '', customerEmail || '', JSON.stringify(priced.items.map((item) => item.name)), total, now.slice(0, 10), 'first_order', 'key_holder', orderSource || 'pos');
-        const tagCode = `WR-${String(createdCustomer.lastInsertRowid).padStart(4, '0')}-${Date.now().toString().slice(-6)}`;
-        db.prepare('INSERT INTO loyalty_items (customer_id, item_name, item_type, item_code, status, issue_date, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(createdCustomer.lastInsertRowid, 'First Order NFC Tag', 'nfc_tag', tagCode, 'active', now.slice(0, 10), 'Issued automatically on first order', now);
-        db.prepare('UPDATE customers SET nfc_tag_code = ?, customer_segment = ? WHERE id = ?').run(tagCode, 'first_order', createdCustomer.lastInsertRowid);
+        db.prepare(
+          'INSERT INTO customers (name, phone, email, favorite_items, lifetime_value, last_visit, visits, customer_segment, preferred_channel) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)'
+        ).run(
+          customerName.trim(),
+          customerPhone || '',
+          customerEmail || '',
+          JSON.stringify(priced.items.map((item) => item.name)),
+          total,
+          now.slice(0, 10),
+          'first_order',
+          orderSource || 'pos'
+        );
       }
     }
-    const paymentStatus = paymentMethod === 'lipa_namba' ? 'pending' : (paymentTiming === 'pay-later' ? 'unpaid' : 'paid');
-    insertOrder.run(id, orderType || 'delivery', tableNumber || null, customerName || null, customerPhone || null, customerEmail || null, deliveryAddress || null, deliveryLatitude || null, deliveryLongitude || null, scheduledFor || null, subtotal, tax, total, paymentMethod || 'lipa_namba', paymentStatus, orderSource || 'foh', paymentReference || null, now, now, staffId);
-    for (const item of priced.items) insertItem.run(id, item.menuItemId, item.name, item.qty, item.price, item.prepTimeMinutes || 8, JSON.stringify(item.modifiers), item.specialInstructions);
-    insertEvent.run(id, 'created', 'pending', staffId, now, JSON.stringify({ source: orderSource || 'foh' }));
-    if (tableNumber) db.prepare('UPDATE tables SET status = ?, current_order_id = ? WHERE number = ?').run('occupied', id, tableNumber);
+
+    insertOrder.run(
+      id,
+      id,
+      orderType || 'delivery',
+      tableNumber || null,
+      customerName || null,
+      customerPhone || null,
+      customerEmail || null,
+      deliveryAddress || null,
+      deliveryLatitude || null,
+      deliveryLongitude || null,
+      scheduledFor || null,
+      subtotal,
+      tax,
+      total,
+      paymentMethod,
+      initialPaymentStatus,
+      orderSource,
+      paymentRef,
+      initialOrderStatus,
+      paidAt,
+      now,
+      now,
+      staffId
+    );
+
+    for (const item of priced.items) {
+      insertItem.run(
+        id,
+        item.menuItemId,
+        item.name,
+        item.qty,
+        item.price,
+        item.prepTimeMinutes || 8,
+        JSON.stringify(item.modifiers),
+        item.specialInstructions
+      );
+    }
+
+    // Create payment tracking record
+    insertPayment.run(
+      `PAY-${Date.now()}-${id}`,
+      id,
+      paymentRef,
+      paymentMethod || 'lipa_namba',
+      paymentMethod || 'lipa_namba',
+      total,
+      customerPhone || null,
+      customerName || null,
+      initialPaymentStatus,
+      paidAt,
+      now,
+      now,
+      now
+    );
+
+    insertEvent.run(
+      id,
+      'created',
+      initialOrderStatus,
+      staffId,
+      now,
+      JSON.stringify({
+        source: orderSource,
+        paymentReference: paymentRef,
+        paymentStatus: initialPaymentStatus,
+      })
+    );
+
+    if (tableNumber) {
+      db.prepare('UPDATE tables SET status = ?, current_order_id = ? WHERE number = ?').run('occupied', id, tableNumber);
+    }
   });
+
   tx();
   const order = getOrderById(id);
+
   broadcast('order:created', order);
-
-  if (order?.customer_phone || order?.customer_email) {
-    const customerRow = db.prepare('SELECT * FROM customers WHERE phone = ? OR email = ? ORDER BY id DESC LIMIT 1').get(order.customer_phone || '', order.customer_email || '');
-    const preferredChannels = getCustomerNotificationChannels(customerRow || {
-      email: order.customer_email,
-      phone: order.customer_phone,
-      preferred_channel: order.order_source || 'pos',
-      channel: order.order_source || 'pos',
-    });
-
-    const announcementChannels = [
-      preferredChannels.whatsapp ? 'WhatsApp' : null,
-      preferredChannels.sms ? 'SMS' : null,
-      preferredChannels.email ? 'Email' : null,
-    ].filter(Boolean);
-
-    const notifyChannel = announcementChannels[0] || 'WhatsApp';
-    const message = buildOrderConfirmationMessage(order.id, notifyChannel, order.customer_name || 'Customer');
-
-    db.prepare('INSERT INTO notifications (type, title, message, read, created_at) VALUES (?, ?, ?, 0, ?)')
-      .run('success', `Order confirmed (${notifyChannel})`, message, new Date().toISOString());
-    broadcast('notification:created', { type: 'success', title: `Order confirmed (${notifyChannel})` });
+  if (initialOrderStatus === ORDER_STATUSES.CONFIRMED) {
+    broadcast('order:confirmed', order);
   }
 
   return order;
 }
 
+/**
+ * Public Order Placement (Customers from website / table QR)
+ * POST /api/orders/public
+ */
 router.post('/public', (req, res) => {
-  const { items, customerName, customerPhone, customerEmail, deliveryAddress, orderType, tableNumber, scheduledFor, paymentTiming, orderSource, paymentReference } = req.body;
+  const {
+    items,
+    customerName,
+    customerPhone,
+    customerEmail,
+    deliveryAddress,
+    orderType,
+    tableNumber,
+    scheduledFor,
+    orderSource,
+    paymentReference,
+    paymentMethod = 'lipa_namba',
+  } = req.body;
+
   if (!items?.length) return res.status(400).json({ error: 'Order must have items' });
   if (!customerName?.trim()) return res.status(400).json({ error: 'Customer name is required' });
   if (orderType === 'dine-in' && !tableNumber) return res.status(400).json({ error: 'A table number is required' });
   if (orderType !== 'dine-in' && !deliveryAddress?.trim()) return res.status(400).json({ error: 'Delivery address is required' });
-  if (orderType !== 'dine-in' && scheduledFor && new Date(scheduledFor).getTime() <= Date.now()) return res.status(400).json({ error: 'Scheduled delivery must be in the future' });
-  if (!paymentReference?.trim()) return res.status(400).json({ error: 'Lipa Namba payment reference is required' });
+
   try {
-    const order = createOrderRecord({ items, orderType: orderType || 'delivery', tableNumber, customerName, customerPhone, customerEmail, deliveryAddress, scheduledFor, paymentTiming: 'pay-now', orderSource: orderSource || (tableNumber ? 'nfc' : 'website'), paymentReference, paymentMethod: 'lipa_namba' });
+    const order = createOrderRecord({
+      items,
+      orderType: orderType || 'delivery',
+      tableNumber,
+      customerName,
+      customerPhone,
+      customerEmail,
+      deliveryAddress,
+      scheduledFor,
+      paymentTiming: 'pay-now',
+      orderSource: orderSource || (tableNumber ? 'nfc' : 'website'),
+      paymentReference,
+      paymentMethod,
+    });
+
     res.status(201).json(order);
   } catch (error) {
+    console.error('Public order placement failed:', error);
     res.status(400).json({ error: error.message });
   }
 });
 
-router.get('/', authMiddleware, (req, res) => {
-  res.json(getOrders({ status: req.query.status }));
+/**
+ * Public Order Status Lookup (Customers tracking their order by ID or Ref)
+ * GET /api/orders/public/:idOrRef
+ */
+router.get('/public/:idOrRef', (req, res) => {
+  const order = getOrderById(req.params.idOrRef);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  res.json(order);
 });
 
+/**
+ * Authenticated Orders Listing (Staff POS / Admin)
+ * GET /api/orders
+ */
+router.get('/', authMiddleware, (req, res) => {
+  const { status, paymentStatus } = req.query;
+  res.json(getOrders({ status, paymentStatus }));
+});
+
+/**
+ * Authenticated Single Order Lookup
+ * GET /api/orders/:id
+ */
 router.get('/:id', authMiddleware, (req, res) => {
   const order = getOrderById(req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   res.json(order);
 });
 
+/**
+ * Authenticated POS Order Creation (Staff Counter)
+ * POST /api/orders
+ */
 router.post('/', authMiddleware, (req, res) => {
-  const {
-    items, subtotal, tax, total, orderType, tableNumber, customerName,
-    deliveryAddress, paymentMethod,
-  } = req.body;
-
+  const { items } = req.body;
   if (!items?.length) return res.status(400).json({ error: 'Order must have items' });
 
   try {
     const order = createOrderRecord(req.body, req.user.id);
     res.status(201).json(order);
   } catch (error) {
+    console.error('POS order placement failed:', error);
     res.status(400).json({ error: error.message });
   }
 });
 
+/**
+ * Update Kitchen / Fulfillment Order Status
+ * PATCH /api/orders/:id/status
+ */
 router.patch('/:id/status', authMiddleware, (req, res) => {
   const { status } = req.body;
-  if (!status) return res.status(400).json({ error: 'Status required' });
+  if (!status) return res.status(400).json({ error: 'Status is required' });
 
   const existing = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
-  if (status === 'preparing' && existing.payment_method === 'lipa_namba' && existing.payment_status !== 'paid') {
-    return res.status(409).json({ error: 'Lipa Namba payment must be confirmed before cooking starts.' });
+
+  // Guard: Kitchen cannot accept or prepare an unpaid order
+  if (
+    ['preparing', 'ready'].includes(status) &&
+    existing.payment_status !== PAYMENT_STATUSES.PAID &&
+    existing.order_type !== 'dine-in-postpay'
+  ) {
+    return res.status(409).json({
+      error: 'Cannot prepare order: Payment must be verified (PAID) before kitchen starts cooking.',
+    });
   }
 
   const now = new Date().toISOString();
@@ -179,14 +345,50 @@ router.patch('/:id/status', authMiddleware, (req, res) => {
   res.json(order);
 });
 
+/**
+ * Update Payment Status
+ * PATCH /api/orders/:id/payment-status
+ */
 router.patch('/:id/payment-status', authMiddleware, (req, res) => {
-  const { paymentStatus } = req.body || {};
-  if (!['paid', 'failed', 'pending'].includes(paymentStatus)) return res.status(400).json({ error: 'Invalid payment status' });
-  const existing = db.prepare('SELECT id FROM orders WHERE id = ?').get(req.params.id);
+  const { paymentStatus, notes } = req.body || {};
+  const validStatuses = Object.values(PAYMENT_STATUSES);
+
+  if (!validStatuses.includes(paymentStatus)) {
+    return res.status(400).json({ error: `Invalid payment status. Allowed: ${validStatuses.join(', ')}` });
+  }
+
+  const existing = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
-  db.prepare('UPDATE orders SET payment_status = ?, updated_at = ? WHERE id = ?').run(paymentStatus, new Date().toISOString(), req.params.id);
+
+  const now = new Date().toISOString();
+  const staffName = req.user?.name || 'Staff';
+
+  const newOrderStatus = paymentStatus === PAYMENT_STATUSES.PAID ? ORDER_STATUSES.CONFIRMED : existing.status;
+  const paidAt = paymentStatus === PAYMENT_STATUSES.PAID ? now : existing.paid_at;
+
+  db.prepare('UPDATE orders SET payment_status = ?, status = ?, paid_at = ?, updated_at = ? WHERE id = ?')
+    .run(paymentStatus, newOrderStatus, paidAt, now, req.params.id);
+
+  db.prepare(`
+    UPDATE payments SET
+      status = ?,
+      notes = COALESCE(?, notes),
+      verified_by = ?,
+      paid_at = ?,
+      updated_at = ?
+    WHERE order_id = ?
+  `).run(paymentStatus, notes || null, staffName, paidAt, now, req.params.id);
+
+  db.prepare('INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(req.params.id, 'payment_status_changed', paymentStatus, req.user.id, now, JSON.stringify({ staffName, notes }));
+
   const order = getOrderById(req.params.id);
   broadcast('order:updated', order);
+  if (paymentStatus === PAYMENT_STATUSES.PAID) {
+    broadcast('order:confirmed', order);
+    broadcast('payment:confirmed', { orderId: order.id, paymentReference: order.paymentReference });
+  }
+
   res.json(order);
 });
 

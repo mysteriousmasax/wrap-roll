@@ -23,8 +23,12 @@ export function formatOrder(row, items) {
     metadata: JSON.parse(event.metadata || '{}'),
   }));
   const creator = row.staff_id ? db.prepare('SELECT name, role FROM users WHERE id = ?').get(row.staff_id) : null;
+  const paymentRecord = db.prepare('SELECT * FROM payments WHERE order_id = ? OR payment_reference = ? ORDER BY created_at DESC LIMIT 1').get(row.id, row.payment_reference || '');
+
   return {
     id: row.id,
+    orderId: row.id,
+    orderNumber: row.order_number || row.id,
     type: row.order_type,
     table: row.table_number,
     customer: row.customer_name,
@@ -45,13 +49,30 @@ export function formatOrder(row, items) {
       specialInstructions: i.special_instructions,
     })),
     status: row.status,
+    orderStatus: row.status,
     subtotal: row.subtotal,
     tax: row.tax,
     total: row.total,
     paymentMethod: row.payment_method,
-    paymentStatus: row.payment_status,
+    paymentStatus: row.payment_status || 'pending',
     orderSource: row.order_source,
-    paymentReference: row.payment_reference,
+    paymentReference: row.payment_reference || (paymentRecord?.payment_reference || null),
+    paidAt: row.paid_at || paymentRecord?.paid_at || null,
+    paymentDetails: paymentRecord ? {
+      id: paymentRecord.id,
+      paymentReference: paymentRecord.payment_reference,
+      provider: paymentRecord.provider,
+      amount: paymentRecord.amount,
+      currency: paymentRecord.currency,
+      transactionId: paymentRecord.transaction_id,
+      senderPhone: paymentRecord.sender_phone,
+      senderName: paymentRecord.sender_name,
+      status: paymentRecord.status,
+      notes: paymentRecord.notes,
+      verifiedBy: paymentRecord.verified_by,
+      paidAt: paymentRecord.paid_at,
+      createdAt: paymentRecord.created_at,
+    } : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: creator ? { userId: row.staff_id, name: creator.name, role: creator.role } : null,
@@ -61,9 +82,9 @@ export function formatOrder(row, items) {
 }
 
 export function getOrderById(id) {
-  const row = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
+  const row = db.prepare('SELECT * FROM orders WHERE id = ? OR order_number = ? OR payment_reference = ?').get(id, id, id);
   if (!row) return null;
-  const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
+  const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(row.id);
   return formatOrder(row, items);
 }
 
@@ -72,9 +93,15 @@ export function getOrders(filter = {}) {
   const params = [];
 
   if (filter.status) {
-    const statuses = filter.status.split(',');
+    const statuses = filter.status.split(',').map((s) => s.trim());
     sql += ` AND status IN (${statuses.map(() => '?').join(',')})`;
     params.push(...statuses);
+  }
+
+  if (filter.paymentStatus) {
+    const pStatuses = filter.paymentStatus.split(',').map((s) => s.trim());
+    sql += ` AND payment_status IN (${pStatuses.map(() => '?').join(',')})`;
+    params.push(...pStatuses);
   }
 
   sql += ' ORDER BY created_at DESC';
@@ -86,8 +113,16 @@ export function getOrders(filter = {}) {
 }
 
 export function nextOrderId() {
+  const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Dar_es_Salaam' })
+    .format(new Date())
+    .replace(/-/g, '');
   const row = db.prepare('SELECT next_id FROM order_counter WHERE id = 1').get();
-  const id = row?.next_id ?? 1001;
-  db.prepare('UPDATE order_counter SET next_id = ? WHERE id = 1').run(id + 1);
-  return `WR-${id}`;
+  const nextNum = row?.next_id ?? 1001;
+  db.prepare('UPDATE order_counter SET next_id = ? WHERE id = 1').run(nextNum + 1);
+  return `WR-${dateStr}-${String(nextNum).slice(-4).padStart(4, '0')}`;
+}
+
+export function nextPaymentReference(orderNumber) {
+  const cleanNum = String(orderNumber || '').replace(/^WR-/, '');
+  return `WRPAY-${cleanNum || Date.now().toString().slice(-6)}`;
 }

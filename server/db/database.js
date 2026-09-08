@@ -354,12 +354,19 @@ export async function initDatabase() {
     CREATE TABLE IF NOT EXISTS payments (
       id TEXT PRIMARY KEY,
       order_id TEXT NOT NULL,
+      payment_reference TEXT NOT NULL UNIQUE,
+      provider TEXT NOT NULL DEFAULT 'lipa_namba',
       amount REAL NOT NULL,
       currency TEXT DEFAULT 'TZS',
-      payment_method TEXT NOT NULL,
-      pesapal_order_id TEXT UNIQUE,
-      status TEXT DEFAULT 'initiated',
-      initiated_at TEXT NOT NULL,
+      transaction_id TEXT,
+      sender_phone TEXT,
+      sender_name TEXT,
+      status TEXT DEFAULT 'pending',
+      provider_response TEXT DEFAULT '{}',
+      notes TEXT,
+      verified_by TEXT,
+      paid_at TEXT,
+      created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
     );
@@ -370,18 +377,13 @@ export async function initDatabase() {
       order_id TEXT NOT NULL,
       amount REAL NOT NULL,
       reason TEXT,
-      pesapal_refund_id TEXT,
+      refund_reference TEXT,
       status TEXT DEFAULT 'pending',
       requested_at TEXT NOT NULL,
       processed_at TEXT,
       FOREIGN KEY (payment_id) REFERENCES payments(id),
       FOREIGN KEY (order_id) REFERENCES orders(id)
     );
-
-    CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
-    CREATE INDEX IF NOT EXISTS idx_payments_pesapal ON payments(pesapal_order_id);
-    CREATE INDEX IF NOT EXISTS idx_refunds_payment ON refunds(payment_id);
-    CREATE INDEX IF NOT EXISTS idx_refunds_order ON refunds(order_id);
   `);
 
   migrateSchema(db);
@@ -422,8 +424,15 @@ export async function initDatabase() {
     payment_card: 'true',
     payment_mobile: 'true',
     payment_cash: 'true',
-    lipa_namba_number: '123456',
-    lipa_namba_accounts: '[]',
+    lipa_namba_number: '45342017',
+    lipa_namba_name: 'PETER JOSEPH MSIRA',
+    lipa_namba_provider: 'TIPS / Mixx by Yas',
+    lipa_namba_accounts: JSON.stringify([
+      { network: 'Mixx by Yas / TIPS', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*01#' },
+      { network: 'Vodacom M-Pesa', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*00#' },
+      { network: 'Airtel Money', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*60#' },
+      { network: 'Halopesa', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*88#' },
+    ]),
   };
   const weeklyHours = {
     monday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
@@ -558,14 +567,48 @@ function migrateSchema(db) {
   }
 
   const orderCols = db.prepare('PRAGMA table_info(orders)').all();
+  if (!orderCols.some((col) => col.name === 'order_number')) db.exec('ALTER TABLE orders ADD COLUMN order_number TEXT');
   if (!orderCols.some((col) => col.name === 'customer_phone')) db.exec('ALTER TABLE orders ADD COLUMN customer_phone TEXT');
   if (!orderCols.some((col) => col.name === 'customer_email')) db.exec('ALTER TABLE orders ADD COLUMN customer_email TEXT');
   if (!orderCols.some((col) => col.name === 'delivery_latitude')) db.exec('ALTER TABLE orders ADD COLUMN delivery_latitude REAL');
   if (!orderCols.some((col) => col.name === 'delivery_longitude')) db.exec('ALTER TABLE orders ADD COLUMN delivery_longitude REAL');
   if (!orderCols.some((c) => c.name === 'delivery_scheduled_for')) db.exec('ALTER TABLE orders ADD COLUMN delivery_scheduled_for TEXT');
-  if (!orderCols.some((c) => c.name === 'payment_status')) db.exec("ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT 'unpaid'");
+  if (!orderCols.some((c) => c.name === 'payment_status')) db.exec("ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT 'pending'");
   if (!orderCols.some((c) => c.name === 'order_source')) db.exec("ALTER TABLE orders ADD COLUMN order_source TEXT DEFAULT 'foh'");
   if (!orderCols.some((c) => c.name === 'payment_reference')) db.exec('ALTER TABLE orders ADD COLUMN payment_reference TEXT');
+  if (!orderCols.some((c) => c.name === 'paid_at')) db.exec('ALTER TABLE orders ADD COLUMN paid_at TEXT');
+
+  const paymentCols = db.prepare('PRAGMA table_info(payments)').all();
+  if (paymentCols.length > 0) {
+    if (!paymentCols.some((c) => c.name === 'order_id')) db.exec('ALTER TABLE payments ADD COLUMN order_id TEXT');
+    if (!paymentCols.some((c) => c.name === 'payment_reference')) db.exec('ALTER TABLE payments ADD COLUMN payment_reference TEXT');
+    if (!paymentCols.some((c) => c.name === 'provider')) db.exec("ALTER TABLE payments ADD COLUMN provider TEXT DEFAULT 'lipa_namba'");
+    if (!paymentCols.some((c) => c.name === 'payment_method')) db.exec("ALTER TABLE payments ADD COLUMN payment_method TEXT DEFAULT 'lipa_namba'");
+    if (!paymentCols.some((c) => c.name === 'amount')) db.exec('ALTER TABLE payments ADD COLUMN amount REAL DEFAULT 0');
+    if (!paymentCols.some((c) => c.name === 'currency')) db.exec("ALTER TABLE payments ADD COLUMN currency TEXT DEFAULT 'TZS'");
+    if (!paymentCols.some((c) => c.name === 'transaction_id')) db.exec('ALTER TABLE payments ADD COLUMN transaction_id TEXT');
+    if (!paymentCols.some((c) => c.name === 'sender_phone')) db.exec('ALTER TABLE payments ADD COLUMN sender_phone TEXT');
+    if (!paymentCols.some((c) => c.name === 'sender_name')) db.exec('ALTER TABLE payments ADD COLUMN sender_name TEXT');
+    if (!paymentCols.some((c) => c.name === 'status')) db.exec("ALTER TABLE payments ADD COLUMN status TEXT DEFAULT 'pending'");
+    if (!paymentCols.some((c) => c.name === 'provider_response')) db.exec("ALTER TABLE payments ADD COLUMN provider_response TEXT DEFAULT '{}'");
+    if (!paymentCols.some((c) => c.name === 'notes')) db.exec('ALTER TABLE payments ADD COLUMN notes TEXT');
+    if (!paymentCols.some((c) => c.name === 'verified_by')) db.exec('ALTER TABLE payments ADD COLUMN verified_by TEXT');
+    if (!paymentCols.some((c) => c.name === 'paid_at')) db.exec('ALTER TABLE payments ADD COLUMN paid_at TEXT');
+    if (!paymentCols.some((c) => c.name === 'initiated_at')) db.exec('ALTER TABLE payments ADD COLUMN initiated_at TEXT');
+    if (!paymentCols.some((c) => c.name === 'created_at')) db.exec('ALTER TABLE payments ADD COLUMN created_at TEXT');
+    if (!paymentCols.some((c) => c.name === 'updated_at')) db.exec('ALTER TABLE payments ADD COLUMN updated_at TEXT');
+  }
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_orders_ref ON orders(payment_reference);
+    CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+    CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders(payment_status);
+    CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_ref ON payments(payment_reference);
+    CREATE INDEX IF NOT EXISTS idx_payments_txn ON payments(transaction_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+  `);
+
   db.prepare("UPDATE inventory SET image_url = COALESCE(NULLIF(image_url, ''), 'https://images.unsplash.com/photo-1547592180-85f173990554?w=240&h=180&fit=crop'), category = COALESCE(NULLIF(category, ''), 'ingredients'), sku = COALESCE(NULLIF(sku, ''), 'INV-' || printf('%03d', id)), storage_location = COALESCE(NULLIF(storage_location, ''), 'Main store')").run();
 }
 

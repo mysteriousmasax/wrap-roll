@@ -23,6 +23,7 @@ import SettingsPage from './pages/management/SettingsPage';
 import LoyaltyManagementPage from './pages/management/LoyaltyManagementPage';
 import CampaignDashboardPage from './pages/management/CampaignDashboardPage';
 import OperationsHubPage from './pages/management/OperationsHubPage';
+import PaymentVerificationPage from './pages/management/PaymentVerificationPage';
 import PeopleHubPage from './pages/management/PeopleHubPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
 import HomePage from './pages/public/HomePage';
@@ -34,6 +35,7 @@ const ROUTE_ROLES = {
   '/pos/success': ['admin', 'foh'],
   '/pos/tables': ['admin', 'foh'],
   '/orders': ['admin', 'foh', 'manager'],
+  '/management/payments': ['admin', 'manager', 'foh'],
   '/kds': ['admin', 'kitchen'],
   '/crm': ['admin', 'manager', 'executive'],
   '/crm/whatsapp': ['admin', 'manager', 'executive'],
@@ -107,6 +109,7 @@ function AppRoutes() {
         <Route path="/pos/success" element={<RoleRoute path="/pos/success"><PaymentSuccessPage /></RoleRoute>} />
         <Route path="/pos/tables" element={<RoleRoute path="/pos/tables"><TableManagementPage /></RoleRoute>} />
         <Route path="/orders" element={<RoleRoute path="/orders"><OrdersListPage /></RoleRoute>} />
+        <Route path="/management/payments" element={<RoleRoute path="/management/payments"><PaymentVerificationPage /></RoleRoute>} />
         <Route path="/kds" element={<RoleRoute path="/kds"><KDSPage /></RoleRoute>} />
         <Route path="/crm" element={<RoleRoute path="/crm"><CRMPage /></RoleRoute>} />
         <Route path="/crm/whatsapp" element={<RoleRoute path="/crm/whatsapp"><WhatsAppPage /></RoleRoute>} />

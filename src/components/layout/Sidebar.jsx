@@ -6,7 +6,7 @@ import BrandLogo from '../brand/BrandLogo';
 import {
   LayoutGrid, ShoppingBag, ChefHat, Users, BarChart3, ClipboardList,
   Package, UserCog, Settings, Bell, LogOut, TrendingUp, Calendar, X,
-  ChevronLeft, ChevronRight, Gift, WalletCards, Sparkles
+  ChevronLeft, ChevronRight, Gift, WalletCards, Sparkles, ShieldCheck
 } from 'lucide-react';
 
 const navItems = [
@@ -14,6 +14,7 @@ const navItems = [
   { path: '/pos/tables', label: 'Tables', icon: ClipboardList, roles: ['admin', 'foh'] },
   { path: '/kds', label: 'Kitchen', icon: ChefHat, roles: ['admin', 'kitchen'] },
   { path: '/orders', label: 'Orders', icon: ShoppingBag, roles: ['admin', 'foh', 'manager'] },
+  { path: '/management/payments', label: 'Payment Verification', icon: ShieldCheck, roles: ['admin', 'manager', 'foh'] },
   { path: '/crm', label: 'CRM & Loyalty', icon: Users, roles: ['admin', 'manager', 'executive'] },
   { path: '/analytics', label: 'Analytics', icon: BarChart3, roles: ['admin', 'executive', 'manager'] },
   { path: '/management/menu', label: 'Menu Editor', icon: Package, roles: ['admin', 'manager'] },

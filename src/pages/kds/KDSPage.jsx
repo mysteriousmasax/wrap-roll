@@ -74,19 +74,20 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
     ? 'border-2 border-[#e6ac29] bg-[#fffdf7]'
     : 'border border-[#ebdccb] bg-white';
 
-  const progressSteps = ['pending', 'preparing', 'ready'];
-  const progressIndex = progressSteps.indexOf(order.status);
+  const isPaid = order.paymentStatus === 'paid' || order.orderType === 'dine-in-postpay';
 
   return (
     <div
-      className={`kds-order-card rounded-2xl overflow-hidden transition-all duration-200 ${urgencyStyles}`}
+      className={`kds-order-card rounded-2xl overflow-hidden transition-all duration-200 ${
+        !isPaid ? 'border-2 border-amber-300 bg-amber-50/30' : urgencyStyles
+      }`}
     >
       {/* Card Header */}
       <div className="p-3.5 space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="font-display font-black text-sm text-[#1f1d1b] tracking-tight">
-              {order.id}
+              {order.orderNumber || order.id}
             </span>
             <StatusBadge status={order.status} />
           </div>
@@ -94,36 +95,57 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
           <div
             className={
               'flex items-center gap-1 text-xs font-black px-2 py-0.5 rounded-full ' +
-              (isUrgent
+              (!isPaid
+                ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                : isUrgent
                 ? 'bg-[#ae002a] text-white animate-pulse'
                 : isWarning
                 ? 'bg-[#e6ac29] text-[#24211e]'
                 : 'bg-[#fbf6ee] text-[#746e67]')
             }
           >
-            {isUrgent ? <AlertTriangle size={12} /> : <Clock size={12} />}
-            <span>{countdownText}</span>
+            {isUrgent && isPaid ? <AlertTriangle size={12} /> : <Clock size={12} />}
+            <span>{!isPaid ? 'Awaiting Payment' : countdownText}</span>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
-          <span className="px-2 py-0.5 rounded-md bg-[#faeee2] text-[#ae002a] uppercase tracking-wider">
-            {order.type}
-          </span>
-          {order.table && (
-            <span className="px-2 py-0.5 rounded-md bg-[#e6ac29]/20 text-[#775a00]">
-              Table {order.table}
+        {/* Payment & Order Type Banner */}
+        <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] font-bold pb-1 border-b border-[#eee4d5]/70">
+          <div className="flex items-center gap-1.5">
+            <span className="px-2 py-0.5 rounded-md bg-[#faeee2] text-[#ae002a] uppercase tracking-wider">
+              {order.type}
             </span>
-          )}
-          {order.customer && (
-            <span className="px-2 py-0.5 rounded-md bg-[#fbf6ee] text-[#554e46] truncate max-w-[120px]">
-              {order.customer}
-            </span>
-          )}
+            {order.table && (
+              <span className="px-2 py-0.5 rounded-md bg-[#e6ac29]/20 text-[#775a00]">
+                Table {order.table}
+              </span>
+            )}
+            {order.customer && (
+              <span className="px-2 py-0.5 rounded-md bg-[#fbf6ee] text-[#554e46] truncate max-w-[120px]">
+                {order.customer}
+              </span>
+            )}
+          </div>
+
+          <div>
+            {isPaid ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-black">
+                <Check size={11} className="stroke-[3]" /> PAID
+              </span>
+            ) : order.paymentStatus === 'manual_review' ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-200 text-amber-900 text-[10px] font-bold animate-pulse">
+                <Clock size={11} /> CASHIER REVIEW
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 text-[10px] font-bold">
+                UNPAID
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Order Items List */}
-        <div className="space-y-2 py-1 border-t border-b border-[#eee4d5]/70">
+        <div className="space-y-2 py-1 border-b border-[#eee4d5]/70">
           {order.items.map((item, i) => (
             <div key={i} className="flex items-start gap-2.5">
               <span className="bg-[#ae002a] text-white text-xs font-black w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
@@ -148,38 +170,38 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
 
         {/* Action Buttons */}
         <div className="flex gap-2 pt-1">
-          {order.paymentMethod === 'lipa_namba' && order.paymentStatus !== 'paid' && (
-            <button
-              onClick={() => onPaymentConfirm(order.id)}
-              className="flex-1 py-2 rounded-xl bg-[#227653] hover:bg-[#1b5e43] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-            >
-              <CheckCircle2 size={14} /> Confirm Payment
-            </button>
-          )}
-          {order.status === 'pending' && (
-            <button
-              disabled={order.paymentMethod === 'lipa_namba' && order.paymentStatus !== 'paid'}
-              onClick={() => onStatusChange(order.id, 'preparing')}
-              className="flex-1 py-2 rounded-xl bg-[#ae002a] hover:bg-[#920023] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-            >
-              <ChefHat size={14} /> Start Cooking
-            </button>
-          )}
-          {order.status === 'preparing' && (
-            <button
-              onClick={() => onStatusChange(order.id, 'ready')}
-              className="flex-1 py-2 rounded-xl bg-[#e6ac29] hover:bg-[#d99f20] text-[#24211e] text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-            >
-              <CheckCircle2 size={14} /> Mark Ready
-            </button>
-          )}
-          {order.status === 'ready' && (
-            <button
-              onClick={() => onStatusChange(order.id, 'completed')}
-              className="flex-1 py-2 rounded-xl bg-[#227653] hover:bg-[#1b5e43] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-            >
-              <Check size={14} /> Served &amp; Done
-            </button>
+          {!isPaid ? (
+            <div className="w-full py-2 px-3 rounded-xl bg-amber-100/70 border border-amber-300 text-amber-900 text-center text-xs font-bold flex items-center justify-center gap-1.5">
+              <AlertTriangle size={13} />
+              <span>Awaiting Cashier / Payment Verification</span>
+            </div>
+          ) : (
+            <>
+              {['confirmed', 'pending'].includes(order.status) && (
+                <button
+                  onClick={() => onStatusChange(order.id, 'preparing')}
+                  className="flex-1 py-2.5 rounded-xl bg-[#ae002a] hover:bg-[#920023] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                >
+                  <ChefHat size={14} /> Accept &amp; Start Cooking
+                </button>
+              )}
+              {order.status === 'preparing' && (
+                <button
+                  onClick={() => onStatusChange(order.id, 'ready')}
+                  className="flex-1 py-2.5 rounded-xl bg-[#e6ac29] hover:bg-[#d99f20] text-[#24211e] text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                >
+                  <CheckCircle2 size={14} /> Mark Ready
+                </button>
+              )}
+              {order.status === 'ready' && (
+                <button
+                  onClick={() => onStatusChange(order.id, 'completed')}
+                  className="flex-1 py-2.5 rounded-xl bg-[#227653] hover:bg-[#1b5e43] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                >
+                  <Check size={14} /> Served &amp; Done
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -188,7 +210,8 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
 }
 
 const STATIONS = [
-  { id: 'all', label: 'All Kitchen' },
+  { id: 'all', label: 'All Paid Orders' },
+  { id: 'unpaid', label: 'Awaiting Payment' },
   { id: 'wraps', label: 'Wraps & Rolls' },
   { id: 'grill', label: 'Burgers & Grill' },
   { id: 'sides', label: 'Sides & Salads' },
@@ -215,25 +238,36 @@ export default function KDSPage() {
   }, []);
 
   useWebSocket((event) => {
-    if (event === 'order:created') {
+    if (event === 'order:created' || event === 'order:confirmed' || event === 'payment:confirmed') {
       fetchOrders('pending,preparing,ready');
       if (soundEnabled) playOrderChime();
     }
   });
 
-  const active = orders.filter((o) => ['pending', 'preparing', 'ready'].includes(o.status));
+  const active = orders.filter((o) => ['confirmed', 'pending', 'preparing', 'ready'].includes(o.status));
 
-  // Sound alert check on new pending orders
+  // Sound alert check on new confirmed/paid orders
   useEffect(() => {
-    const pendingCount = active.filter((o) => o.status === 'pending').length;
-    if (pendingCount > prevCountRef.current && prevCountRef.current > 0 && soundEnabled) {
+    const paidPendingCount = active.filter(
+      (o) => (o.status === 'confirmed' || o.status === 'pending') && (o.paymentStatus === 'paid' || o.orderType === 'dine-in-postpay')
+    ).length;
+    if (paidPendingCount > prevCountRef.current && prevCountRef.current > 0 && soundEnabled) {
       playOrderChime();
     }
-    prevCountRef.current = pendingCount;
+    prevCountRef.current = paidPendingCount;
   }, [active, soundEnabled]);
 
   // Filter orders by station if selected
   const filteredOrders = active.filter((order) => {
+    const isPaid = order.paymentStatus === 'paid' || order.orderType === 'dine-in-postpay';
+
+    if (activeStation === 'unpaid') {
+      return !isPaid;
+    }
+
+    // All standard stations only show verified paid orders
+    if (!isPaid) return false;
+
     if (activeStation === 'all') return true;
     if (activeStation === 'wraps') {
       return order.items?.some((i) =>

@@ -28,6 +28,7 @@ import useSettingsStore from '../../store/useSettingsStore';
 import useTranslation from '../../i18n/useTranslation';
 import CustomerChat from '../../components/public/CustomerChat';
 import LipaNambaPayment from '../../components/public/LipaNambaPayment';
+import LipaPaymentModal from '../../components/public/LipaPaymentModal';
 import RotatingText from '../../components/ui/RotatingText';
 import DepthText from '../../components/ui/DepthText';
 import DriftWall from '../../components/ui/DriftWall';
@@ -90,6 +91,8 @@ export default function HomePage() {
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [locating, setLocating] = useState(false);
   const [orderStatus, setOrderStatus] = useState('');
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [activePlacedOrder, setActivePlacedOrder] = useState(null);
   const [publicMenu, setPublicMenu] = useState([]);
   const [tableContext, setTableContext] = useState(null);
   const [selectedMealItem, setSelectedMealItem] = useState(null);
@@ -320,7 +323,6 @@ export default function HomePage() {
   const submitOrder = async (event) => {
     event.preventDefault();
     if (!cartItems.length) return setOrderStatus('Add a dish before checking out.');
-    if (!paymentReference.trim()) return setOrderStatus('Enter the Lipa Namba payment reference.');
     setOrderStatus('Sending your order...');
     try {
       const order = await api.createPublicOrder({
@@ -336,12 +338,13 @@ export default function HomePage() {
         orderType: tableContext ? 'dine-in' : 'delivery',
         tableNumber: tableContext?.number || null,
         orderSource: tableContext ? 'nfc' : 'website',
-        paymentReference,
+        paymentReference: paymentReference || undefined,
       });
-      setOrderStatus(`Order ${order.id} received successfully! The kitchen is preparing your meal.`);
+      setActivePlacedOrder(order);
+      setPaymentModalOpen(true);
       setCartItems([]);
-      setDeliveryAddress('');
-      setPaymentReference('');
+      setCartOpen(false);
+      setOrderStatus('');
     } catch (error) {
       setOrderStatus(error.message || 'We could not send that order.');
     }
@@ -882,6 +885,21 @@ export default function HomePage() {
             </div>
           </section>
         </div>
+      )}
+
+      {/* Lipa Namba Payment Tracking Modal */}
+      {paymentModalOpen && activePlacedOrder && (
+        <LipaPaymentModal
+          isOpen={paymentModalOpen}
+          order={activePlacedOrder}
+          onClose={() => {
+            setPaymentModalOpen(false);
+            setActivePlacedOrder(null);
+          }}
+          onSuccess={(paidOrder) => {
+            setActivePlacedOrder(paidOrder);
+          }}
+        />
       )}
 
       {/* Floating Cart Button */}
