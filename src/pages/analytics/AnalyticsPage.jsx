@@ -84,7 +84,7 @@ export default function AnalyticsPage() {
       const operational = sum?.operational || {};
       setPettyCashRows((operational.pettyCash || []).map((row, index) => ({ ...row, id: row.id || index + 1, rate: String(row.rate || ''), quantity: String(row.quantity || 1) })));
       setSalesSummaryRows((operational.dailySales || []).map((row, index) => ({ ...row, id: row.id || index + 1, quantity: String(row.quantity || ''), openingStock: String(row.openingStock || ''), closingStock: String(row.closingStock || ''), price: String(row.price || '') })));
-      setRecentOrders((orders || []).slice(0, 5));
+      setRecentOrders((orders || []).filter((order) => order.status === 'completed' && ['paid', 'completed'].includes(order.paymentStatus)).slice(0, 5));
       setLastUpdated(new Date());
     } finally {
       setLoading(false);
