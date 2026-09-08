@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { broadcast } from '../ws.js';
 
 const router = Router();
 
 function mapTable(row) {
+  const tagId = row.tag_id;
   return {
     id: row.id,
     number: row.number,
@@ -14,7 +16,8 @@ function mapTable(row) {
     y: row.y,
     order: row.current_order_id,
     reservation: row.reservation,
-    tagId: row.tag_id,
+    tagId,
+    nfcUrl: tagId ? `${process.env.PUBLIC_APP_URL || 'https://wrapandrolltz.com'}/table/${encodeURIComponent(tagId)}` : null,
     imageUrl: row.image_url,
     zone: row.zone,
     note: row.note,
@@ -64,7 +67,9 @@ router.patch('/:id', authMiddleware, (req, res) => {
     note !== undefined ? note : existing.note,
     req.params.id
     );
-    res.json(mapTable(db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id)));
+    const table = mapTable(db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id));
+    broadcast('table:updated', table);
+    res.json(table);
   } catch {
     res.status(409).json({ error: 'Table number already exists' });
   }

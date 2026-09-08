@@ -8,6 +8,7 @@ Copy `.env.example` to `.env` and set:
 
 - `JWT_SECRET`: a long random value. This is required when `NODE_ENV=production`.
 - `CORS_ORIGIN`: comma-separated frontend origins. Set this to `https://wrapandrolltz.com` when the frontend uses the Railway custom domain.
+- `PUBLIC_APP_URL`: public origin used to generate NFC table scan links. Set this to `https://wrapandrolltz.com`.
 - `PORT`: the port supplied by the hosting provider, when applicable.
 - `DB_PATH`: the path to `wraproll.db` on persistent storage. For Docker deployments use `/data/wraproll.db` and mount `/data` to a named volume or host directory.
 

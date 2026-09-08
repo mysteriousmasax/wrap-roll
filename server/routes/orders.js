@@ -37,7 +37,8 @@ function createOrderRecord({ items, orderType, tableNumber, customerName, custom
   const taxRate = Number(db.prepare("SELECT value FROM settings WHERE key = 'tax_rate'").get()?.value || 8) / 100;
   const tax = subtotal * taxRate;
   const total = subtotal + tax;
-  if (orderType === 'dine-in') {
+  const isDineIn = orderType === 'dine-in';
+  if (isDineIn) {
     if (!tableNumber) throw new Error('A table number is required for dine-in orders');
     const table = db.prepare('SELECT status FROM tables WHERE number = ?').get(Number(tableNumber));
     if (!table) throw new Error('Table not found');
@@ -81,7 +82,11 @@ function createOrderRecord({ items, orderType, tableNumber, customerName, custom
     insertOrder.run(id, orderType || 'delivery', tableNumber || null, customerName || null, customerPhone || null, customerEmail || null, deliveryAddress || null, deliveryLatitude || null, deliveryLongitude || null, scheduledFor || null, subtotal, tax, total, paymentMethod || 'lipa_namba', paymentStatus, orderSource || 'foh', paymentReference || null, now, now, staffId);
     for (const item of priced.items) insertItem.run(id, item.menuItemId, item.name, item.qty, item.price, item.prepTimeMinutes || 8, JSON.stringify(item.modifiers), item.specialInstructions);
     insertEvent.run(id, 'created', 'pending', staffId, now, JSON.stringify({ source: orderSource || 'foh' }));
-    if (tableNumber) db.prepare('UPDATE tables SET status = ?, current_order_id = ? WHERE number = ?').run('occupied', id, tableNumber);
+    if (isDineIn) {
+      const claimed = db.prepare("UPDATE tables SET status = 'occupied', current_order_id = ? WHERE number = ? AND status = 'available'").run(id, Number(tableNumber));
+      if (!claimed.changes) throw new Error('Table was just claimed by another order. Please choose another available table.');
+      broadcast('table:updated', { number: Number(tableNumber), status: 'occupied', order: id });
+    }
   });
   tx();
   const order = getOrderById(id);
@@ -170,8 +175,9 @@ router.patch('/:id/status', authMiddleware, (req, res) => {
   db.prepare('INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata) VALUES (?, ?, ?, ?, ?, ?)')
     .run(req.params.id, 'status_changed', status, req.user.id, now, JSON.stringify({ previousStatus: existing.status }));
 
-  if (status === 'completed' && existing.table_number) {
-    db.prepare('UPDATE tables SET status = ?, current_order_id = NULL WHERE number = ?').run('cleaning', existing.table_number);
+  if (['completed', 'cancelled'].includes(status) && existing.table_number) {
+    db.prepare('UPDATE tables SET status = ?, current_order_id = NULL WHERE number = ? AND current_order_id = ?').run('available', existing.table_number, existing.id);
+    broadcast('table:updated', { number: existing.table_number, status: 'available', order: null });
   }
 
   const order = getOrderById(req.params.id);
@@ -185,6 +191,10 @@ router.patch('/:id/payment-status', authMiddleware, (req, res) => {
   const existing = db.prepare('SELECT id FROM orders WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
   db.prepare('UPDATE orders SET payment_status = ?, updated_at = ? WHERE id = ?').run(paymentStatus, new Date().toISOString(), req.params.id);
+  if (paymentStatus === 'failed' && existing.table_number) {
+    db.prepare('UPDATE tables SET status = ?, current_order_id = NULL WHERE number = ? AND current_order_id = ?').run('available', existing.table_number, existing.id);
+    broadcast('table:updated', { number: existing.table_number, status: 'available', order: null });
+  }
   const order = getOrderById(req.params.id);
   broadcast('order:updated', order);
   res.json(order);

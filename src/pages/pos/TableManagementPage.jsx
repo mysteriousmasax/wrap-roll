@@ -5,9 +5,10 @@ import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import { api } from '../../api/client';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import importPhoto from '../../utils/importPhoto';
 import { downloadAsset } from '../../utils/downloadAsset';
-import { Users, Clock, MapPin, Wifi, Camera, NotebookPen, Upload, X, Download } from 'lucide-react';
+import { Users, Clock, MapPin, Wifi, Camera, NotebookPen, Upload, X, Download, Copy } from 'lucide-react';
 
 const defaultTableImage = 'https://images.unsplash.com/photo-1559339352-11d035aa65de?w=800&h=600&fit=crop';
 const emptyForm = { number: '', seats: '4', status: 'available', tagId: '', zone: 'Main Dining', imageUrl: '', reservation: '', note: '' };
@@ -22,6 +23,7 @@ export default function TableManagementPage() {
 
   const load = () => api.getTables().then(setTables).finally(() => setLoading(false));
   useEffect(() => { load(); }, []);
+  useWebSocket((event) => { if (event === 'table:updated' || event === 'order:created' || event === 'order:updated') load(); });
 
   const handlePhotoChange = async (event) => {
     try {
@@ -102,6 +104,12 @@ export default function TableManagementPage() {
     }
   };
 
+  const copyNfcUrl = async (table) => {
+    const url = table.nfcUrl || `${window.location.origin}/table/${table.tagId || `WR-T${table.number}`}`;
+    await navigator.clipboard.writeText(url);
+    setError(`NFC link copied for Table ${table.number}. Write this URL to the NFC tag with a phone NFC writer app.`);
+  };
+
   if (loading) return <div className="p-6 text-sm text-surface-on-variant">Loading tables...</div>;
 
   return (
@@ -145,6 +153,7 @@ export default function TableManagementPage() {
 
               <div className="grid gap-2 rounded-xl bg-surface-container-low p-3 text-xs text-surface-on-variant">
                 <div className="flex items-center justify-between gap-2"><span className="inline-flex items-center gap-1.5"><Wifi size={12} /> NFC tag</span><span className="font-semibold text-on-surface">{table.tagId || `WR-T${table.number}`}</span></div>
+                <div className="break-all text-[10px] text-surface-on-variant">{table.nfcUrl || `${window.location.origin}/table/${table.tagId || `WR-T${table.number}`}`}</div>
                 <div className="flex items-center justify-between gap-2"><span className="inline-flex items-center gap-1.5"><MapPin size={12} /> Zone</span><span className="font-semibold text-on-surface">{table.zone || 'Main Dining'}</span></div>
                 {table.order && <div className="flex items-center justify-between gap-2"><span className="inline-flex items-center gap-1.5"><NotebookPen size={12} /> Live order</span><span className="font-semibold text-primary">{table.order}</span></div>}
                 {table.reservation && <div className="flex items-center justify-between gap-2"><span className="inline-flex items-center gap-1.5"><Clock size={12} /> Reservation</span><span className="font-semibold text-secondary">{table.reservation}</span></div>}
@@ -154,7 +163,7 @@ export default function TableManagementPage() {
                 <span className="inline-flex items-center gap-1.5"><Camera size={12} /> Table view</span>
                 <span className="font-semibold text-on-surface">{table.note || 'Tap NFC tag to identify guest table'}</span>
               </div>
-              <div className="flex gap-2"><Button variant="ghost" size="sm" className="flex-1" onClick={() => openEdit(table)}>Edit Table</Button><button type="button" title="Download table image" onClick={() => downloadTableImage(table)} disabled={!table.imageUrl} className="rounded-lg border border-outline-variant px-3 text-primary hover:bg-surface-container-low disabled:opacity-30"><Download size={15} /></button></div>
+              <div className="flex gap-2"><Button variant="ghost" size="sm" className="flex-1" onClick={() => openEdit(table)}>Edit Table</Button><button type="button" title="Copy NFC scan URL" onClick={() => copyNfcUrl(table)} className="rounded-lg border border-outline-variant px-3 text-primary hover:bg-surface-container-low"><Copy size={15} /></button><button type="button" title="Download table image" onClick={() => downloadTableImage(table)} disabled={!table.imageUrl} className="rounded-lg border border-outline-variant px-3 text-primary hover:bg-surface-container-low disabled:opacity-30"><Download size={15} /></button></div>
             </div>
           </div>
         ))}
