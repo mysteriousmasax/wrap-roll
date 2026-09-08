@@ -69,23 +69,22 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
   const isWarning = !isUrgent && elapsedMins >= 8;
 
   const urgencyStyles = isUrgent
-    ? 'border-2 border-[#ae002a] bg-[#fff8f8] shadow-md ring-2 ring-[#ae002a]/20'
+    ? 'border-2 border-[#b0003a] bg-[#fff7f8] shadow-[0_12px_30px_rgba(176,0,58,.14)] ring-2 ring-[#b0003a]/20'
     : isWarning
-    ? 'border-2 border-[#e6ac29] bg-[#fffdf7]'
-    : 'border border-[#ebdccb] bg-white';
+    ? 'border-2 border-[#e6ac29] bg-[#fffaf0] shadow-[0_10px_24px_rgba(230,172,41,.12)]'
+    : 'border border-[#eadfd2] bg-white shadow-[0_8px_20px_rgba(55,28,20,.07)]';
 
   const progressSteps = ['pending', 'preparing', 'ready'];
   const progressIndex = progressSteps.indexOf(order.status);
 
   return (
-    <div
-      className={`kds-order-card rounded-2xl overflow-hidden transition-all duration-200 ${urgencyStyles}`}
-    >
+    <div className={`kds-order-card group relative overflow-hidden rounded-[18px] transition-all duration-200 hover:-translate-y-1 ${urgencyStyles}`}>
+      <div className={`h-1.5 ${order.status === 'pending' ? 'bg-[#e6ac29]' : order.status === 'preparing' ? 'bg-[#f27522]' : 'bg-[#227653]'}`} />
       {/* Card Header */}
-      <div className="p-3.5 space-y-2.5">
+      <div className="space-y-3.5 p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="font-display font-black text-sm text-[#1f1d1b] tracking-tight">
+            <span className="font-display text-xl font-black tracking-tight text-[#1f1d1b]">
               {order.id}
             </span>
             <StatusBadge status={order.status} />
@@ -93,9 +92,9 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
 
           <div
             className={
-              'flex items-center gap-1 text-xs font-black px-2 py-0.5 rounded-full ' +
+              'flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-black ' +
               (isUrgent
-                ? 'bg-[#ae002a] text-white animate-pulse'
+                ? 'bg-[#b0003a] text-white animate-pulse'
                 : isWarning
                 ? 'bg-[#e6ac29] text-[#24211e]'
                 : 'bg-[#fbf6ee] text-[#746e67]')
@@ -104,6 +103,11 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
             {isUrgent ? <AlertTriangle size={12} /> : <Clock size={12} />}
             <span>{countdownText}</span>
           </div>
+        </div>
+
+        <div className="flex items-center justify-between border-b border-[#eadfd2] pb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a7d73]">
+          <span>{order.status === 'pending' ? 'Queued for kitchen' : order.status === 'preparing' ? 'On the line' : 'Pickup / pass'}</span>
+          <span>{elapsedMins < 1 ? 'Just now' : `${elapsedMins} min active`}</span>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
@@ -123,14 +127,14 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
         </div>
 
         {/* Order Items List */}
-        <div className="space-y-2 py-1 border-t border-b border-[#eee4d5]/70">
+        <div className="space-y-2.5 border-b border-[#eee4d5]/70 pb-3">
           {order.items.map((item, i) => (
-            <div key={i} className="flex items-start gap-2.5">
-              <span className="bg-[#ae002a] text-white text-xs font-black w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+            <div key={i} className="flex items-start gap-3">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#b0003a] text-sm font-black text-white shadow-sm">
                 {item.qty}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-bold text-[#1f1d1b] leading-tight">{item.name}</p>
+                <p className="text-sm font-black leading-tight text-[#1f1d1b]">{item.name}</p>
                 {item.modifiers?.length > 0 && (
                   <p className="text-[10px] text-[#ae002a] font-bold mt-0.5">
                     + {item.modifiers.join(', ')}
@@ -147,11 +151,11 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex gap-2 pt-1">
+        <div className="flex gap-2 pt-0.5">
           {order.paymentMethod === 'lipa_namba' && order.paymentStatus !== 'paid' && (
             <button
               onClick={() => onPaymentConfirm(order.id)}
-              className="flex-1 py-2 rounded-xl bg-[#227653] hover:bg-[#1b5e43] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+              className="flex-1 rounded-xl bg-[#227653] py-2.5 text-xs font-bold text-white shadow-sm transition-colors hover:bg-[#1b5e43]"
             >
               <CheckCircle2 size={14} /> Confirm Payment
             </button>
@@ -160,7 +164,7 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
             <button
               disabled={order.paymentMethod === 'lipa_namba' && order.paymentStatus !== 'paid'}
               onClick={() => onStatusChange(order.id, 'preparing')}
-              className="flex-1 py-2 rounded-xl bg-[#ae002a] hover:bg-[#920023] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+              className="flex-1 rounded-xl bg-[#b0003a] py-2.5 text-xs font-bold text-white shadow-sm transition-colors hover:bg-[#920023]"
             >
               <ChefHat size={14} /> Start Cooking
             </button>
@@ -168,7 +172,7 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
           {order.status === 'preparing' && (
             <button
               onClick={() => onStatusChange(order.id, 'ready')}
-              className="flex-1 py-2 rounded-xl bg-[#e6ac29] hover:bg-[#d99f20] text-[#24211e] text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+              className="flex-1 rounded-xl bg-[#e6ac29] py-2.5 text-xs font-bold text-[#24211e] shadow-sm transition-colors hover:bg-[#d99f20]"
             >
               <CheckCircle2 size={14} /> Mark Ready
             </button>
@@ -176,7 +180,7 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
           {order.status === 'ready' && (
             <button
               onClick={() => onStatusChange(order.id, 'completed')}
-              className="flex-1 py-2 rounded-xl bg-[#227653] hover:bg-[#1b5e43] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+              className="flex-1 rounded-xl bg-[#227653] py-2.5 text-xs font-bold text-white shadow-sm transition-colors hover:bg-[#1b5e43]"
             >
               <Check size={14} /> Served &amp; Done
             </button>
@@ -292,25 +296,25 @@ export default function KDSPage() {
   }
 
   return (
-    <div className="kds-page h-[calc(100vh-3.5rem)] flex flex-col bg-[#faf7f2]">
+    <div className="kds-page flex h-[calc(100vh-3.5rem)] flex-col bg-[#f3eee9]">
       {/* Kitchen Control Bar */}
-      <div className="kds-command-bar flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-white border border-[#ebdccb] rounded-2xl mx-3 mt-3 shadow-sm">
+      <div className="kds-command-bar mx-3 mt-3 flex flex-wrap items-center justify-between gap-4 rounded-[22px] border border-[#2f2925] bg-[#292522] px-5 py-4 text-white shadow-[0_14px_34px_rgba(36,33,30,.18)]">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-[#ae002a] text-white flex items-center justify-center shadow-sm">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#b0003a] text-white shadow-[0_8px_20px_rgba(176,0,58,.35)]">
             <Flame size={20} />
           </div>
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#ae002a]">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#f5d777]">
               Kitchen Display
             </p>
-            <h1 className="font-display text-sm sm:text-base font-bold text-[#1f1d1b]">
+            <h1 className="font-display text-base font-bold text-white sm:text-lg">
               Live Production Tickets
             </h1>
           </div>
         </div>
 
         {/* Station Tabs */}
-        <div className="flex items-center gap-1 bg-[#fbf6ee] p-1 rounded-xl border border-[#ebdccb] overflow-x-auto">
+        <div className="flex items-center gap-1 overflow-x-auto rounded-xl border border-white/10 bg-white/10 p-1">
           {STATIONS.map((st) => (
             <button
               key={st.id}
@@ -318,8 +322,8 @@ export default function KDSPage() {
               className={
                 'px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ' +
                 (activeStation === st.id
-                  ? 'bg-[#ae002a] text-white shadow-sm'
-                  : 'text-[#746e67] hover:bg-white')
+                  ? 'bg-[#f5d777] text-[#292522] shadow-sm'
+                  : 'text-[#f3eee9] hover:bg-white/10')
               }
             >
               {st.label}
@@ -330,8 +334,8 @@ export default function KDSPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
-            className={`p-2 rounded-xl border border-[#ebdccb] text-xs font-bold flex items-center gap-1.5 transition-colors ${
-              soundEnabled ? 'bg-[#faeee2] text-[#ae002a]' : 'bg-white text-[#746e67]'
+            className={`flex items-center gap-1.5 rounded-xl border border-white/10 p-2 text-xs font-bold transition-colors ${
+              soundEnabled ? 'bg-[#b0003a] text-white' : 'bg-white/10 text-[#f3eee9]'
             }`}
             title={soundEnabled ? 'Mute chimes' : 'Enable audio alerts'}
           >
@@ -339,13 +343,13 @@ export default function KDSPage() {
             <span className="hidden sm:inline">{soundEnabled ? 'Chime ON' : 'Muted'}</span>
           </button>
 
-          <span className="px-2.5 py-1 rounded-full bg-[#fbf6ee] border border-[#ebdccb] text-xs font-bold text-[#775a00]">
+          <span className="rounded-lg border border-[#f5d777]/30 bg-[#f5d777]/15 px-2.5 py-1 text-xs font-bold text-[#f5d777]">
             {pending.length} New
           </span>
-          <span className="px-2.5 py-1 rounded-full bg-[#fff5ea] border border-[#fd7e14]/30 text-xs font-bold text-[#c05600]">
+          <span className="rounded-lg border border-[#f27522]/30 bg-[#f27522]/15 px-2.5 py-1 text-xs font-bold text-[#ffad78]">
             {preparing.length} Cooking
           </span>
-          <span className="px-2.5 py-1 rounded-full bg-[#f0f9f3] border border-[#227653]/30 text-xs font-bold text-[#227653]">
+          <span className="rounded-lg border border-[#65c98d]/30 bg-[#65c98d]/15 px-2.5 py-1 text-xs font-bold text-[#9ee6b8]">
             {ready.length} Ready
           </span>
         </div>
