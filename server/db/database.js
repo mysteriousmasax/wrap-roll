@@ -468,6 +468,24 @@ export async function initDatabase() {
   const insertDefaultSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
   for (const [key, value] of Object.entries(defaultSettings)) insertDefaultSetting.run(key, value);
 
+  // Ensure real Lipa Namba and accounts overwrite any legacy placeholder 123456 on existing databases
+  db.prepare(`
+    UPDATE settings SET value = '45342017'
+    WHERE key = 'lipa_namba_number' AND (value = '123456' OR value = '' OR value IS NULL)
+  `).run();
+  db.prepare(`
+    UPDATE settings SET value = ?
+    WHERE key = 'lipa_namba_accounts' AND (value LIKE '%123456%' OR value = '[]' OR value = '' OR value IS NULL)
+  `).run(defaultSettings.lipa_namba_accounts);
+  db.prepare(`
+    INSERT INTO settings (key, value) VALUES ('lipa_namba_name', 'PETER JOSEPH MSIRA')
+    ON CONFLICT(key) DO UPDATE SET value = 'PETER JOSEPH MSIRA' WHERE settings.value = '' OR settings.value IS NULL
+  `).run();
+  db.prepare(`
+    INSERT INTO settings (key, value) VALUES ('lipa_namba_provider', 'TIPS / Mixx by Yas')
+    ON CONFLICT(key) DO UPDATE SET value = 'TIPS / Mixx by Yas' WHERE settings.value = '' OR settings.value IS NULL
+  `).run();
+
   const { migratePlaintextPins, migrateUserCredentials } = await import('../utils/pins.js');
   await migratePlaintextPins(db);
   await migrateUserCredentials(db);

@@ -41,6 +41,18 @@ router.get('/public', (req, res) => {
   const rows = db.prepare(`SELECT key, value FROM settings WHERE key IN (${publicKeys.map(() => '?').join(', ')})`).all(...publicKeys);
   const settings = { ...publicDefaults };
   for (const row of rows) settings[row.key] = row.value;
+
+  // Sanitize: never allow legacy placeholder 123456 or empty accounts to leak to public
+  if (!settings.lipa_namba_number || settings.lipa_namba_number === '123456') {
+    settings.lipa_namba_number = '45342017';
+  }
+  if (!settings.lipa_namba_accounts || settings.lipa_namba_accounts.includes('123456') || settings.lipa_namba_accounts === '[]') {
+    settings.lipa_namba_accounts = publicDefaults.lipa_namba_accounts;
+  }
+  if (!settings.lipa_namba_name) {
+    settings.lipa_namba_name = 'PETER JOSEPH MSIRA';
+  }
+
   res.json(settings);
 });
 
