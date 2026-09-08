@@ -1,20 +1,29 @@
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 
-export default function InternalQrCode({ number, uploadedImage = '', useInternal = true, alt = 'Lipa Namba QR code', className = '' }) {
+export default function InternalQrCode({
+  number,
+  value,
+  uploadedImage = '',
+  useInternal = true,
+  alt = 'Lipa Namba QR code',
+  className = '',
+}) {
   const [generatedImage, setGeneratedImage] = useState('');
+  const qrTarget = String(value || number || '').trim();
 
   useEffect(() => {
     let active = true;
-    if (!number || !useInternal) {
+    if (!qrTarget || !useInternal) {
       setGeneratedImage('');
       return () => { active = false; };
     }
 
-    QRCode.toDataURL(`Lipa Namba: ${number}`, {
-      errorCorrectionLevel: 'H',
+    // Encode the actual number/payload directly so phones and banking apps detect it accurately
+    QRCode.toDataURL(qrTarget, {
+      errorCorrectionLevel: 'M',
       margin: 2,
-      width: 320,
+      width: 360,
       color: { dark: '#1f1d1b', light: '#ffffff' },
     }).then((image) => {
       if (active) setGeneratedImage(image);
@@ -23,9 +32,22 @@ export default function InternalQrCode({ number, uploadedImage = '', useInternal
     });
 
     return () => { active = false; };
-  }, [number, useInternal]);
+  }, [qrTarget, useInternal]);
 
-  const image = useInternal ? generatedImage || uploadedImage : uploadedImage;
+  // If uploadedImage is just the decorative placeholder logo, prefer the real generated QR code
+  const isPlaceholderLogo = uploadedImage === '/lipa-namba-qr-logo.png' || uploadedImage.includes('lipa-namba-qr-logo');
+  const image = useInternal
+    ? (generatedImage || (!isPlaceholderLogo ? uploadedImage : ''))
+    : uploadedImage;
+
   if (!image) return null;
-  return <img src={image} alt={alt} className={className} />;
+
+  return (
+    <img
+      src={image}
+      alt={alt}
+      className={className || 'aspect-square w-44 h-44 mx-auto rounded-xl object-contain'}
+      style={{ aspectRatio: '1 / 1' }}
+    />
+  );
 }

@@ -16,6 +16,7 @@ import {
 import { api } from '../../api/client';
 import { formatCurrency } from '../../utils/format';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import InternalQrCode from '../ui/InternalQrCode';
 
 const NETWORKS = [
   {
@@ -310,24 +311,16 @@ export default function LipaPaymentModal({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center bg-white border border-[#ebdccb] rounded-2xl p-4 shadow-sm">
                 {/* QR Code */}
                 <div className="flex flex-col items-center justify-center p-2 text-center border-b sm:border-b-0 sm:border-r border-[#eee4d5] pb-4 sm:pb-0 sm:pr-4">
-                  <div className="bg-white p-2 rounded-2xl border-2 border-[#004aad] shadow-md relative group">
-                    <img
-                      src="/lipa-namba-qr-logo.png"
+                  <div className="bg-white p-2 rounded-2xl border-2 border-[#004aad] shadow-md relative">
+                    <InternalQrCode
+                      number={lipaNumber}
+                      useInternal={true}
                       alt="Wrap & Roll TIPS QR Code"
-                      className="w-36 h-36 object-contain rounded-xl"
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                        e.target.nextSibling.style.display = 'flex';
-                      }}
+                      className="w-36 h-36 aspect-square object-contain rounded-xl"
                     />
-                    <div className="hidden w-36 h-36 flex-col items-center justify-center bg-blue-50 text-blue-900 rounded-xl p-2 text-center text-xs font-bold">
-                      <QrCode size={40} className="text-[#004aad] mb-1" />
-                      <span>TIPS Lipa Namba</span>
-                      <strong className="text-sm font-black">{lipaNumber}</strong>
-                    </div>
                   </div>
                   <span className="text-[10px] text-[#004aad] font-bold mt-2 flex items-center gap-1">
-                    <QrCode size={12} /> Scan with Mixx / Bank App
+                    <QrCode size={12} /> Scan with Camera / Banking App
                   </span>
                 </div>
 
