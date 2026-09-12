@@ -465,7 +465,7 @@ export default function HomePage() {
 
       <section className="reference-delivery-section public-reveal-section px-6 py-14 sm:px-12 sm:py-20" aria-label="Delivery and catering">
         <div className="reference-delivery-card">
-          <img src={brandFoodImages[0]} alt="Wrap and Roll delivery and catering" />
+          <img src="/hero-food.jpg" alt="Wrap and Roll delivery and catering" />
           <div className="reference-delivery-copy">
             <BrandLogo variant="dark" />
             <h2>DELIVERY &amp; CATERING</h2>
