@@ -461,24 +461,6 @@ export default function HomePage() {
           </div>
         </div>
 
-        <div className="hero-food-banner relative hidden lg:block">
-          <div className="relative overflow-hidden rounded-3xl shadow-2xl border-4 border-white aspect-[4/3]">
-            <img
-              src="/hero-food.jpg"
-              alt="Fresh Wrap and Roll Meal"
-              className="w-full h-full object-cover"
-            />
-          </div>
-          <div className="absolute -bottom-4 -left-4 bg-[#fffdfa] border border-[#ebdccb] p-3.5 rounded-2xl shadow-xl flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#e6ac29] text-[#24211e] flex items-center justify-center font-black">
-              ★
-            </div>
-            <div>
-              <p className="text-xs font-bold text-[#1f1d1b]">100% Fresh Daily</p>
-              <p className="text-[10px] text-[#746e67]">Made fresh to order in minutes</p>
-            </div>
-          </div>
-        </div>
       </section>
 
       <section className="reference-delivery-section public-reveal-section px-6 py-14 sm:px-12 sm:py-20" aria-label="Delivery and catering">
