@@ -62,16 +62,20 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   const staff = db.prepare('SELECT id, name, shift, status FROM staff WHERE user_id = ?').get(user.id);
   if (staff?.status === 'removed') return res.status(403).json({ error: 'This staff account has been removed.' });
-  if (staff && staff.status !== 'on-clock') {
+  if (staff) {
     const now = new Date();
     const local = restaurantTime(now);
     const loginTime = local.time;
     const shiftDate = local.date;
-    db.prepare('UPDATE staff SET status = ?, clock_in = ? WHERE id = ?').run('on-clock', loginTime, staff.id);
+    if (staff.status !== 'on-clock') {
+      db.prepare('UPDATE staff SET status = ?, clock_in = ? WHERE id = ?').run('on-clock', loginTime, staff.id);
+    }
     const activeShift = db.prepare("SELECT id FROM shift_logs WHERE staff_id = ? AND shift_date = ? AND status = 'active'").get(staff.id, shiftDate);
-    if (!activeShift) db.prepare('INSERT INTO shift_logs (staff_id, staff_name, shift_date, start_time, status, notes, clock_in_latitude, clock_in_longitude, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(staff.id, staff.name, shiftDate, loginTime, 'active', staff.shift || 'Assigned shift', latitude, longitude, now.toISOString());
-  } else if (staff) {
-    db.prepare('UPDATE shift_logs SET clock_in_latitude = ?, clock_in_longitude = ? WHERE staff_id = ? AND status = \'active\' AND shift_date = ?').run(latitude, longitude, staff.id, restaurantTime().date);
+    if (activeShift) {
+      db.prepare('UPDATE shift_logs SET clock_in_latitude = ?, clock_in_longitude = ?, ended_at = NULL, end_time = NULL, hours_worked = 0 WHERE id = ?').run(latitude, longitude, activeShift.id);
+    } else {
+      db.prepare('INSERT INTO shift_logs (staff_id, staff_name, shift_date, start_time, status, notes, clock_in_latitude, clock_in_longitude, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(staff.id, staff.name, shiftDate, loginTime, 'active', staff.shift || 'Assigned shift', latitude, longitude, now.toISOString());
+    }
   }
 
   const { pin: _, password: __, ...safeUser } = user;
