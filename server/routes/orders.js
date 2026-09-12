@@ -212,6 +212,35 @@ function createOrderRecord(
   if (initialOrderStatus === ORDER_STATUSES.CONFIRMED) {
     broadcast('order:confirmed', order);
   }
+  const orderNotification = { type: 'info', title: `New order ${order.id}`, message: `${order.customer || 'A customer'} placed a new ${order.type} order.`, audienceRoles: ['admin', 'manager', 'kitchen', 'foh'] };
+  const notificationCreatedAt = new Date().toISOString();
+  for (const role of ['manager', 'kitchen', 'foh']) {
+    db.prepare('INSERT INTO notifications (type, title, message, read, created_at, audience_role) VALUES (?, ?, ?, 0, ?, ?)').run(orderNotification.type, orderNotification.title, orderNotification.message, notificationCreatedAt, role);
+  }
+  broadcast('notification:created', orderNotification);
+
+  if (order?.customer_phone || order?.customer_email) {
+    const customerRow = db.prepare('SELECT * FROM customers WHERE phone = ? OR email = ? ORDER BY id DESC LIMIT 1').get(order.customer_phone || '', order.customer_email || '');
+    const preferredChannels = getCustomerNotificationChannels(customerRow || {
+      email: order.customer_email,
+      phone: order.customer_phone,
+      preferred_channel: order.order_source || 'pos',
+      channel: order.order_source || 'pos',
+    });
+
+    const announcementChannels = [
+      preferredChannels.whatsapp ? 'WhatsApp' : null,
+      preferredChannels.sms ? 'SMS' : null,
+      preferredChannels.email ? 'Email' : null,
+    ].filter(Boolean);
+
+    const notifyChannel = announcementChannels[0] || 'WhatsApp';
+    const message = buildOrderConfirmationMessage(order.id, notifyChannel, order.customer_name || 'Customer');
+
+    db.prepare('INSERT INTO notifications (type, title, message, read, created_at) VALUES (?, ?, ?, 0, ?)')
+      .run('success', `Order confirmed (${notifyChannel})`, message, new Date().toISOString());
+    broadcast('notification:created', { type: 'success', title: `Order confirmed (${notifyChannel})` });
+  }
 
   return order;
 }

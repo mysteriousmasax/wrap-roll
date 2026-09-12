@@ -10,7 +10,7 @@ import { Document, HeadingLevel, ImageRun, Packer, Paragraph, Table, TableCell, 
 const require = createRequire(import.meta.url);
 const PptxGenJS = require('pptxgenjs');
 import db from '../db/database.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { getOrders } from '../utils/orders.js';
 import { generateOfflineAgentReply, generateOperationsReport, generateStaffAssistantReply } from '../utils/gemini.js';
 import { aiProvider, recordAiActivity } from '../utils/aiActivity.js';
@@ -83,7 +83,7 @@ function getOperationalSummaries() {
   weekStart.setUTCDate(weekStart.getUTCDate() - 6);
   const weekStartValue = weekStart.toISOString().slice(0, 10);
   const pettyCash = db.prepare(`
-    SELECT id, description AS item, amount AS total, payment_method AS paymentMethod, expense_date AS date, supplier AS remarks
+    SELECT id, description AS item, amount AS total, payment_method AS paymentMethod, expense_date AS date, supplier AS remarks, created_by
     FROM business_expenses
     WHERE expense_date >= ? AND status != 'rejected'
       AND (LOWER(category) LIKE '%petty%' OR LOWER(payment_method) = 'cash')
@@ -92,23 +92,48 @@ function getOperationalSummaries() {
   const dailySales = db.prepare(`
     SELECT oi.name AS item, SUM(oi.qty) AS quantity, SUM(oi.qty * oi.price) AS total,
       MAX(oi.price) AS price, COALESCE(i.quantity, 0) AS closingStock,
-      COALESCE(i.quantity, 0) + SUM(oi.qty) AS openingStock
+      COALESCE(i.quantity, 0) + SUM(oi.qty) AS openingStock,
+      GROUP_CONCAT(DISTINCT COALESCE(u.name, CASE WHEN o.order_source = 'website' THEN 'Website customer' ELSE 'POS till' END)) AS checkedBy
     FROM order_items oi
     INNER JOIN orders o ON o.id = oi.order_id
+    LEFT JOIN users u ON u.id = o.staff_id
     LEFT JOIN inventory i ON LOWER(TRIM(i.name)) = LOWER(TRIM(oi.name))
     WHERE substr(o.created_at, 1, 10) = ? AND o.status = 'completed' AND o.payment_status IN ('paid', 'completed')
     GROUP BY oi.name, i.quantity
     ORDER BY total DESC LIMIT 24
   `).all(reportDate);
+  const savedPetty = db.prepare("SELECT payload, checked_by_name, approved_by_name FROM operational_summaries WHERE summary_type = 'petty_cash' AND report_date = ?").get(reportDate);
+  const savedDaily = db.prepare("SELECT payload, checked_by_name, approved_by_name FROM operational_summaries WHERE summary_type = 'daily_sales' AND report_date = ?").get(reportDate);
+  const parseSaved = (record) => { try { return record ? JSON.parse(record.payload || '{}') : null; } catch { return null; } };
+  const pettyRows = parseSaved(savedPetty)?.rows;
+  const dailyRows = parseSaved(savedDaily)?.rows;
   return {
-    pettyCash: pettyCash.map((row, index) => ({ id: row.id, item: row.item, rate: Number(row.total || 0), quantity: 1, total: Number(row.total || 0), date: row.date, remarks: row.remarks || row.paymentMethod || 'Cash expense', rowNumber: index + 1 })),
-    dailySales: dailySales.map((row, index) => ({ id: `${reportDate}-${index}`, date: reportDate, item: row.item, quantity: Number(row.quantity || 0), openingStock: Number(row.openingStock || 0), closingStock: Number(row.closingStock || 0), price: Number(row.price || 0), difference: Number(row.openingStock || 0) - Number(row.closingStock || 0), total: Number(row.total || 0), remarks: 'Live order activity' })),
-    pettyCashTotal: pettyCash.reduce((sum, row) => sum + Number(row.total || 0), 0),
-    dailySalesTotal: dailySales.reduce((sum, row) => sum + Number(row.total || 0), 0),
+    pettyCash: pettyRows || pettyCash.map((row, index) => ({ id: row.id, item: row.item, rate: Number(row.total || 0), quantity: 1, total: Number(row.total || 0), date: row.date, remarks: row.remarks || row.paymentMethod || 'Cash expense', checkedBy: row.created_by || 'System', rowNumber: index + 1 })),
+    dailySales: dailyRows || dailySales.map((row, index) => ({ id: `${reportDate}-${index}`, date: reportDate, item: row.item, quantity: Number(row.quantity || 0), openingStock: Number(row.openingStock || 0), closingStock: Number(row.closingStock || 0), price: Number(row.price || 0), difference: Number(row.openingStock || 0) - Number(row.closingStock || 0), total: Number(row.total || 0), checkedBy: row.checkedBy || 'System', remarks: 'Live order activity' })),
+    pettyCashTotal: (pettyRows || pettyCash).reduce((sum, row) => sum + (Number(row.total) || (Number(row.rate) || 0) * (Number(row.quantity) || 0)), 0),
+    dailySalesTotal: (dailyRows || dailySales).reduce((sum, row) => sum + Number(row.total || 0), 0),
     reportDate,
     generatedAt: new Date().toISOString(),
   };
 }
+
+router.put('/operational-summary/:type/:date', authMiddleware, (req, res) => {
+  if (!['petty_cash', 'daily_sales'].includes(req.params.type)) return res.status(400).json({ error: 'Invalid summary type' });
+  const payload = JSON.stringify(req.body?.payload || {});
+  const now = new Date().toISOString();
+  db.prepare(`INSERT INTO operational_summaries (summary_type, report_date, payload, checked_by_id, checked_by_name, checked_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(summary_type, report_date) DO UPDATE SET payload = excluded.payload, checked_by_id = excluded.checked_by_id, checked_by_name = excluded.checked_by_name, checked_at = excluded.checked_at, updated_at = excluded.updated_at`)
+    .run(req.params.type, req.params.date, payload, req.user.id, req.user.name, now, now);
+  res.json({ ok: true, summaryType: req.params.type, reportDate: req.params.date, checkedBy: req.user.name, checkedAt: now });
+});
+
+router.patch('/operational-summary/:type/:date/approve', authMiddleware, requireRole('admin', 'executive', 'manager'), (req, res) => {
+  const now = new Date().toISOString();
+  const result = db.prepare('UPDATE operational_summaries SET approved_by_id = ?, approved_by_name = ?, approved_at = ?, updated_at = ? WHERE summary_type = ? AND report_date = ?').run(req.user.id, req.user.name, now, now, req.params.type, req.params.date);
+  if (!result.changes) return res.status(404).json({ error: 'Save the summary before approving it.' });
+  res.json({ ok: true, approvedBy: req.user.name, approvedAt: now });
+});
 
 router.get('/summary', authMiddleware, (req, res) => {
   const now = new Date();

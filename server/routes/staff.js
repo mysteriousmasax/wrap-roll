@@ -2,6 +2,8 @@ import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { hashPin } from '../utils/pins.js';
+import { broadcast } from '../ws.js';
+import { restaurantTime } from '../utils/localTime.js';
 
 const router = Router();
 
@@ -21,9 +23,7 @@ function mapStaff(row) {
   };
 }
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
+function today() { return restaurantTime().date; }
 
 function customRoles() {
   try {
@@ -73,12 +73,12 @@ router.get('/roles', authMiddleware, requireRole('admin'), (_req, res) => {
 });
 
 router.get('/tracking', authMiddleware, (req, res) => {
-  const staff = db.prepare('SELECT staff.*, users.username, users.email FROM staff LEFT JOIN users ON users.id = staff.user_id ORDER BY CASE WHEN lower(staff.shift) LIKE \'%morning%\' THEN 0 ELSE 1 END, staff.name').all();
+  const staff = db.prepare("SELECT staff.*, users.username, users.email FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.status != 'removed' ORDER BY CASE WHEN lower(staff.shift) LIKE '%morning%' THEN 0 ELSE 1 END, staff.name").all();
   const attendance = db.prepare('SELECT shift_logs.*, staff.shift AS assigned_shift FROM shift_logs INNER JOIN staff ON staff.id = shift_logs.staff_id WHERE shift_logs.shift_date >= date(\'now\', \'-14 days\') ORDER BY shift_logs.shift_date DESC, shift_logs.start_time DESC').all();
   res.json({
     staff: staff.map(mapTrackingStaff),
-    attendance: attendance.map((row) => ({ id: row.id, staffId: row.staff_id, staffName: row.staff_name, assignedShift: row.assigned_shift, date: row.shift_date, login: row.start_time, logout: row.end_time, hours: row.hours_worked, status: row.status })),
-    tasks: db.prepare("SELECT staff_tasks.*, staff.name AS staff_name FROM staff_tasks INNER JOIN staff ON staff.id = staff_tasks.staff_id WHERE staff_tasks.status != 'completed' ORDER BY due_date IS NULL, due_date ASC").all().map((row) => ({ id: row.id, staffId: row.staff_id, staffName: row.staff_name, title: row.title, status: row.status, dueDate: row.due_date })),
+    attendance: attendance.map((row) => ({ id: row.id, staffId: row.staff_id, staffName: row.staff_name, assignedShift: row.assigned_shift, date: row.shift_date, login: row.start_time, logout: row.end_time, hours: row.hours_worked, status: row.status, clockInLocation: row.clock_in_latitude != null ? { latitude: row.clock_in_latitude, longitude: row.clock_in_longitude } : null, clockOutLocation: row.clock_out_latitude != null ? { latitude: row.clock_out_latitude, longitude: row.clock_out_longitude } : null })),
+    tasks: db.prepare("SELECT staff_tasks.*, staff.name AS staff_name FROM staff_tasks INNER JOIN staff ON staff.id = staff_tasks.staff_id WHERE staff_tasks.status NOT IN ('completed', 'approved', 'rejected') ORDER BY due_date IS NULL, due_date ASC").all().map((row) => ({ id: row.id, staffId: row.staff_id, staffName: row.staff_name, title: row.title, type: row.task_type || 'task', payload: JSON.parse(row.task_payload || '{}'), status: row.status, dueDate: row.due_date })),
   });
 });
 
@@ -86,12 +86,18 @@ router.post('/tasks', authMiddleware, requireRole('admin', 'manager'), (req, res
   const { staffId, title, dueDate } = req.body || {};
   const staff = db.prepare('SELECT id FROM staff WHERE id = ?').get(Number(staffId));
   if (!staff || !String(title || '').trim()) return res.status(400).json({ error: 'Staff member and task title are required.' });
-  const result = db.prepare('INSERT INTO staff_tasks (staff_id, title, due_date, created_by, created_at) VALUES (?, ?, ?, ?, ?)').run(staff.id, String(title).trim(), dueDate || null, req.user.id, new Date().toISOString());
+  const createdAt = new Date().toISOString();
+  const result = db.prepare("INSERT INTO staff_tasks (staff_id, title, task_type, task_payload, due_date, created_by, created_at) VALUES (?, ?, 'task', '{}', ?, ?, ?)").run(staff.id, String(title).trim(), dueDate || null, req.user.id, createdAt);
+  const assignee = db.prepare('SELECT user_id FROM staff WHERE id = ?').get(staff.id);
+  const notification = { type: 'info', title: 'New task assigned', message: `${String(title).trim()} was assigned to ${staff.name}.`, audienceUserId: assignee?.user_id || null };
+  db.prepare('INSERT INTO notifications (type, title, message, read, created_at, audience_user_id) VALUES (?, ?, ?, 0, ?, ?)').run(notification.type, notification.title, notification.message, createdAt, notification.audienceUserId);
+  broadcast('notification:created', notification);
+  broadcast('staff:updated', { staffId: staff.id, action: 'task_assigned' });
   res.status(201).json(db.prepare('SELECT staff_tasks.*, staff.name AS staff_name FROM staff_tasks INNER JOIN staff ON staff.id = staff_tasks.staff_id WHERE staff_tasks.id = ?').get(result.lastInsertRowid));
 });
 
 router.patch('/tasks/:id', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
-  const task = db.prepare('SELECT id, title, status FROM staff_tasks WHERE id = ?').get(req.params.id);
+  const task = db.prepare('SELECT id, staff_id, title, status FROM staff_tasks WHERE id = ?').get(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found.' });
   const nextStatus = req.body?.status;
   const allowedStatus = ['open', 'completed', 'approved', 'rejected'];
@@ -101,9 +107,14 @@ router.patch('/tasks/:id', authMiddleware, requireRole('admin', 'manager'), (req
 
   if (resolvedStatus === 'approved' || resolvedStatus === 'rejected') {
     const prefix = resolvedStatus === 'approved' ? 'approved' : 'rejected';
-    db.prepare('INSERT INTO notifications (type, title, message, read, created_at) VALUES (?, ?, ?, 0, ?)')
-      .run('info', `CRM action ${prefix}`, `${task.title} was ${prefix}.`, new Date().toISOString());
+    const createdAt = new Date().toISOString();
+    const notification = { type: 'info', title: `CRM action ${prefix}`, message: `${task.title} was ${prefix}.`, audienceRole: 'manager' };
+    db.prepare('INSERT INTO notifications (type, title, message, read, created_at, audience_role) VALUES (?, ?, ?, 0, ?, ?)')
+      .run(notification.type, notification.title, notification.message, createdAt, notification.audienceRole);
+    broadcast('notification:created', notification);
   }
+
+  broadcast('staff:updated', { staffId: task.staff_id, action: `task_${resolvedStatus}` });
 
   res.json({ ok: true, status: resolvedStatus });
 });
@@ -159,6 +170,7 @@ router.delete('/:id', authMiddleware, requireRole('admin'), (req, res) => {
   const staff = db.prepare('SELECT id, user_id FROM staff WHERE id = ?').get(req.params.id);
   if (!staff) return res.status(404).json({ error: 'Staff not found' });
   db.prepare("UPDATE staff SET status = 'removed', clock_in = NULL WHERE id = ?").run(staff.id);
+  broadcast('staff:updated', { staffId: staff.id, action: 'staff_removed' });
   res.json({ ok: true });
 });
 
@@ -178,26 +190,36 @@ router.patch('/:id/credentials', authMiddleware, requireRole('admin'), async (re
 router.patch('/:id/clock', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
   const existing = db.prepare('SELECT * FROM staff WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Staff not found' });
-  const { action } = req.body;
+  const { action, latitude, longitude } = req.body;
+  const hasLocation = Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude));
+  let eventType = 'clock_out';
   if (action === 'in') {
+    eventType = 'clock_in';
     const now = new Date();
+    const local = restaurantTime(now);
     db.prepare('UPDATE staff SET status = ?, clock_in = ? WHERE id = ?').run(
       'on-clock',
-      now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+      local.time,
       req.params.id
     );
-    db.prepare('INSERT INTO shift_logs (staff_id, staff_name, shift_date, start_time, status, notes) VALUES (?, ?, ?, ?, ?, ?)').run(existing.id, existing.name, today(), now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }), 'active', existing.shift || 'Shift');
+    db.prepare('INSERT INTO shift_logs (staff_id, staff_name, shift_date, start_time, status, notes, clock_in_latitude, clock_in_longitude, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(existing.id, existing.name, local.date, local.time, 'active', existing.shift || 'Shift', hasLocation ? Number(latitude) : null, hasLocation ? Number(longitude) : null, now.toISOString());
   } else {
     const now = new Date();
+    const local = restaurantTime(now);
     db.prepare('UPDATE staff SET status = ?, clock_in = NULL WHERE id = ?').run('off-clock', req.params.id);
     const openShift = db.prepare("SELECT * FROM shift_logs WHERE staff_id = ? AND shift_date = ? AND status = 'active' ORDER BY id DESC LIMIT 1").get(existing.id, today());
     if (openShift) {
-      const loginAt = new Date(`${today()} ${openShift.start_time}`);
+      const loginAt = openShift.started_at ? new Date(openShift.started_at) : new Date(`${today()} ${openShift.start_time}`);
       const hours = Number.isNaN(loginAt.getTime()) ? 0 : Math.max(0, (now.getTime() - loginAt.getTime()) / 3600000);
-      db.prepare('UPDATE shift_logs SET end_time = ?, hours_worked = ?, status = ? WHERE id = ?').run(now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }), Number.isFinite(hours) ? hours : 0, 'completed', openShift.id);
+      db.prepare('UPDATE shift_logs SET end_time = ?, hours_worked = ?, status = ?, clock_out_latitude = ?, clock_out_longitude = ?, ended_at = ? WHERE id = ?').run(local.time, Number.isFinite(hours) ? hours : 0, 'completed', hasLocation ? Number(latitude) : null, hasLocation ? Number(longitude) : null, now.toISOString(), openShift.id);
     }
   }
-  res.json(mapStaff(db.prepare('SELECT staff.*, users.username, users.email FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.id = ?').get(req.params.id)));
+  const staffRecord = mapStaff(db.prepare('SELECT staff.*, users.username, users.email FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.id = ?').get(req.params.id));
+  const notification = { type: 'info', title: eventType === 'clock_in' ? 'Staff clocked in' : 'Staff clocked out', message: `${staffRecord.name} ${eventType === 'clock_in' ? 'clocked in' : 'clocked out'}.`, audienceRole: 'manager' };
+  db.prepare('INSERT INTO notifications (type, title, message, read, created_at, audience_role) VALUES (?, ?, ?, 0, ?, ?)').run(notification.type, notification.title, notification.message, new Date().toISOString(), notification.audienceRole);
+  broadcast('notification:created', notification);
+  broadcast('staff:updated', { staffId: staffRecord.id, action: eventType, staff: staffRecord });
+  res.json(staffRecord);
 });
 
 export default router;

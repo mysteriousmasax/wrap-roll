@@ -57,6 +57,7 @@ router.post('/', authMiddleware, (req, res) => {
       quantity: { from: existing.quantity, to: item.quantity },
       reason: { from: null, to: 'Stock received (existing item)' },
     });
+    broadcast('inventory:updated', { itemId: item.id, action: 'updated' });
     return res.status(200).json({ ...item, merged: true });
   }
   const result = db.prepare(
@@ -64,6 +65,7 @@ router.post('/', authMiddleware, (req, res) => {
   ).run(normalizedName, Number(quantity), normalizedUnit, threshold ?? 10, supplier || '', today, imageUrl || '', category || 'ingredients', sku || `INV-${Date.now().toString().slice(-6)}`, Number(unitCost) || 0, expiryDate || '', storageLocation || 'Main store', deliveryDate || '', Number(backFreezerChiller) || 0, Number(refrigerator) || 0, Number(frontSandwich) || 0, Number(frontPizza) || 0, Number(frontBurger) || 0);
   const item = mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(result.lastInsertRowid));
   auditInventoryChange(item.id, 'created', req.user, { item: { from: null, to: item.name }, quantity: { from: null, to: item.quantity }, unit: { from: null, to: item.unit } });
+  broadcast('inventory:updated', { itemId: item.id, action: 'created' });
   if (item.quantity <= item.threshold) {
     const now = new Date().toISOString();
     db.prepare('INSERT INTO notifications (type, title, message, read, created_at) VALUES (?, ?, ?, 0, ?)').run(
@@ -107,6 +109,7 @@ router.put('/:id', authMiddleware, (req, res) => {
     [field]: { from: existing[field === 'lastRestocked' ? 'last_restocked' : field === 'imageUrl' ? 'image_url' : field === 'unitCost' ? 'unit_cost' : field === 'expiryDate' ? 'expiry_date' : field === 'storageLocation' ? 'storage_location' : field], to: updated[field] }
   })));
   if (Object.keys(changes).length) auditInventoryChange(updated.id, 'updated', req.user, changes);
+  if (Object.keys(changes).length) broadcast('inventory:updated', { itemId: updated.id, action: 'updated' });
   res.json(updated);
 });
 
@@ -121,6 +124,7 @@ router.post('/:id/adjust', authMiddleware, (req, res) => {
   if (quantity < 0) return res.status(400).json({ error: 'Stock cannot be negative' });
   db.prepare('UPDATE inventory SET quantity = ? WHERE id = ?').run(quantity, req.params.id);
   auditInventoryChange(existing.id, 'updated', req.user, { quantity: { from: existing.quantity, to: quantity }, reason: { from: null, to: reason } });
+  broadcast('inventory:updated', { itemId: existing.id, action: 'adjusted' });
   res.json(mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(req.params.id)));
 });
 

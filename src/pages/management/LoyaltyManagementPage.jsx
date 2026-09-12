@@ -3,6 +3,7 @@ import PageHeader from '../../components/layout/PageHeader';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { api } from '../../api/client';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency } from '../../utils/format';
 import { Gift, Search, Save, Tag, Sparkles } from 'lucide-react';
 
@@ -26,7 +27,10 @@ export default function LoyaltyManagementPage() {
 
   useEffect(() => {
     loadItems();
+    const timer = window.setInterval(loadItems, 30000);
+    return () => window.clearInterval(timer);
   }, []);
+  useWebSocket((event) => { if (['order:created', 'order:updated', 'customer:updated'].includes(event)) loadItems(); });
 
   const filtered = items.filter((customer) => {
     const haystack = `${customer.name} ${customer.nfcTagCode || ''} ${customer.customerSegment || ''}`.toLowerCase();

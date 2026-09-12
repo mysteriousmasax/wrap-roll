@@ -3,6 +3,7 @@ import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { generateOperationsReport, generateStaffAssistantReply } from '../utils/gemini.js';
 import { aiProvider, recordAiActivity } from '../utils/aiActivity.js';
+import { broadcast } from '../ws.js';
 
 const router = Router();
 const managementRoles = ['admin', 'manager', 'executive'];
@@ -101,8 +102,10 @@ export function createApprovalAction(type, payload = {}) {
     default: `CRM action approval for ${actionType}`,
   };
 
-  db.prepare('INSERT INTO notifications (type, title, message, read, created_at) VALUES (?, ?, ?, 0, ?)')
-    .run('info', 'CRM action awaiting approval', `${actionType}: ${JSON.stringify(normalizedPayload)}`, createdAt);
+  const notification = { type: 'info', title: 'CRM action awaiting approval', message: `${actionType}: ${JSON.stringify(normalizedPayload)}`, audienceRole: 'manager' };
+  db.prepare('INSERT INTO notifications (type, title, message, read, created_at, audience_role) VALUES (?, ?, ?, 0, ?, ?)')
+    .run(notification.type, notification.title, notification.message, createdAt, notification.audienceRole);
+  broadcast('notification:created', notification);
 
   let staffId = db.prepare('SELECT id, user_id FROM staff WHERE status != ? ORDER BY id LIMIT 1').get('removed')?.id;
   let userId = db.prepare('SELECT id, user_id FROM staff WHERE status != ? ORDER BY id LIMIT 1').get('removed')?.user_id;
@@ -123,8 +126,9 @@ export function createApprovalAction(type, payload = {}) {
     userId = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get()?.id || 1;
   }
 
-  db.prepare('INSERT INTO staff_tasks (staff_id, title, status, due_date, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(staffId, taskTitleMap[actionType] || taskTitleMap.default, 'open', new Date().toISOString().slice(0, 10), userId, createdAt);
+  db.prepare("INSERT INTO staff_tasks (staff_id, title, task_type, task_payload, status, due_date, created_by, created_at) VALUES (?, ?, 'crm_approval', ?, ?, ?, ?, ?)")
+    .run(staffId, taskTitleMap[actionType] || taskTitleMap.default, JSON.stringify({ actionType, payload: normalizedPayload }), 'open', new Date().toISOString().slice(0, 10), userId, createdAt);
+  broadcast('staff:updated', { staffId, action: 'crm_approval_created' });
 
   return { ok: true, status: 'pending_approval', type: actionType, payload: normalizedPayload, createdAt };
 }

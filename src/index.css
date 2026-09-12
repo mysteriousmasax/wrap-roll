@@ -1589,6 +1589,30 @@ button, input, select, textarea { max-width: 100%; }
 .kds-support-drawer { position: fixed; top: 82px; left: auto; right: 22px; bottom: 24px; z-index: 39; width: min(820px, calc(100vw - 340px)); overflow: hidden; border-radius: 18px; box-shadow: 0 18px 48px rgba(36,33,30,.22); }
 .kds-support-drawer .kds-chat-inbox { height: 100%; max-height: none; margin: 0; grid-template-columns: 1fr; align-content: start; overflow-y: auto; }
 .kds-support-drawer .kds-chat-inbox-heading { grid-column: auto; }
+
+/* Keep busy kitchen lanes readable and independently scrollable. */
+.kds-workspace.is-tickets,
+.kds-workspace.is-tickets .kds-ticket-board {
+  min-height: 0;
+}
+.kds-workspace.is-tickets .kds-lane {
+  min-height: 0;
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.kds-workspace.is-tickets .kds-order-card {
+  min-width: 0;
+}
+.kds-workspace.is-tickets .kds-order-card > div:last-child {
+  min-width: 0;
+}
+.kds-order-card button { min-height: 44px; touch-action: manipulation; }
+.kds-order-id { white-space: nowrap; }
+@media (max-width: 1100px) and (min-width: 768px) {
+  .kds-workspace.is-tickets .kds-lane { max-height: 420px; }
+}
 .kds-chat-close { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 9px; background: #faeee2; color: #ae002a; cursor: pointer; }
 .kds-chat-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 0; height: 100%; margin: 0 -16px -16px; border-top: 1px solid #eadfd2; background: #f7f3ed; }
 .kds-chat-list { min-width: 0; padding: 10px 0; overflow-y: auto; border-right: 1px solid #eadfd2; background: #fffdf9; }
@@ -1635,7 +1659,15 @@ button, input, select, textarea { max-width: 100%; }
   .kds-command-bar > div:last-child span { flex: 1 1 auto; min-width: 0; text-align: center; }
   .kds-workspace { width: 100%; min-width: 0; padding: 8px; }
   .kds-ticket-board { width: 100%; min-width: 0; gap: 8px; }
-  .kds-lane { width: 100%; min-width: 0; }
+  .kds-lane { width: 100%; min-width: 0; padding: 10px; border-radius: 16px; }
+  .kds-lane > .kds-order-card { border-radius: 14px; }
+  .kds-order-card-header { align-items: flex-start; gap: 8px; }
+  .kds-order-card-header > div:first-child { min-width: 0; flex-wrap: wrap; }
+  .kds-order-card-header > div:last-child { flex: 0 0 auto; }
+  .kds-order-card-meta { gap: 10px; }
+  .kds-order-card-meta span:last-child { white-space: nowrap; }
+  .kds-order-card-actions { position: sticky; bottom: 0; z-index: 2; margin-inline: -2px; padding-top: 4px; background: inherit; }
+  .kds-order-card-actions button { min-height: 48px; font-size: 12px; }
   .global-support-fab { right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); width: 46px; height: 46px; padding: 0; justify-content: center; border-radius: 50%; }
   .global-support-fab span { display: none; }
 }
@@ -1663,5 +1695,38 @@ button, input, select, textarea { max-width: 100%; }
   .kds-support-drawer .kds-chat-active-thread { padding: 12px; }
   .global-support-drawer .kds-chat-active-form,
   .kds-support-drawer .kds-chat-active-form { padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+}
+
+/* Keep the public hero readable while preserving the character animation. */
+.public-header {
+  animation: public-header-enter .55s cubic-bezier(.2,.75,.25,1) both;
+}
+.public-header .public-nav > button,
+.public-header .public-nav > a {
+  transition: color .2s ease, transform .2s ease;
+}
+.public-header .public-nav > button:hover,
+.public-header .public-nav > a:hover {
+  color: #d9271c;
+  transform: translateY(-1px);
+}
+.public-header .public-nav > a.header-utility {
+  border-color: #d9271c;
+  color: #d9271c;
+}
+.hero-tablet .hero-heading-animation {
+  color: #fff !important;
+  text-shadow: 0 4px 18px rgba(0, 0, 0, .72);
+}
+.hero-tablet .hero-heading-animation em {
+  color: #ffc72c !important;
+}
+.hero-heading-animation [data-char] {
+  display: inline-block;
+  will-change: transform, opacity;
+}
+@keyframes public-header-enter {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 

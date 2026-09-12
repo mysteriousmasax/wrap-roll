@@ -28,7 +28,7 @@ export async function request(path, options = {}) {
     throw new ApiError('Network error — is the server running?', 0);
   }
 
-  if (res.status === 401 && path !== '/auth/login') {
+  if (res.status === 401 && path !== '/auth/login' && path !== '/auth/logout') {
     setToken(null);
     window.dispatchEvent(new Event('auth:logout'));
   }
@@ -74,6 +74,7 @@ export const api = {
   getPublicOrder: (idOrRef) => request(`/orders/public/${encodeURIComponent(idOrRef)}`),
   createOrder: (data) => request('/orders', { method: 'POST', body: JSON.stringify(data) }),
   createPublicOrder: (data) => request('/orders/public', { method: 'POST', body: JSON.stringify(data) }),
+  getPublicOrder: (id, phone) => request(`/orders/public/${encodeURIComponent(id)}?phone=${encodeURIComponent(phone)}`),
   updateOrderStatus: (id, status) => request(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   updateOrderPaymentStatus: (id, paymentStatus, notes) => request(`/orders/${id}/payment-status`, { method: 'PATCH', body: JSON.stringify({ paymentStatus, notes }) }),
 
@@ -121,7 +122,7 @@ export const api = {
   createStaff: (data) => request('/staff', { method: 'POST', body: JSON.stringify(data) }),
   updateStaff: (id, data) => request(`/staff/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   updateStaffCredentials: (id, data) => request(`/staff/${id}/credentials`, { method: 'PATCH', body: JSON.stringify(data) }),
-  clockStaff: (id, action) => request(`/staff/${id}/clock`, { method: 'PATCH', body: JSON.stringify({ action }) }),
+  clockStaff: (id, action, location = null) => request(`/staff/${id}/clock`, { method: 'PATCH', body: JSON.stringify({ action, ...(location || {}) }) }),
   createStaffTask: (data) => request('/staff/tasks', { method: 'POST', body: JSON.stringify(data) }),
   updateStaffTask: (id, status) => request(`/staff/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
 
@@ -141,6 +142,8 @@ export const api = {
 
   getSales: () => request('/analytics/sales'),
   getAnalyticsSummary: () => request('/analytics/summary'),
+  saveOperationalSummary: (type, date, payload) => request(`/analytics/operational-summary/${encodeURIComponent(type)}/${encodeURIComponent(date)}`, { method: 'PUT', body: JSON.stringify({ payload }) }),
+  approveOperationalSummary: (type, date) => request(`/analytics/operational-summary/${encodeURIComponent(type)}/${encodeURIComponent(date)}/approve`, { method: 'PATCH' }),
   getCategorySales: () => request('/analytics/categories'),
   getPublicChat: (conversationId, customerEmail = '', customerName = '', customerPhone = '') => request(`/chat/public/${encodeURIComponent(conversationId)}?customerEmail=${encodeURIComponent(customerEmail)}&customerName=${encodeURIComponent(customerName)}&customerPhone=${encodeURIComponent(customerPhone)}`),
   sendPublicChatMessage: (conversationId, message, customerName, customerPhone, customerEmail, messageType = 'text', attachmentUrl = null, metadata = {}) => request(`/chat/public/${encodeURIComponent(conversationId)}/messages`, { method: 'POST', body: JSON.stringify({ message, customerName, customerPhone, customerEmail, messageType, attachmentUrl, metadata }) }),

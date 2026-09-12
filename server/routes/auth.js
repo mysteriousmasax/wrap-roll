@@ -4,6 +4,8 @@ import jwt from 'jsonwebtoken';
 import db from '../db/database.js';
 import { signToken, authMiddleware, JWT_SECRET } from '../middleware/auth.js';
 import { verifyPin } from '../utils/pins.js';
+import { broadcast } from '../ws.js';
+import { restaurantTime } from '../utils/localTime.js';
 
 const router = Router();
 
@@ -56,15 +58,19 @@ router.post('/login', loginLimiter, async (req, res) => {
   if (staff?.status === 'removed') return res.status(403).json({ error: 'This staff account has been removed.' });
   if (staff && staff.status !== 'on-clock') {
     const now = new Date();
-    const loginTime = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    const shiftDate = now.toISOString().slice(0, 10);
+    const local = restaurantTime(now);
+    const loginTime = local.time;
+    const shiftDate = local.date;
     db.prepare('UPDATE staff SET status = ?, clock_in = ? WHERE id = ?').run('on-clock', loginTime, staff.id);
     const activeShift = db.prepare("SELECT id FROM shift_logs WHERE staff_id = ? AND shift_date = ? AND status = 'active'").get(staff.id, shiftDate);
-    if (!activeShift) db.prepare('INSERT INTO shift_logs (staff_id, staff_name, shift_date, start_time, status, notes) VALUES (?, ?, ?, ?, ?, ?)').run(staff.id, staff.name, shiftDate, loginTime, 'active', staff.shift || 'Assigned shift');
+    if (!activeShift) db.prepare('INSERT INTO shift_logs (staff_id, staff_name, shift_date, start_time, status, notes, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(staff.id, staff.name, shiftDate, loginTime, 'active', staff.shift || 'Assigned shift', now.toISOString());
   }
 
   const { pin: _, password: __, ...safeUser } = user;
   const token = signToken(safeUser);
+  const loginNotification = { type: 'info', title: 'Staff login', message: `${safeUser.name} signed in as ${safeUser.role}.`, audienceRole: 'manager' };
+  db.prepare('INSERT INTO notifications (type, title, message, read, created_at, audience_role) VALUES (?, ?, ?, 0, ?, ?)').run(loginNotification.type, loginNotification.title, loginNotification.message, new Date().toISOString(), loginNotification.audienceRole);
+  broadcast('notification:created', loginNotification);
   res.json({ user: safeUser, token });
 });
 

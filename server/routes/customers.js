@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { broadcast } from '../ws.js';
 
 const router = Router();
 
@@ -174,6 +175,7 @@ router.patch('/:id/loyalty', authMiddleware, (req, res) => {
   }
 
   const updated = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
+  broadcast('customer:updated', { customerId: updated.id, customer: mapCustomer(updated) });
   res.json(mapCustomer(updated));
 });
 

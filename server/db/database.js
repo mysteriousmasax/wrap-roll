@@ -120,6 +120,12 @@ export async function initDatabase() {
       hours_worked REAL DEFAULT 0,
       status TEXT DEFAULT 'completed',
       notes TEXT,
+      clock_in_latitude REAL,
+      clock_in_longitude REAL,
+      clock_out_latitude REAL,
+      clock_out_longitude REAL,
+      started_at TEXT,
+      ended_at TEXT,
       FOREIGN KEY (staff_id) REFERENCES staff(id)
     );
 
@@ -127,6 +133,8 @@ export async function initDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       staff_id INTEGER NOT NULL,
       title TEXT NOT NULL,
+      task_type TEXT DEFAULT 'task',
+      task_payload TEXT DEFAULT '{}',
       status TEXT DEFAULT 'open',
       due_date TEXT,
       created_by INTEGER,
@@ -281,6 +289,21 @@ export async function initDatabase() {
       message TEXT NOT NULL,
       read INTEGER DEFAULT 0,
       created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS operational_summaries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      summary_type TEXT NOT NULL,
+      report_date TEXT NOT NULL,
+      payload TEXT NOT NULL DEFAULT '{}',
+      checked_by_id INTEGER,
+      checked_by_name TEXT,
+      checked_at TEXT,
+      approved_by_id INTEGER,
+      approved_by_name TEXT,
+      approved_at TEXT,
+      updated_at TEXT NOT NULL,
+      UNIQUE(summary_type, report_date)
     );
 
     CREATE TABLE IF NOT EXISTS chat_conversations (
@@ -502,6 +525,20 @@ function migrateSchema(db) {
   if (!userCols.some((col) => col.name === 'password')) db.exec('ALTER TABLE users ADD COLUMN password TEXT');
   const staffCols = db.prepare('PRAGMA table_info(staff)').all();
   if (!staffCols.some((col) => col.name === 'user_id')) db.exec('ALTER TABLE staff ADD COLUMN user_id INTEGER REFERENCES users(id)');
+  const shiftCols = db.prepare('PRAGMA table_info(shift_logs)').all();
+  if (!shiftCols.some((col) => col.name === 'clock_in_latitude')) db.exec('ALTER TABLE shift_logs ADD COLUMN clock_in_latitude REAL');
+  if (!shiftCols.some((col) => col.name === 'clock_in_longitude')) db.exec('ALTER TABLE shift_logs ADD COLUMN clock_in_longitude REAL');
+  if (!shiftCols.some((col) => col.name === 'clock_out_latitude')) db.exec('ALTER TABLE shift_logs ADD COLUMN clock_out_latitude REAL');
+  if (!shiftCols.some((col) => col.name === 'clock_out_longitude')) db.exec('ALTER TABLE shift_logs ADD COLUMN clock_out_longitude REAL');
+  if (!shiftCols.some((col) => col.name === 'started_at')) db.exec('ALTER TABLE shift_logs ADD COLUMN started_at TEXT');
+  if (!shiftCols.some((col) => col.name === 'ended_at')) db.exec('ALTER TABLE shift_logs ADD COLUMN ended_at TEXT');
+  const taskCols = db.prepare('PRAGMA table_info(staff_tasks)').all();
+  if (!taskCols.some((col) => col.name === 'task_type')) db.exec("ALTER TABLE staff_tasks ADD COLUMN task_type TEXT DEFAULT 'task'");
+  if (!taskCols.some((col) => col.name === 'task_payload')) db.exec("ALTER TABLE staff_tasks ADD COLUMN task_payload TEXT DEFAULT '{}'");
+  db.prepare("UPDATE staff_tasks SET task_type = 'crm_approval' WHERE task_type = 'task' AND (lower(title) LIKE '%approval%' OR lower(title) LIKE '%campaign%' OR lower(title) LIKE '%loyalty%' OR lower(title) LIKE '%follow-up%' OR lower(title) LIKE '%crm action%')").run();
+  const notificationCols = db.prepare('PRAGMA table_info(notifications)').all();
+  if (!notificationCols.some((col) => col.name === 'audience_role')) db.exec('ALTER TABLE notifications ADD COLUMN audience_role TEXT');
+  if (!notificationCols.some((col) => col.name === 'audience_user_id')) db.exec('ALTER TABLE notifications ADD COLUMN audience_user_id INTEGER');
   db.exec(`
     CREATE TABLE IF NOT EXISTS order_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

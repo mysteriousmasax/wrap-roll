@@ -4,6 +4,7 @@ import Card from '../../components/ui/Card';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Button from '../../components/ui/Button';
 import { api } from '../../api/client';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency } from '../../utils/format';
 import { Search, Users, Star, AlertTriangle, Crown, TabletSmartphone, Mail, Instagram, Facebook, MessageSquareText, UtensilsCrossed, MapPinned, Gift, CalendarDays, Save, Sparkles, ShieldAlert, Send, Brain, Target } from 'lucide-react';
 
@@ -87,6 +88,7 @@ export default function CRMPage() {
     };
     bootstrap();
   }, []);
+  useWebSocket((event) => { if (['order:created', 'order:updated', 'business:updated', 'staff:updated'].includes(event)) loadCustomers(); });
 
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) || customers[0] || null;
 

@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Button from '../../components/ui/Button';
+import { api } from '../../api/client';
 import useOrderStore from '../../store/useOrderStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import {
@@ -83,10 +84,10 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
       }`}
     >
       {/* Card Header */}
-      <div className="p-3.5 space-y-2.5">
+      <div className="kds-order-card-header space-y-3.5 p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="font-display font-black text-sm text-[#1f1d1b] tracking-tight">
+            <span className="kds-order-id font-display text-xl font-black tracking-tight text-[#1f1d1b]">
               {order.orderNumber || order.id}
             </span>
             <StatusBadge status={order.status} />
@@ -109,8 +110,12 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
           </div>
         </div>
 
-        {/* Payment & Order Type Banner */}
-        <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] font-bold pb-1 border-b border-[#eee4d5]/70">
+        <div className="kds-order-card-meta flex items-center justify-between border-b border-[#eadfd2] pb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a7d73]">
+          <span>{order.status === 'pending' ? 'Queued for kitchen' : order.status === 'preparing' ? 'On the line' : 'Pickup / pass'}</span>
+          <span>{elapsedMins < 1 ? 'Just now' : `${elapsedMins} min active`}</span>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] font-bold">
           <div className="flex items-center gap-1.5">
             <span className="px-2 py-0.5 rounded-md bg-[#faeee2] text-[#ae002a] uppercase tracking-wider">
               {order.type}
@@ -127,7 +132,7 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
             )}
           </div>
 
-          <div>
+          <div className="flex items-center gap-1.5">
             {isPaid ? (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-black">
                 <Check size={11} className="stroke-[3]" /> PAID
@@ -170,41 +175,43 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
 
         {/* Action Buttons */}
         <div className="flex gap-2 pt-1">
-          {!isPaid ? (
-            <div className="w-full py-2 px-3 rounded-xl bg-amber-100/70 border border-amber-300 text-amber-900 text-center text-xs font-bold flex items-center justify-center gap-1.5">
-              <AlertTriangle size={13} />
-              <span>Awaiting Cashier / Payment Verification</span>
-            </div>
-          ) : (
-            <>
-              {['confirmed', 'pending'].includes(order.status) && (
-                <button
-                  onClick={() => onStatusChange(order.id, 'preparing')}
-                  className="flex-1 py-2.5 rounded-xl bg-[#ae002a] hover:bg-[#920023] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-                >
-                  <ChefHat size={14} /> Accept &amp; Start Cooking
-                </button>
-              )}
-              {order.status === 'preparing' && (
-                <button
-                  onClick={() => onStatusChange(order.id, 'ready')}
-                  className="flex-1 py-2.5 rounded-xl bg-[#e6ac29] hover:bg-[#d99f20] text-[#24211e] text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-                >
-                  <CheckCircle2 size={14} /> Mark Ready
-                </button>
-              )}
-              {order.status === 'ready' && (
-                <button
-                  onClick={() => onStatusChange(order.id, 'completed')}
-                  className="flex-1 py-2.5 rounded-xl bg-[#227653] hover:bg-[#1b5e43] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-                >
-                  <Check size={14} /> Served &amp; Done
-                </button>
-              )}
-            </>
+        <div className="kds-order-card-actions flex gap-2 pt-0.5">
+          {order.paymentMethod === 'lipa_namba' && order.paymentStatus !== 'paid' && (
+            <button
+              onClick={() => onPaymentConfirm(order.id)}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#227653] py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-[#1b5e43] active:scale-[.98]"
+            >
+              <CheckCircle2 size={14} /> Confirm Payment
+            </button>
+          )}
+          {['confirmed', 'pending'].includes(order.status) && (
+            <button
+              disabled={!isPaid}
+              onClick={() => onStatusChange(order.id, 'preparing')}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#b0003a] py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-[#920023] active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              <ChefHat size={14} /> Accept &amp; Start Cooking
+            </button>
+          )}
+          {order.status === 'preparing' && (
+            <button
+              onClick={() => onStatusChange(order.id, 'ready')}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#e6ac29] py-2.5 text-xs font-bold text-[#24211e] shadow-sm transition hover:bg-[#d99f20] active:scale-[.98]"
+            >
+              <CheckCircle2 size={14} /> Mark Ready
+            </button>
+          )}
+          {order.status === 'ready' && (
+            <button
+              onClick={() => onStatusChange(order.id, 'completed')}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#227653] py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-[#1b5e43] active:scale-[.98]"
+            >
+              <Check size={14} /> Served &amp; Done
+            </button>
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 }
@@ -226,6 +233,7 @@ export default function KDSPage() {
   const [now, setNow] = useState(Date.now());
   const [activeStation, setActiveStation] = useState('all');
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [actionError, setActionError] = useState('');
   const prevCountRef = useRef(0);
 
   useEffect(() => {
@@ -238,9 +246,9 @@ export default function KDSPage() {
   }, []);
 
   useWebSocket((event) => {
-    if (event === 'order:created' || event === 'order:confirmed' || event === 'payment:confirmed') {
+  if (event === 'order:created' || event === 'order:updated' || event === 'order:confirmed' || event === 'payment:confirmed') {
       fetchOrders('pending,preparing,ready');
-      if (soundEnabled) playOrderChime();
+      if (event === 'order:created' && soundEnabled) playOrderChime();
     }
   });
 
@@ -301,18 +309,22 @@ export default function KDSPage() {
   const ready = filteredOrders.filter((o) => o.status === 'ready');
 
   const handleStatusChange = async (orderId, newStatus) => {
+    setActionError('');
     try {
       await updateOrderStatus(orderId, newStatus);
     } catch (err) {
+      setActionError(err.message || 'Could not update the order.');
       console.error(err);
     }
   };
 
   const handlePaymentConfirm = async (orderId) => {
+    setActionError('');
     try {
       await api.updateOrderPaymentStatus(orderId, 'paid');
       await fetchOrders('pending,preparing,ready');
     } catch (err) {
+      setActionError(err.message || 'Could not confirm payment.');
       console.error(err);
     }
   };
@@ -384,6 +396,12 @@ export default function KDSPage() {
           </span>
         </div>
       </div>
+
+      {actionError && (
+        <div className="mx-3 mt-3 rounded-xl border border-[#f2b8b5] bg-[#fff1f0] px-4 py-3 text-sm font-semibold text-[#b3261e]" role="alert">
+          {actionError}
+        </div>
+      )}
 
       <div className="kds-workspace is-tickets">
         <div className="kds-ticket-board">

@@ -4,6 +4,7 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import { api } from '../../api/client';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency } from '../../utils/format';
 import {
   ArrowDownToLine, Banknote, Check, ClipboardCheck, FilePlus2, Package,
@@ -40,6 +41,7 @@ export default function BusinessOperationsPage({ embedded = false }) {
   };
 
   useEffect(() => { loadData().catch(() => setMessage('Business data could not be loaded.')); }, []);
+  useWebSocket((event) => { if (['order:created', 'order:updated', 'business:updated', 'staff:updated', 'inventory:updated'].includes(event)) loadData().catch(() => {}); });
 
   const submitExpense = async (event) => {
     event.preventDefault();

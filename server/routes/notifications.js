@@ -24,8 +24,12 @@ function mapNotification(row) {
 }
 
 router.get('/', authMiddleware, (req, res) => {
+  const rows = db.prepare(`SELECT * FROM notifications
+    WHERE (audience_user_id IS NULL OR audience_user_id = ?)
+      AND (audience_role IS NULL OR audience_role = ? OR ? = 'admin')
+    ORDER BY created_at DESC`).all(req.user.id, req.user.role, req.user.role);
   res.json(
-    db.prepare('SELECT * FROM notifications ORDER BY created_at DESC').all().map(mapNotification)
+    rows.map(mapNotification)
   );
 });
 

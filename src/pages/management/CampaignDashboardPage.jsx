@@ -3,6 +3,7 @@ import PageHeader from '../../components/layout/PageHeader';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { api } from '../../api/client';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import { CalendarDays, Gift, Heart, Sparkles } from 'lucide-react';
 
 export default function CampaignDashboardPage() {
@@ -10,8 +11,7 @@ export default function CampaignDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [sendStatus, setSendStatus] = useState('');
 
-  useEffect(() => {
-    const load = async () => {
+  const load = async () => {
       try {
         const data = await api.getCampaignDashboard();
         setDashboard(data);
@@ -19,8 +19,8 @@ export default function CampaignDashboardPage() {
         setLoading(false);
       }
     };
-    load();
-  }, []);
+  useEffect(() => { load(); const timer = window.setInterval(load, 30000); return () => window.clearInterval(timer); }, []);
+  useWebSocket((event) => { if (['order:created', 'order:updated', 'customer:updated', 'business:updated'].includes(event)) load(); });
 
   const sendCampaign = async () => {
     try {
