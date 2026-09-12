@@ -437,8 +437,9 @@ export default function HomePage() {
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#fde8d7] text-[#ae002a] text-xs font-bold uppercase tracking-wider">
             <Sparkles size={14} className="text-[#e6ac29]" /> Fresh, Fast &amp; Delicious
           </div>
-          <h1 className="reference-hero-heading text-4xl sm:text-6xl font-bold font-display leading-[1.02] tracking-tight">
-            Dine with Delight at <em className="not-italic">Wrap &amp; Roll</em>
+          <h1 className="reference-hero-heading hero-heading-animation text-4xl sm:text-6xl font-bold font-display leading-[1.02] tracking-tight">
+            <span className="hero-heading-line">Dine with Delight at</span>{' '}
+            <DepthText text="Wrap & Roll" faceColor="#e00000" depthColor="#8f001c" fontWeight="800" className="reference-depth-accent" />
           </h1>
           <p className="hero-intro reference-hero-intro text-base sm:text-lg leading-relaxed max-w-lg">
             Satisfy your cravings with delicious meals at Wrap &amp; Roll. Whether you&apos;re here for a quick bite or a special celebration.
@@ -480,7 +481,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="reference-delivery-section px-6 py-14 sm:px-12 sm:py-20" aria-label="Delivery and catering">
+      <section className="reference-delivery-section public-reveal-section px-6 py-14 sm:px-12 sm:py-20" aria-label="Delivery and catering">
         <div className="reference-delivery-card">
           <img src={brandFoodImages[0]} alt="Wrap and Roll delivery and catering" />
           <div className="reference-delivery-copy">
@@ -493,7 +494,7 @@ export default function HomePage() {
       </section>
 
       {/* Story Section */}
-      <section className="story-section py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="story">
+      <section className="story-section public-reveal-section py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="story">
         <div className="grid grid-cols-1 tablet:grid-cols-2 lg:grid-cols-2 gap-10 items-center">
           <div className="relative overflow-hidden rounded-3xl shadow-xl border-4 border-white aspect-video lg:aspect-square">
             <img
@@ -564,7 +565,8 @@ export default function HomePage() {
           {(menuByCategory[activeCategory]?.items || publicMenu).map((item) => (
             <article
               key={item.id}
-              className="bg-white border border-[#ebdccb] rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between group cursor-pointer"
+              className="public-menu-card bg-white border border-[#ebdccb] rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between group cursor-pointer"
+              style={{ animationDelay: `${Math.min(0.45, (item.id % 8) * 0.045)}s` }}
               onClick={() => openMealCustomizer(item)}
             >
               <div className="relative aspect-[4/3] overflow-hidden bg-[#faeee2]">

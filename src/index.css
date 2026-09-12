@@ -1742,6 +1742,18 @@ button, input, select, textarea { max-width: 100%; }
 .reference-hero-heading em {
   color: #e00000;
 }
+.reference-hero-heading .hero-heading-line,
+.reference-hero-heading .reference-depth-accent {
+  display: inline-block;
+  animation: reference-heading-rise .75s cubic-bezier(.2,.75,.25,1) both;
+}
+.reference-hero-heading .reference-depth-accent {
+  animation-delay: .12s;
+}
+.reference-depth-accent {
+  color: #e00000;
+  vertical-align: baseline;
+}
 .reference-hero-intro {
   color: #fff !important;
   text-shadow: 0 2px 8px rgba(0, 0, 0, .55);
@@ -1804,6 +1816,30 @@ button, input, select, textarea { max-width: 100%; }
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
+}
+.public-reveal-section {
+  animation: reference-section-rise .8s .18s cubic-bezier(.2,.75,.25,1) both;
+}
+.public-menu-card {
+  animation: reference-card-rise .6s cubic-bezier(.2,.75,.25,1) both;
+}
+@keyframes reference-heading-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes reference-section-rise {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes reference-card-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reference-hero-heading .hero-heading-line,
+  .reference-hero-heading .reference-depth-accent,
+  .public-reveal-section,
+  .public-menu-card { animation: none; }
 }
 @media (max-width: 800px) {
   .reference-home-hero {
