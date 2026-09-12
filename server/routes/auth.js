@@ -16,7 +16,7 @@ const loginLimiter = rateLimit({
 });
 
 router.post('/login', loginLimiter, async (req, res) => {
-  const { username, password, pin } = req.body;
+  const { username, password, pin, location } = req.body;
   const suppliedSecret = (password ?? pin ?? '').toString();
   const suppliedIdentifier = (username ?? '').toString();
 
@@ -54,6 +54,12 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   if (!user) return res.status(401).json({ error: 'Invalid username or PIN/password' });
 
+  const latitude = Number(location?.latitude);
+  const longitude = Number(location?.longitude);
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    return res.status(400).json({ error: 'Location access is required before signing in.' });
+  }
+
   const staff = db.prepare('SELECT id, name, shift, status FROM staff WHERE user_id = ?').get(user.id);
   if (staff?.status === 'removed') return res.status(403).json({ error: 'This staff account has been removed.' });
   if (staff && staff.status !== 'on-clock') {
@@ -63,7 +69,9 @@ router.post('/login', loginLimiter, async (req, res) => {
     const shiftDate = local.date;
     db.prepare('UPDATE staff SET status = ?, clock_in = ? WHERE id = ?').run('on-clock', loginTime, staff.id);
     const activeShift = db.prepare("SELECT id FROM shift_logs WHERE staff_id = ? AND shift_date = ? AND status = 'active'").get(staff.id, shiftDate);
-    if (!activeShift) db.prepare('INSERT INTO shift_logs (staff_id, staff_name, shift_date, start_time, status, notes, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(staff.id, staff.name, shiftDate, loginTime, 'active', staff.shift || 'Assigned shift', now.toISOString());
+    if (!activeShift) db.prepare('INSERT INTO shift_logs (staff_id, staff_name, shift_date, start_time, status, notes, clock_in_latitude, clock_in_longitude, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(staff.id, staff.name, shiftDate, loginTime, 'active', staff.shift || 'Assigned shift', latitude, longitude, now.toISOString());
+  } else {
+    db.prepare('UPDATE shift_logs SET clock_in_latitude = ?, clock_in_longitude = ? WHERE staff_id = ? AND status = \'active\' AND shift_date = ?').run(latitude, longitude, staff.id, restaurantTime().date);
   }
 
   const { pin: _, password: __, ...safeUser } = user;

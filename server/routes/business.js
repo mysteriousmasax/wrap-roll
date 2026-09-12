@@ -19,7 +19,7 @@ router.get('/overview', authMiddleware, (_req, res) => {
   const payroll = db.prepare('SELECT COALESCE(SUM(net_pay), 0) AS total FROM payroll_records WHERE pay_period = ?').get(period);
   const tax = db.prepare("SELECT COALESCE(SUM(tax), 0) AS total FROM orders WHERE created_at >= ? AND created_at < ? AND status = 'completed' AND payment_status IN ('paid', 'completed')").get(start, end);
   const lowStock = db.prepare('SELECT id, name, quantity, unit, threshold, supplier FROM inventory WHERE quantity <= threshold ORDER BY quantity ASC LIMIT 8').all();
-  const cash = db.prepare("SELECT payment_method AS method, COALESCE(SUM(amount), 0) AS amount, COUNT(*) AS count FROM sales_transactions WHERE created_at >= ? AND created_at < ? AND status = 'completed' GROUP BY payment_method ORDER BY amount DESC").all(start, end);
+  const cash = db.prepare("SELECT payment_method AS method, COALESCE(SUM(total), 0) AS amount, COUNT(*) AS count FROM orders WHERE created_at >= ? AND created_at < ? AND status = 'completed' AND payment_status IN ('paid', 'completed') AND payment_method IS NOT NULL GROUP BY payment_method ORDER BY amount DESC").all(start, end);
   const pendingExpenses = db.prepare("SELECT COUNT(*) AS count FROM business_expenses WHERE status = 'pending'").get();
 
   res.json({

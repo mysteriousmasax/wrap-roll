@@ -27,6 +27,7 @@ function Metric({ label, value, detail, icon: Icon, tone = 'green' }) {
 
 export default function BusinessOperationsPage({ embedded = false }) {
   const [overview, setOverview] = useState(null);
+  const [inventory, setInventory] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
@@ -35,9 +36,10 @@ export default function BusinessOperationsPage({ embedded = false }) {
   const [form, setForm] = useState({ expenseDate: new Date().toISOString().slice(0, 10), category: expenseCategories[0], description: '', supplier: '', amount: '', paymentMethod: 'bank', receiptRef: '' });
 
   const loadData = async () => {
-    const [nextOverview, nextExpenses] = await Promise.all([api.getBusinessOverview(), api.getBusinessExpenses()]);
+    const [nextOverview, nextExpenses, nextInventory] = await Promise.all([api.getBusinessOverview(), api.getBusinessExpenses(), api.getInventory()]);
     setOverview(nextOverview);
     setExpenses(nextExpenses);
+    setInventory(nextInventory);
   };
 
   useEffect(() => { loadData().catch(() => setMessage('Business data could not be loaded.')); }, []);
@@ -84,6 +86,8 @@ export default function BusinessOperationsPage({ embedded = false }) {
 
   if (!overview) return <div className="p-6 text-sm text-surface-on-variant">Loading business operations...</div>;
 
+  const lowStock = inventory.filter((item) => Number(item.quantity) <= Number(item.threshold));
+
   return (
     <div className={embedded ? '' : 'p-4 sm:p-6'}>
       {!embedded && <PageHeader title="Business Operations" subtitle="Control the money, people, suppliers, and daily health of the restaurant" actions={<Button size="sm" onClick={() => setShowForm(!showForm)}><FilePlus2 size={15} /> Record expense</Button>} />}
@@ -120,7 +124,7 @@ export default function BusinessOperationsPage({ embedded = false }) {
 
         <div className="space-y-4">
           <Card><div className="mb-4 flex items-center gap-2"><ClipboardCheck size={18} className="text-primary" /><h2 className="font-display font-bold">Cash & payroll</h2></div><div className="space-y-3">{overview.cash.map((item) => <div key={item.method} className="flex items-center justify-between text-sm"><span className="capitalize text-surface-on-variant">{item.method.replace('_', ' ')}</span><span className="font-bold">{formatCurrency(item.amount)}</span></div>)}<div className="flex justify-between border-t border-outline-variant pt-3 text-sm"><span className="text-surface-on-variant">Current payroll</span><span className="font-bold">{formatCurrency(overview.payroll)}</span></div></div></Card>
-          <Card><div className="mb-4 flex items-center gap-2"><Package size={18} className="text-primary" /><h2 className="font-display font-bold">Supplier & stock watch</h2></div>{overview.lowStock.map((item) => <div key={item.id} className="mb-3 flex items-center justify-between gap-3 text-sm"><div><p className="font-semibold">{item.name}</p><p className="text-xs text-surface-on-variant">{item.supplier || 'No supplier'}</p></div><span className="rounded-full bg-red-50 px-2 py-1 text-xs font-bold text-red-700">{item.quantity} {item.unit}</span></div>)}{!overview.lowStock.length && <p className="text-sm text-surface-on-variant">Stock levels are healthy.</p>}<a href="/management/operations" className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-primary">Open operations hub <ArrowDownToLine size={13} /></a></Card>
+          <Card><div className="mb-4 flex items-center gap-2"><Package size={18} className="text-primary" /><h2 className="font-display font-bold">Supplier & stock watch</h2></div>{lowStock.map((item) => <div key={item.id} className="mb-3 flex items-center justify-between gap-3 text-sm"><div><p className="font-semibold">{item.name}</p><p className="text-xs text-surface-on-variant">{item.supplier || 'No supplier'}</p></div><span className="rounded-full bg-red-50 px-2 py-1 text-xs font-bold text-red-700">{item.quantity} {item.unit}</span></div>)}{!lowStock.length && <p className="text-sm text-surface-on-variant">Stock levels are healthy.</p>}<a href="/management/inventory" className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-primary">Open live inventory <ArrowDownToLine size={13} /></a></Card>
         </div>
       </div>
     </div>

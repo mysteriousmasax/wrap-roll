@@ -11,14 +11,25 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [locationStatus, setLocationStatus] = useState('');
   const login = useAuthStore((s) => s.login);
   const navigate = useNavigate();
 
   const attemptLogin = async () => {
     setLoading(true);
     setError('');
+    setLocationStatus('Requesting your location...');
     try {
-      await login({ username: identifier, password });
+      if (!navigator.geolocation) throw new Error('Location access is unavailable in this browser.');
+      const location = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
+          () => reject(new Error('Location access is required before signing in. Please allow location and try again.')),
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+      });
+      setLocationStatus('Signing in...');
+      await login({ username: identifier, password, location });
       const role = useAuthStore.getState().currentUser?.role;
       const landingRoutes = {
         kitchen: '/kds',
@@ -31,6 +42,7 @@ export default function LoginPage() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Unable to sign in. Please check your username and PIN/password.');
       setPassword('');
+      setLocationStatus('');
     } finally {
       setLoading(false);
     }
@@ -124,6 +136,7 @@ export default function LoginPage() {
                 {loading ? 'Signing in...' : 'Sign in'}
                 <ArrowRight size={16} />
               </button>
+              {locationStatus && <p className="text-center text-xs text-[#665f5a]">{locationStatus}</p>}
             </form>
 
             <div className="mt-6 flex items-center gap-3 rounded-2xl border border-[#f0e7db] bg-[#fff7eb] px-3 py-2 text-xs text-[#574f49]">

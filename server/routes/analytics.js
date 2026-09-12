@@ -34,25 +34,46 @@ function buildRangeSeries(rows, formatLabel) {
 function getSeriesForRange(range) {
   const groups = new Map();
   const orders = getLiveOrders();
+  const expenses = db.prepare("SELECT expense_date, amount FROM business_expenses WHERE status != 'rejected'").all();
+  const payroll = db.prepare("SELECT pay_period, net_pay FROM payroll_records").all();
 
-  for (const order of orders) {
-    const created = new Date(order.created_at);
-    let key;
-    if (range === 'day') key = created.toISOString().slice(0, 10);
-    else if (range === 'week') {
-      const start = new Date(created);
+  const periodKey = (dateValue) => {
+    const date = new Date(dateValue);
+    if (range === 'day') return date.toISOString().slice(0, 10);
+    if (range === 'week') {
+      const start = new Date(date);
       const diff = (start.getUTCDay() + 6) % 7;
       start.setUTCDate(start.getUTCDate() - diff);
-      key = start.toISOString().slice(0, 10);
-    } else key = created.toISOString().slice(0, 7);
+      return start.toISOString().slice(0, 10);
+    }
+    return date.toISOString().slice(0, 7);
+  };
+
+  for (const order of orders) {
+    const key = periodKey(order.created_at);
 
     const current = groups.get(key) || { revenue: 0, orders: 0, profit: 0 };
     const revenue = Number(order.total || 0);
     current.revenue += revenue;
     current.orders += 1;
-    current.profit += revenue * 0.28;
     groups.set(key, current);
   }
+
+  for (const expense of expenses) {
+    const key = periodKey(expense.expense_date);
+    const current = groups.get(key) || { revenue: 0, orders: 0, profit: 0 };
+    current.profit -= Number(expense.amount || 0);
+    groups.set(key, current);
+  }
+
+  for (const salary of payroll) {
+    const key = periodKey(`${salary.pay_period}-01`);
+    const current = groups.get(key) || { revenue: 0, orders: 0, profit: 0 };
+    current.profit -= Number(salary.net_pay || 0);
+    groups.set(key, current);
+  }
+
+  for (const current of groups.values()) current.profit += current.revenue;
 
   const rows = [...groups.entries()].map(([label, data]) => ({ label, revenue: data.revenue, orders: data.orders, profit: data.profit }));
   rows.sort((a, b) => a.label.localeCompare(b.label));
@@ -143,6 +164,8 @@ router.get('/summary', authMiddleware, (req, res) => {
   const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
   const todayTotals = getCurrentPeriodRevenue(todayStart, tomorrowStart);
   const monthTotals = getCurrentPeriodRevenue(monthStart, nextMonthStart);
+  const monthExpenses = Number(db.prepare("SELECT COALESCE(SUM(amount), 0) AS amount FROM business_expenses WHERE status != 'rejected' AND expense_date >= ? AND expense_date < ?").get(monthStart.slice(0, 10), nextMonthStart.slice(0, 10)).amount || 0);
+  const monthPayroll = Number(db.prepare("SELECT COALESCE(SUM(net_pay), 0) AS amount FROM payroll_records WHERE substr(pay_period, 1, 7) = ?").get(monthStart.slice(0, 7)).amount || 0);
   const activeOrders = getOrders({ status: 'pending,preparing,ready' });
   const todayOrders = getOrders({}).filter((o) => o.createdAt >= todayStart && o.createdAt < tomorrowStart);
   const summaryRanges = {
@@ -168,7 +191,7 @@ router.get('/summary', authMiddleware, (req, res) => {
 
   res.json({
     monthlyRevenue: Number(monthTotals.revenue || 0),
-    monthlyProfit: Number(monthTotals.revenue || 0) * 0.28,
+    monthlyProfit: Number(monthTotals.revenue || 0) - monthExpenses - monthPayroll,
     monthlyOrders: Number(monthTotals.orders || 0),
     todayRevenue: Number(todayTotals.revenue || 0),
     todayOrders: Number(todayTotals.orders || 0),
