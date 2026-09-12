@@ -1039,6 +1039,73 @@
 
 @keyframes mobile-cart-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 
+/* Restore the animated food-wall treatment for the live menu cards. */
+.public-menu-card {
+  position: relative;
+  min-height: 230px;
+  border: 0 !important;
+  border-radius: 18px !important;
+  background: #ddd !important;
+  box-shadow: 0 8px 22px rgba(36,33,30,.14) !important;
+  animation: menu-wall-in .65s cubic-bezier(.2,.75,.25,1) both;
+}
+.public-menu-card > div:first-child {
+  position: absolute;
+  inset: 0;
+  aspect-ratio: auto;
+}
+.public-menu-card > div:first-child::after {
+  content: '';
+  position: absolute;
+  inset: 35% 0 0;
+  background: linear-gradient(transparent, rgba(0,0,0,.72));
+  pointer-events: none;
+}
+.public-menu-card > div:first-child img {
+  transition: transform .55s cubic-bezier(.2,.75,.25,1), filter .55s ease;
+  filter: saturate(.9);
+}
+.public-menu-card:hover > div:first-child img {
+  transform: scale(1.08);
+  filter: saturate(1.15) contrast(1.04);
+}
+.public-menu-card > div:last-child {
+  position: relative;
+  z-index: 1;
+  min-height: 230px;
+  justify-content: flex-end;
+  padding: 18px !important;
+  color: #fff;
+  background: transparent;
+}
+.public-menu-card > div:last-child h3,
+.public-menu-card > div:last-child p,
+.public-menu-card > div:last-child strong {
+  color: #fff !important;
+  text-shadow: 0 2px 8px rgba(0,0,0,.6);
+}
+.public-menu-card > div:last-child > div:last-child {
+  border-color: rgba(255,255,255,.28) !important;
+}
+.public-menu-card > div:last-child button:first-child {
+  background: rgba(255,255,255,.16) !important;
+  color: #fff !important;
+  border-color: rgba(255,255,255,.35) !important;
+}
+@keyframes menu-wall-in {
+  from { opacity: 0; transform: translateY(22px) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .public-menu-card { animation: none; }
+  .public-menu-card > div:first-child img { transition: none; }
+}
+@media (max-width: 600px) {
+  .public-menu-card,
+  .public-menu-card > div:last-child { min-height: 205px; }
+  .public-menu-card > div:last-child { padding: 13px !important; }
+}
+
 /* Reference-style order drawer */
 .public-cart-backdrop { position: fixed; inset: 0; min-height: 100vh; align-items: center; background: rgba(36,33,30,.18); }
 .public-cart { width: min(390px, 100%); max-height: 90vh; padding: 0 22px 22px; overflow-y: auto; background: #fff; box-shadow: -10px 0 28px rgba(36,33,30,.16); }

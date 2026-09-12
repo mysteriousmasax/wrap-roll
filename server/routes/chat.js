@@ -90,14 +90,17 @@ function getCustomerContext(req, message) {
 function getMenuFactsReply(message, context) {
   const normalized = message.toLowerCase();
   const vegetarian = /vegetarian|veggie|meatless|no meat|mboga/.test(normalized);
+  const categoryAliases = { pizza: 'pizzas', pizzas: 'pizzas', burger: 'burgers', burgers: 'burgers', wrap: 'wraps', wraps: 'wraps', roll: 'rolls', rolls: 'rolls', salad: 'salads', salads: 'salads', drink: 'drinks', drinks: 'drinks', coffee: 'drinks', combo: 'combos', combos: 'combos' };
+  const requestedCategory = Object.entries(categoryAliases).find(([term]) => normalized.includes(term))?.[1];
   const candidates = context.menu.filter((item) => {
     const searchable = `${item.name} ${item.description || ''} ${item.category || ''}`.toLowerCase();
+    if (requestedCategory && item.category !== requestedCategory) return false;
     if (vegetarian) return /vegetable|veggie|mushroom|cheese|salad/.test(searchable) && !/chicken|beef|steak|tuna|pastrami|meat/.test(searchable);
     return true;
   }).slice(0, 6);
   if (!candidates.length) return '';
   const swahili = /\b(naomba|tafadhali|wapi|saa|chakula|bei|oda|imefunguliwa|asante|habari|mna|mnayo|mboga)\b/i.test(message);
-  const label = vegetarian ? (swahili ? 'Chakula cha mboga' : 'Vegetarian-labelled options') : (swahili ? 'Baadhi ya vyakula kwenye menyu' : 'Some menu options');
+  const label = requestedCategory ? (swahili ? `Chaguo za ${requestedCategory}` : `${requestedCategory[0].toUpperCase()}${requestedCategory.slice(1)} options`) : vegetarian ? (swahili ? 'Chakula cha mboga' : 'Vegetarian-labelled options') : (swahili ? 'Baadhi ya vyakula kwenye menyu' : 'Some menu options');
   return `${label}: ${candidates.map((item) => `${item.name} (TZS ${Number(item.price || 0).toLocaleString()})`).join(', ')}.`;
 }
 
@@ -134,17 +137,18 @@ router.post('/public/:conversationId/messages', async (req, res) => {
   db.prepare('UPDATE chat_conversations SET updated_at = ?, status = \'open\' WHERE id = ?').run(now, conversationId);
   const created = mapMessage(db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(result.lastInsertRowid));
   broadcast('chat:message', { conversationId, message: created });
-  const autoReply = messageType === 'text' ? findAutoReply(message) : null;
+  const menuQuestion = messageType === 'text' && /menu|food|dish|meal|vegetarian|veggie|price|cost|available|pizza|burger|wrap|roll|salad|drink|coffee|combo|chakula|mboga|bei|menyu|vyakula|kiasi/i.test(message);
+  const menuFacts = menuQuestion ? getMenuFactsReply(message, getCustomerContext(req, message)) : '';
+  const autoReply = messageType === 'text' && !menuFacts ? findAutoReply(message) : null;
   let autoReplyMessage = null;
-  let autoReplyText = autoReply ? getAutoReplyText(autoReply, message) : null;
-  let replyProvider = autoReply ? 'faq' : 'gemini';
+  let autoReplyText = menuFacts || (autoReply ? getAutoReplyText(autoReply, message) : null);
+  let replyProvider = menuFacts ? 'menu' : autoReply ? 'faq' : 'gemini';
   let customerContext = null;
   if (!autoReplyText && messageType === 'text') {
     const startedAt = Date.now();
     try {
       customerContext = getCustomerContext(req, message);
       autoReplyText = await generateCustomerChatReply(message, customerContext);
-      const menuQuestion = /menu|food|dish|meal|vegetarian|veggie|price|cost|available|chakula|mboga|bei|menyu|vyakula|kiasi/.test(message.toLowerCase());
       const mentionsMenuItem = autoReplyText && customerContext.menu.some((item) => autoReplyText.toLowerCase().includes(item.name.toLowerCase()));
       if (menuQuestion && !mentionsMenuItem) {
         const menuFacts = getMenuFactsReply(message, customerContext);
