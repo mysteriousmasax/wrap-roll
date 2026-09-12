@@ -59,11 +59,19 @@ function getCustomerContext(req, message) {
   const settings = db.prepare("SELECT key, value FROM settings WHERE key IN ('branch_location', 'weekly_hours', 'operating_hours')").all();
   const settingsMap = Object.fromEntries(settings.map((setting) => [setting.key, setting.value]));
   const menu = db.prepare('SELECT name, description, price, category FROM menu_items WHERE active = 1 ORDER BY category, name').all();
+  const phone = String(req.body.customerPhone || '').trim();
+  const email = String(req.body.customerEmail || '').trim().toLowerCase();
+  const customer = phone || email
+    ? db.prepare('SELECT id, name, tier, lifetime_value, visits, customer_segment, loyalty_notes FROM customers WHERE (? != \'\' AND phone = ?) OR (? != \'\' AND lower(email) = ?) ORDER BY id DESC LIMIT 1').get(phone, phone, email, email)
+    : null;
   const context = {
     location: settingsMap.branch_location || 'Wikicha Tower, Mwai Kibaki Road, Dar es Salaam',
     openingHours: formatWeeklyHours(),
     menu,
     customerReplyTemplates: db.prepare('SELECT question, keywords, answer, answer_sw FROM chat_faqs WHERE active = 1 ORDER BY id').all(),
+    customer: customer ? { id: customer.id, name: customer.name, tier: customer.tier, lifetimeValue: customer.lifetime_value, visits: customer.visits, segment: customer.customer_segment, loyaltyNotes: customer.loyalty_notes } : null,
+    recentOrders: phone || email ? db.prepare('SELECT id, status, payment_status, total, order_type, created_at FROM orders WHERE (? != \'\' AND customer_phone = ?) OR (? != \'\' AND lower(customer_email) = ?) ORDER BY created_at DESC LIMIT 5').all(phone, phone, email, email) : [],
+    lowStock: db.prepare('SELECT name, quantity, unit, threshold FROM inventory WHERE quantity <= threshold ORDER BY quantity ASC LIMIT 8').all(),
     orderStatus: null,
   };
   const orderId = message.match(/\bWR-\d+\b/i)?.[0]?.toUpperCase();
@@ -128,10 +136,10 @@ router.post('/public/:conversationId/messages', async (req, res) => {
   broadcast('chat:message', { conversationId, message: created });
   const autoReply = messageType === 'text' ? findAutoReply(message) : null;
   let autoReplyMessage = null;
-  let autoReplyText = null;
-  let replyProvider = 'gemini';
+  let autoReplyText = autoReply ? getAutoReplyText(autoReply, message) : null;
+  let replyProvider = autoReply ? 'faq' : 'gemini';
   let customerContext = null;
-  if (messageType === 'text') {
+  if (!autoReplyText && messageType === 'text') {
     const startedAt = Date.now();
     try {
       customerContext = getCustomerContext(req, message);
@@ -159,10 +167,6 @@ router.post('/public/:conversationId/messages', async (req, res) => {
       recordAiActivity({ surface: 'customer-chat', action: 'auto-reply', provider: 'offline', status: 'failed', durationMs: Date.now() - startedAt, inputLength: message.length });
       console.error('Offline customer chat reply unavailable:', error.message);
     }
-  }
-  if (!autoReplyText && autoReply) {
-    autoReplyText = getAutoReplyText(autoReply, message);
-    replyProvider = 'faq';
   }
   if (autoReplyText) {
     const replyResult = db.prepare('INSERT INTO chat_messages (conversation_id, sender_type, message, message_type, metadata, created_at) VALUES (?, \'staff\', ?, \'text\', ?, ?)')
