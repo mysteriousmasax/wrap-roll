@@ -432,16 +432,16 @@ export default function HomePage() {
       )}
 
       {/* Hero Section */}
-      <section className="hero-tablet min-h-screen w-full px-6 sm:px-12 py-20 flex items-center justify-start" id="home" style={{backgroundImage: 'linear-gradient(90deg, rgba(0,0,0,0.7), rgba(0,0,0,0.3)), url(/hero-food.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed'}}>
-        <div className="hero-copy space-y-5 max-w-xl">
+      <section className="reference-home-hero hero-tablet w-full px-6 sm:px-12 flex items-center justify-start" id="home" style={{backgroundImage: 'linear-gradient(90deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.62) 43%, rgba(0,0,0,0.08) 82%), url(/hero-food.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'scroll'}}>
+        <div className="hero-copy reference-hero-copy space-y-5 max-w-xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#fde8d7] text-[#ae002a] text-xs font-bold uppercase tracking-wider">
             <Sparkles size={14} className="text-[#e6ac29]" /> Fresh, Fast &amp; Delicious
           </div>
-          <h1 className="text-4xl sm:text-6xl font-bold font-display text-[#1f1d1b] leading-[1.08] tracking-tight">
-            Craving Authentic <em className="not-italic text-[#ae002a]">Wraps &amp; Rolls?</em>
+          <h1 className="reference-hero-heading text-4xl sm:text-6xl font-bold font-display leading-[1.02] tracking-tight">
+            Dine with Delight at <em className="not-italic">Wrap &amp; Roll</em>
           </h1>
-          <p className="hero-intro text-base sm:text-lg text-[#6f6861] leading-relaxed max-w-lg">
-            Freshly grilled proteins, crisp garden greens, and homemade signature sauces rolled to perfection in Dar es Salaam.
+          <p className="hero-intro reference-hero-intro text-base sm:text-lg leading-relaxed max-w-lg">
+            Satisfy your cravings with delicious meals at Wrap &amp; Roll. Whether you&apos;re here for a quick bite or a special celebration.
           </p>
 
           <div className="hero-actions flex flex-wrap items-center gap-3 pt-2">
@@ -449,7 +449,7 @@ export default function HomePage() {
               className="px-6 py-3.5 rounded-2xl bg-[#ae002a] hover:bg-[#920023] text-white font-bold text-sm shadow-md transition-transform active:scale-[0.98] inline-flex items-center gap-2"
               onClick={() => scrollTo('menu')}
             >
-              Explore Full Menu <ArrowRight size={17} />
+              Explore Our Menu <ArrowRight size={17} />
             </button>
             <button
               className="hidden tablet:inline-flex px-6 py-3.5 rounded-2xl bg-[#faeee2] hover:bg-[#f6e0cd] text-[#ae002a] font-bold text-sm transition-colors items-center gap-2 border border-[#ebdccb]"
@@ -476,6 +476,18 @@ export default function HomePage() {
               <p className="text-xs font-bold text-[#1f1d1b]">100% Fresh Daily</p>
               <p className="text-[10px] text-[#746e67]">Made fresh to order in minutes</p>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="reference-delivery-section px-6 py-14 sm:px-12 sm:py-20" aria-label="Delivery and catering">
+        <div className="reference-delivery-card">
+          <img src={brandFoodImages[0]} alt="Wrap and Roll delivery and catering" />
+          <div className="reference-delivery-copy">
+            <BrandLogo variant="dark" />
+            <h2>DELIVERY &amp; CATERING</h2>
+            <p>Freshness brought to your doorstep.<br />Perfect for meetings, events, or a cozy night in!</p>
+            <button type="button" onClick={() => scrollTo('menu')}>ORDER NOW</button>
           </div>
         </div>
       </section>

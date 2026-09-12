@@ -1721,6 +1721,110 @@ button, input, select, textarea { max-width: 100%; }
 .hero-tablet .hero-heading-animation em {
   color: #ffc72c !important;
 }
+
+.reference-home-hero {
+  min-height: 610px;
+  background-color: #171313;
+}
+.reference-hero-copy {
+  position: relative;
+  z-index: 1;
+  padding-block: 70px;
+}
+.reference-hero-heading {
+  max-width: 650px;
+  color: #fff !important;
+  font-family: Georgia, serif;
+  font-size: clamp(42px, 5.2vw, 72px);
+  line-height: .98;
+  text-shadow: 0 3px 12px rgba(0, 0, 0, .5);
+}
+.reference-hero-heading em {
+  color: #e00000;
+}
+.reference-hero-intro {
+  color: #fff !important;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, .55);
+}
+.reference-home-hero .hero-actions button:first-child {
+  border-radius: 24px;
+  background: #e00000;
+  padding: 15px 24px;
+  text-transform: uppercase;
+}
+.reference-delivery-section {
+  background: #fff;
+}
+.reference-delivery-card {
+  max-width: 1120px;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(41, 27, 21, .12);
+}
+.reference-delivery-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2.4 / 1;
+  object-fit: cover;
+}
+.reference-delivery-copy {
+  display: flex;
+  min-height: 170px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 25px;
+  background: #e00000;
+  color: #fff;
+  text-align: center;
+}
+.reference-delivery-copy .brand-logo {
+  width: 135px;
+  height: auto;
+  filter: brightness(0) invert(1);
+}
+.reference-delivery-copy h2 {
+  margin: 0;
+  font: 800 22px/1 Arial, sans-serif;
+}
+.reference-delivery-copy p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.reference-delivery-copy button {
+  margin-top: 5px;
+  border: 0;
+  border-radius: 3px;
+  background: #ffc72c;
+  color: #9d150f;
+  padding: 7px 18px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+@media (max-width: 800px) {
+  .reference-home-hero {
+    min-height: 610px;
+    align-items: flex-end;
+    background-position: 62% center !important;
+  }
+  .reference-hero-copy {
+    padding-block: 52px 54px;
+  }
+  .reference-hero-heading {
+    font-size: clamp(39px, 10vw, 56px);
+  }
+  .reference-delivery-section {
+    padding-inline: 7vw;
+    padding-block: 42px;
+  }
+  .reference-delivery-card img {
+    aspect-ratio: 1.55 / 1;
+  }
+}
 .hero-heading-animation [data-char] {
   display: inline-block;
   will-change: transform, opacity;
