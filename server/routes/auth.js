@@ -70,7 +70,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     db.prepare('UPDATE staff SET status = ?, clock_in = ? WHERE id = ?').run('on-clock', loginTime, staff.id);
     const activeShift = db.prepare("SELECT id FROM shift_logs WHERE staff_id = ? AND shift_date = ? AND status = 'active'").get(staff.id, shiftDate);
     if (!activeShift) db.prepare('INSERT INTO shift_logs (staff_id, staff_name, shift_date, start_time, status, notes, clock_in_latitude, clock_in_longitude, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(staff.id, staff.name, shiftDate, loginTime, 'active', staff.shift || 'Assigned shift', latitude, longitude, now.toISOString());
-  } else {
+  } else if (staff) {
     db.prepare('UPDATE shift_logs SET clock_in_latitude = ?, clock_in_longitude = ? WHERE staff_id = ? AND status = \'active\' AND shift_date = ?').run(latitude, longitude, staff.id, restaurantTime().date);
   }
 
