@@ -303,7 +303,7 @@ export default function SettingsPage() {
           {activeSection === 'chat' && (
             <Card>
               <div className="flex items-start justify-between gap-4 mb-4">
-                <div><h3 className="font-display font-bold">Chat Auto-Replies</h3><p className="text-sm text-surface-on-variant mt-1">Answers sent automatically when a customer asks a matching question.</p></div>
+                <div><h3 className="font-display font-bold">Customer Reply Manual</h3><p className="text-sm text-surface-on-variant mt-1">Bilingual replies from the customer service manual. Edit, disable, or retrain the assistant after changes.</p></div>
                 <Button size="sm" variant="secondary" onClick={retrainAssistant} disabled={retraining}><Brain size={14} /> {retraining ? 'Retraining...' : 'Retrain assistant'}</Button>
                 {editingFaqId && <Button size="sm" variant="secondary" onClick={() => { setEditingFaqId(null); setFaqForm({ question: '', keywords: '', answer: '', answerSw: '' }); }}>Cancel edit</Button>}
               </div>

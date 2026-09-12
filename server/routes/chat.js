@@ -63,6 +63,7 @@ function getCustomerContext(req, message) {
     location: settingsMap.branch_location || 'Wikicha Tower, Mwai Kibaki Road, Dar es Salaam',
     openingHours: formatWeeklyHours(),
     menu,
+    customerReplyTemplates: db.prepare('SELECT question, keywords, answer, answer_sw FROM chat_faqs WHERE active = 1 ORDER BY id').all(),
     orderStatus: null,
   };
   const orderId = message.match(/\bWR-\d+\b/i)?.[0]?.toUpperCase();
