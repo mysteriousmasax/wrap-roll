@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
 import db from '../db/database.js';
 import { signToken, authMiddleware, JWT_SECRET } from '../middleware/auth.js';
-import { verifyPin } from '../utils/pins.js';
+import { hashPin, verifyPin } from '../utils/pins.js';
 import { broadcast } from '../ws.js';
 import { restaurantTime } from '../utils/localTime.js';
 
@@ -83,7 +83,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 });
 
 router.get('/me', authMiddleware, (req, res) => {
-  const user = db.prepare('SELECT id, name, role, avatar FROM users WHERE id = ?').get(req.user.id);
+  const user = db.prepare('SELECT id, name, role, avatar, username, email FROM users WHERE id = ?').get(req.user.id);
   if (!user) return res.status(401).json({ error: 'User not found' });
   res.json({ user });
 });
@@ -104,20 +104,34 @@ router.post('/logout', authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
-router.patch('/me', authMiddleware, (req, res) => {
-  const existing = db.prepare('SELECT id, name, role, avatar FROM users WHERE id = ?').get(req.user.id);
+router.patch('/me', authMiddleware, async (req, res) => {
+  const existing = db.prepare('SELECT id, name, role, avatar, username, email FROM users WHERE id = ?').get(req.user.id);
   if (!existing) return res.status(404).json({ error: 'User not found' });
 
-  const { name, avatar } = req.body;
+  const { name, avatar, username, email, password } = req.body;
   if (avatar !== undefined && avatar !== null && avatar !== '' && !/^data:image\/(png|jpe?g|webp);base64,/.test(avatar)) {
     return res.status(400).json({ error: 'Avatar must be a PNG, JPEG, or WEBP image' });
   }
+  if (password !== undefined && password !== '' && String(password).length < 8) {
+    return res.status(400).json({ error: 'A password of at least 8 characters is required' });
+  }
+
+  const nextUsername = typeof username === 'string' && username.trim() ? username.trim().toLowerCase() : existing.username;
+  const nextEmail = typeof email === 'string' ? email.trim().toLowerCase() : (existing.email || '');
+  if (!/^[a-z0-9][a-z0-9._-]{2,50}$/.test(nextUsername)) {
+    return res.status(400).json({ error: 'Username must be 3-51 characters using letters, numbers, dots, underscores, or hyphens' });
+  }
+  if (nextEmail && !/^\S+@\S+\.\S+$/.test(nextEmail)) return res.status(400).json({ error: 'Enter a valid email address' });
+  const conflict = db.prepare('SELECT id FROM users WHERE id != ? AND (username = ? OR (email != \'\' AND email = ?))').get(req.user.id, nextUsername, nextEmail);
+  if (conflict) return res.status(409).json({ error: 'That username or email is already in use' });
 
   const nextName = typeof name === 'string' && name.trim() ? name.trim() : existing.name;
   const nextAvatar = typeof avatar === 'string' && avatar ? avatar : existing.avatar;
-  db.prepare('UPDATE users SET name = ?, avatar = ? WHERE id = ?').run(nextName, nextAvatar, req.user.id);
+  const nextPassword = password ? await hashPin(password) : null;
+  db.prepare('UPDATE users SET name = ?, avatar = ?, username = ?, email = ?, password = COALESCE(?, password), pin = COALESCE(?, pin) WHERE id = ?')
+    .run(nextName, nextAvatar, nextUsername, nextEmail, nextPassword, nextPassword, req.user.id);
 
-  const user = db.prepare('SELECT id, name, role, avatar FROM users WHERE id = ?').get(req.user.id);
+  const user = db.prepare('SELECT id, name, role, avatar, username, email FROM users WHERE id = ?').get(req.user.id);
   res.json({ user });
 });
 

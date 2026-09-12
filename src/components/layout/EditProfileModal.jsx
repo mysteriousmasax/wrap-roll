@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { Camera } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Camera, Eye, EyeOff } from 'lucide-react';
 import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
@@ -30,6 +30,10 @@ function resizeImageFile(file) {
 
 export default function EditProfileModal({ isOpen, onClose, currentUser, onSave }) {
   const [name, setName] = useState(currentUser?.name || '');
+  const [username, setUsername] = useState(currentUser?.username || '');
+  const [email, setEmail] = useState(currentUser?.email || '');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState(currentUser?.avatar || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -37,8 +41,18 @@ export default function EditProfileModal({ isOpen, onClose, currentUser, onSave 
 
   const isImageAvatar = (value) => typeof value === 'string' && value.startsWith('data:image');
 
+  useEffect(() => {
+    setName(currentUser?.name || '');
+    setUsername(currentUser?.username || '');
+    setEmail(currentUser?.email || '');
+    setAvatarPreview(currentUser?.avatar || '');
+  }, [currentUser]);
+
   const handleClose = () => {
     setName(currentUser?.name || '');
+    setUsername(currentUser?.username || '');
+    setEmail(currentUser?.email || '');
+    setPassword('');
     setAvatarPreview(currentUser?.avatar || '');
     setError('');
     onClose();
@@ -69,7 +83,8 @@ export default function EditProfileModal({ isOpen, onClose, currentUser, onSave 
     setSaving(true);
     setError('');
     try {
-      await onSave({ name: name.trim(), avatar: isImageAvatar(avatarPreview) ? avatarPreview : undefined });
+      await onSave({ name: name.trim(), username: username.trim(), email: email.trim(), password: password || undefined, avatar: isImageAvatar(avatarPreview) ? avatarPreview : undefined });
+      setPassword('');
       onClose();
     } catch (err) {
       setError(err.message || 'Could not save your profile.');
@@ -108,6 +123,14 @@ export default function EditProfileModal({ isOpen, onClose, currentUser, onSave 
 
       <div className="space-y-4">
         <Input label="Name" value={name} onChange={(event) => setName(event.target.value)} />
+        <Input label="Username" value={username} onChange={(event) => setUsername(event.target.value.toLowerCase().replace(/\s/g, '.'))} />
+        <Input label="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+        <div className="relative">
+          <Input label="New password (optional)" type={showPassword ? 'text' : 'password'} minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Leave blank to keep current password" />
+          <button type="button" onClick={() => setShowPassword((visible) => !visible)} className="absolute right-2 top-7 rounded-lg p-1 text-surface-on-variant" aria-label={showPassword ? 'Hide new password' : 'Show new password'}>
+            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        </div>
         {error && <p className="text-xs text-error">{error}</p>}
         <div className="flex gap-2 pt-1">
           <Button variant="ghost" className="flex-1" onClick={handleClose} disabled={saving}>Cancel</Button>
