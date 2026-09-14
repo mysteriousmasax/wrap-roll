@@ -29,8 +29,8 @@ const NETWORKS = [
       'Piga *150*01#',
       'Chagua 4 (Lipa kwa Simu / TIPS)',
       'Chagua 1 (Lipa Namba)',
-      'Weka Lipa Namba: 45342017',
-      'Jina litatokea: PETER JOSEPH MSIRA',
+      'Weka Lipa Namba: [LIPA_NUMBER]',
+      'Jina litatokea: [MERCHANT_NAME]',
       'Weka Kiasi na Kumbukumbu',
       'Weka PIN kuthibitisha',
     ],
@@ -45,7 +45,7 @@ const NETWORKS = [
       'Piga *150*00#',
       'Chagua 4 (Lipa kwa M-Pesa)',
       'Chagua 1 (Lipa kwa Simu / TIPS Mitandao Yote)',
-      'Weka Lipa Namba: 45342017 (PETER JOSEPH MSIRA)',
+      'Weka Lipa Namba: [LIPA_NUMBER] ([MERCHANT_NAME])',
       'Weka Kiasi kamili',
       'Weka Namba ya Kumbukumbu',
       'Weka PIN yako kukamilisha',
@@ -61,7 +61,7 @@ const NETWORKS = [
       'Piga *150*60#',
       'Chagua 5 (Lipa Bili / Lipa kwa Simu)',
       'Chagua 1 (Mitandao Mingine / TIPS)',
-      'Weka Lipa Namba: 45342017 (PETER JOSEPH MSIRA)',
+      'Weka Lipa Namba: [LIPA_NUMBER] ([MERCHANT_NAME])',
       'Weka Kiasi na Kumbukumbu',
       'Weka PIN kuthibitisha',
     ],
@@ -75,7 +75,7 @@ const NETWORKS = [
     steps: [
       'Piga *150*88#',
       'Chagua 5 (Lipa kwa Halopesa / TIPS)',
-      'Weka Lipa Namba: 45342017 (PETER JOSEPH MSIRA)',
+      'Weka Lipa Namba: [LIPA_NUMBER] ([MERCHANT_NAME])',
       'Weka Kiasi na Kumbukumbu',
       'Weka PIN kuthibitisha',
     ],
@@ -96,10 +96,27 @@ export default function LipaPaymentModal({
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [liveOrder, setLiveOrder] = useState(order);
+  const [paymentAccounts, setPaymentAccounts] = useState([]);
+  const [selectedAccountIndex, setSelectedAccountIndex] = useState(0);
+  const [accountsLoading, setAccountsLoading] = useState(false);
 
-  const lipaNumber = '45342017';
-  const merchantName = 'PETER JOSEPH MSIRA';
+  const lipaAccount = paymentAccounts[selectedAccountIndex] || paymentAccounts[0];
+  const lipaNumber = lipaAccount?.number || '';
+  const merchantName = lipaAccount?.name || lipaAccount?.label || 'Wrap & Roll';
   const paymentRef = liveOrder?.paymentReference || `WRPAY-${liveOrder?.id?.replace(/^WR-/, '')}`;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setAccountsLoading(true);
+    api.getPublicSettings().then((settings) => {
+      try {
+        const accounts = JSON.parse(settings.lipa_namba_accounts || '[]');
+        setPaymentAccounts(Array.isArray(accounts) ? accounts.filter((account) => account?.number) : []);
+      } catch {
+        setPaymentAccounts([]);
+      }
+    }).catch(() => setPaymentAccounts([])).finally(() => setAccountsLoading(false));
+  }, [isOpen]);
 
   // Poll for real-time payment and order status updates
   useEffect(() => {
@@ -158,6 +175,7 @@ export default function LipaPaymentModal({
         transactionId: smsTransactionId.trim(),
         senderPhone: liveOrder?.customerPhone,
         senderName: liveOrder?.customer,
+        notes: `Paid to ${lipaNumber} (${merchantName}) via ${selectedNetwork.name}`,
       });
 
       if (res.success) {
@@ -286,6 +304,9 @@ export default function LipaPaymentModal({
             </div>
           ) : (
             <>
+              {accountsLoading && <div className="rounded-xl border border-[#ebdccb] bg-[#fbf6ee] p-3 text-xs text-[#746e67]">Loading current payment accounts...</div>}
+              {!accountsLoading && !paymentAccounts.length && <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-800">Payment accounts are not configured. Please contact the restaurant before paying.</div>}
+              {paymentAccounts.length > 1 && <label className="block text-xs font-bold text-[#554e46]">Payment account<select value={selectedAccountIndex} onChange={(event) => setSelectedAccountIndex(Number(event.target.value))} className="mt-1 w-full rounded-xl border border-[#ebdccb] bg-white px-3 py-2 text-xs">{paymentAccounts.map((account, index) => <option key={`${account.number}-${index}`} value={index}>{account.label || account.network || 'Lipa Namba'} - {account.number}</option>)}</select></label>}
               {/* Payment Reference Callout */}
               <div className="bg-[#fff9f4] border-2 border-[#ebdccb] rounded-2xl p-4 space-y-2">
                 <div className="flex items-center justify-between">
@@ -312,12 +333,12 @@ export default function LipaPaymentModal({
                 {/* QR Code */}
                 <div className="flex flex-col items-center justify-center p-2 text-center border-b sm:border-b-0 sm:border-r border-[#eee4d5] pb-4 sm:pb-0 sm:pr-4">
                   <div className="bg-white p-2 rounded-2xl border-2 border-[#004aad] shadow-md relative">
-                    <InternalQrCode
+                    {lipaAccount ? <InternalQrCode
                       number={lipaNumber}
                       useInternal={true}
                       alt="Wrap & Roll TIPS QR Code"
                       className="w-36 h-36 aspect-square object-contain rounded-xl"
-                    />
+                    /> : <p className="flex h-36 w-36 items-center justify-center text-center text-xs text-[#746e67]">Payment account not configured</p>}
                   </div>
                   <span className="text-[10px] text-[#004aad] font-bold mt-2 flex items-center gap-1">
                     <QrCode size={12} /> Scan with Camera / Banking App
@@ -332,7 +353,7 @@ export default function LipaPaymentModal({
                     </span>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-2xl font-black text-[#1f1d1b] tracking-wider">
-                        {lipaNumber}
+                        {lipaNumber || 'Not configured'}
                       </span>
                       <button
                         type="button"
@@ -393,7 +414,7 @@ export default function LipaPaymentModal({
                   <ol className="text-xs text-[#554e46] space-y-1 list-decimal list-inside pl-1 leading-relaxed">
                     {selectedNetwork.steps.map((step, idx) => (
                       <li key={idx}>
-                        {step.replace('[WRPAY_REF]', paymentRef)}
+                        {step.replace('[WRPAY_REF]', paymentRef).replace('[LIPA_NUMBER]', lipaNumber || 'configured account').replace('[MERCHANT_NAME]', merchantName)}
                       </li>
                     ))}
                   </ol>
@@ -424,7 +445,7 @@ export default function LipaPaymentModal({
                 ) : (
                   <form onSubmit={handleSubmitManual} className="space-y-3">
                     <p className="text-[11px] text-[#746e67]">
-                      Enter the transaction ID from your M-Pesa / Mixx / Airtel SMS to expedite verification:
+                      Enter the transaction ID from your mobile-money SMS, then press Done to wait for payment confirmation:
                     </p>
                     <div className="flex gap-2">
                       <input
@@ -436,7 +457,7 @@ export default function LipaPaymentModal({
                       />
                       <button
                         type="submit"
-                        disabled={submitting || !smsTransactionId.trim()}
+                        disabled={submitting || !smsTransactionId.trim() || !lipaAccount}
                         className="px-4 py-2.5 rounded-xl bg-[#ae002a] text-white font-bold text-xs hover:bg-[#920023] transition-colors disabled:opacity-50 whitespace-nowrap shadow-md"
                       >
                         {submitting ? 'Submitting...' : 'I Have Paid'}

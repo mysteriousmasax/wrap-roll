@@ -25,7 +25,6 @@ import BrandLogo from '../../components/brand/BrandLogo';
 import useSettingsStore from '../../store/useSettingsStore';
 import useTranslation from '../../i18n/useTranslation';
 import CustomerChat from '../../components/public/CustomerChat';
-import LipaNambaPayment from '../../components/public/LipaNambaPayment';
 import LipaPaymentModal from '../../components/public/LipaPaymentModal';
 import RotatingText from '../../components/ui/RotatingText';
 import DepthText from '../../components/ui/DepthText';
@@ -100,17 +99,7 @@ export default function HomePage() {
   const [mealModifiers, setMealModifiers] = useState([]);
   const [activeCategory, setActiveCategory] = useState('all');
 
-  const lipaNambaNumber = useSettingsStore((state) => state.settings.lipa_namba_number || '45342017');
   const publicSettings = useSettingsStore((state) => state.settings);
-  const lipaNambaAccountsValue = useSettingsStore((state) => state.settings.lipa_namba_accounts || '');
-  const lipaNambaAccounts = (() => {
-    try {
-      const accounts = JSON.parse(lipaNambaAccountsValue || '[]');
-      return Array.isArray(accounts) ? accounts.filter((account) => account.number) : [];
-    } catch {
-      return [];
-    }
-  })();
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.qty, 0);
   const cartSubtotal = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
@@ -803,16 +792,6 @@ export default function HomePage() {
                   <div className="text-center py-8 text-xs text-[#746e67]">Your cart is currently empty.</div>
                 )}
               </div>
-
-              {/* Payment Component */}
-              {cartItems.length > 0 && (
-                <LipaNambaPayment
-                  number={lipaNambaNumber}
-                  accounts={lipaNambaAccounts}
-                  reference={paymentReference}
-                  onReferenceChange={setPaymentReference}
-                />
-              )}
 
               {/* Checkout Form */}
               {cartItems.length > 0 && (

@@ -36,7 +36,7 @@ export const MOBILE_NETWORKS = {
       'Piga *150*01#',
       'Chagua 4 (Lipa kwa Simu / TIPS)',
       'Chagua 1 (Lipa Namba)',
-      'Weka Lipa Namba: 45342017 (PETER JOSEPH MSIRA)',
+      'Weka Lipa Namba: [LIPA_NUMBER] ([MERCHANT_NAME])',
       'Weka Kiasi cha Kulipa',
       'Weka Kumbukumbu Namba: [WRPAY_REF]',
       'Weka PIN yako kukamilisha malipo',
@@ -50,7 +50,7 @@ export const MOBILE_NETWORKS = {
       'Piga *150*00#',
       'Chagua 4 (Lipa kwa M-Pesa)',
       'Chagua 1 (Lipa kwa Simu / Mitandao Yote - TIPS)',
-      'Weka Lipa Namba: 45342017 (PETER JOSEPH MSIRA)',
+      'Weka Lipa Namba: [LIPA_NUMBER] ([MERCHANT_NAME])',
       'Weka Kiasi cha Kulipa',
       'Weka Namba ya Kumbukumbu: [WRPAY_REF]',
       'Weka PIN yako kuthibitisha',
@@ -64,7 +64,7 @@ export const MOBILE_NETWORKS = {
       'Piga *150*60#',
       'Chagua 5 (Lipa Bili / Lipa kwa Simu)',
       'Chagua 1 (Mitandao Mingine / TIPS)',
-      'Weka Lipa Namba: 45342017 (PETER JOSEPH MSIRA)',
+      'Weka Lipa Namba: [LIPA_NUMBER] ([MERCHANT_NAME])',
       'Weka Kiasi cha Kulipa',
       'Weka Kumbukumbu Namba: [WRPAY_REF]',
       'Weka PIN yako kuthibitisha',
@@ -77,13 +77,24 @@ export const MOBILE_NETWORKS = {
     steps: [
       'Piga *150*88#',
       'Chagua 5 (Lipa kwa Halopesa / TIPS)',
-      'Weka Lipa Namba: 45342017 (PETER JOSEPH MSIRA)',
+      'Weka Lipa Namba: [LIPA_NUMBER] ([MERCHANT_NAME])',
       'Weka Kiasi cha Kulipa',
       'Weka Kumbukumbu: [WRPAY_REF]',
       'Weka PIN yako kuthibitisha',
     ],
   },
 };
+
+export function getConfiguredPaymentAccounts() {
+  const stored = db.prepare("SELECT value FROM settings WHERE key = 'lipa_namba_accounts'").get()?.value || '';
+  const configured = stored && stored !== '[]' ? stored : (process.env.LIPA_ACCOUNTS_JSON || '[]');
+  try {
+    const accounts = JSON.parse(configured);
+    return Array.isArray(accounts) ? accounts.filter((account) => account?.number && !String(account.number).includes('45342017')) : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Base Payment Provider Interface
@@ -112,8 +123,10 @@ export class ManualLipaProvider extends BasePaymentProvider {
   }
 
   async createPaymentIntent({ order, paymentReference, provider = 'lipa_namba', senderPhone = '' }) {
-    const lipaNumber = process.env.LIPA_NUMBER || '45342017';
-    const merchantName = process.env.MERCHANT_NAME || 'PETER JOSEPH MSIRA';
+    const account = getConfiguredPaymentAccounts()[0];
+    if (!account) throw new Error('Payment accounts are not configured. Please contact Wrap & Roll.');
+    const lipaNumber = account.number;
+    const merchantName = account.name || account.label || process.env.MERCHANT_NAME || 'Wrap & Roll';
     const paymentId = `PAY-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const now = new Date().toISOString();
 

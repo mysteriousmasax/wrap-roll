@@ -40,6 +40,8 @@ The `railway.toml` file configures the Docker build, health check, and restart p
 
 Google Business Profile cannot be fetched automatically from only a public Maps URL. Automatic synchronization requires a Google Cloud project, OAuth consent screen, Business Profile APIs, and authorized manager credentials. Until those credentials are supplied, administrators can keep the public Maps URL, branch details, contact information, and weekly hours accurate from System Settings.
 
+Set `LIPA_ACCOUNTS_JSON` in Railway to the real Megamore payment accounts before accepting orders. It must be a JSON array with `network`, `number`, `name`, and optional `ussd` fields. The old hardcoded account is intentionally removed; without configured accounts checkout blocks payment submission.
+
 ## Windows POS installation
 
 1. Copy the project to a simple path such as `C:\WrapRollPOS`.

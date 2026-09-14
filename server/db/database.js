@@ -503,15 +503,10 @@ export async function initDatabase() {
     payment_card: 'true',
     payment_mobile: 'true',
     payment_cash: 'true',
-    lipa_namba_number: '45342017',
-    lipa_namba_name: 'PETER JOSEPH MSIRA',
-    lipa_namba_provider: 'TIPS / Mixx by Yas',
-    lipa_namba_accounts: JSON.stringify([
-      { network: 'Mixx by Yas / TIPS', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*01#' },
-      { network: 'Vodacom M-Pesa', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*00#' },
-      { network: 'Airtel Money', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*60#' },
-      { network: 'Halopesa', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*88#' },
-    ]),
+    lipa_namba_number: '',
+    lipa_namba_name: '',
+    lipa_namba_provider: '',
+    lipa_namba_accounts: '[]',
   };
   const weeklyHours = {
     monday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
@@ -526,23 +521,7 @@ export async function initDatabase() {
   const insertDefaultSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
   for (const [key, value] of Object.entries(defaultSettings)) insertDefaultSetting.run(key, value);
 
-  // Ensure real Lipa Namba and accounts overwrite any legacy placeholder 123456 on existing databases
-  db.prepare(`
-    UPDATE settings SET value = '45342017'
-    WHERE key = 'lipa_namba_number' AND (value = '123456' OR value = '' OR value IS NULL)
-  `).run();
-  db.prepare(`
-    UPDATE settings SET value = ?
-    WHERE key = 'lipa_namba_accounts' AND (value LIKE '%123456%' OR value = '[]' OR value = '' OR value IS NULL)
-  `).run(defaultSettings.lipa_namba_accounts);
-  db.prepare(`
-    INSERT INTO settings (key, value) VALUES ('lipa_namba_name', 'PETER JOSEPH MSIRA')
-    ON CONFLICT(key) DO UPDATE SET value = 'PETER JOSEPH MSIRA' WHERE settings.value = '' OR settings.value IS NULL
-  `).run();
-  db.prepare(`
-    INSERT INTO settings (key, value) VALUES ('lipa_namba_provider', 'TIPS / Mixx by Yas')
-    ON CONFLICT(key) DO UPDATE SET value = 'TIPS / Mixx by Yas' WHERE settings.value = '' OR settings.value IS NULL
-  `).run();
+  db.prepare("DELETE FROM settings WHERE key IN ('lipa_namba_number', 'lipa_namba_name', 'lipa_namba_provider', 'lipa_namba_accounts') AND (value LIKE '%45342017%' OR value LIKE '%PETER JOSEPH MSIRA%')").run();
 
   const { migratePlaintextPins, migrateUserCredentials } = await import('../utils/pins.js');
   await migratePlaintextPins(db);

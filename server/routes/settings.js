@@ -21,15 +21,10 @@ const publicDefaults = {
   payment_card: 'true',
   payment_mobile: 'true',
   payment_cash: 'true',
-  lipa_namba_number: '45342017',
-  lipa_namba_name: 'PETER JOSEPH MSIRA',
-  lipa_namba_provider: 'TIPS / Mixx by Yas',
-  lipa_namba_accounts: JSON.stringify([
-    { network: 'Mixx by Yas / TIPS', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*01#' },
-    { network: 'Vodacom M-Pesa', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*00#' },
-    { network: 'Airtel Money', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*60#' },
-    { network: 'Halopesa', number: '45342017', name: 'PETER JOSEPH MSIRA', ussd: '*150*88#' },
-  ]),
+  lipa_namba_number: '',
+  lipa_namba_name: '',
+  lipa_namba_provider: '',
+  lipa_namba_accounts: '[]',
   public_animation_enabled: 'true',
   public_animation_style: 'lift',
   public_animation_duration: '650',
@@ -42,16 +37,7 @@ router.get('/public', (req, res) => {
   const settings = { ...publicDefaults };
   for (const row of rows) settings[row.key] = row.value;
 
-  // Sanitize: never allow legacy placeholder 123456 or empty accounts to leak to public
-  if (!settings.lipa_namba_number || settings.lipa_namba_number === '123456') {
-    settings.lipa_namba_number = '45342017';
-  }
-  if (!settings.lipa_namba_accounts || settings.lipa_namba_accounts.includes('123456') || settings.lipa_namba_accounts === '[]') {
-    settings.lipa_namba_accounts = publicDefaults.lipa_namba_accounts;
-  }
-  if (!settings.lipa_namba_name) {
-    settings.lipa_namba_name = 'PETER JOSEPH MSIRA';
-  }
+  if (!settings.lipa_namba_accounts || settings.lipa_namba_accounts === '[]') settings.lipa_namba_accounts = process.env.LIPA_ACCOUNTS_JSON || '[]';
 
   res.json(settings);
 });

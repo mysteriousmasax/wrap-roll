@@ -237,7 +237,7 @@ export default function KDSPage() {
   const prevCountRef = useRef(0);
 
   useEffect(() => {
-    fetchOrders('pending,preparing,ready').finally(() => setLoading(false));
+    fetchOrders('confirmed,pending,preparing,ready').finally(() => setLoading(false));
   }, [fetchOrders]);
 
   useEffect(() => {
@@ -247,7 +247,7 @@ export default function KDSPage() {
 
   useWebSocket((event) => {
   if (event === 'order:created' || event === 'order:updated' || event === 'order:confirmed' || event === 'payment:confirmed') {
-      fetchOrders('pending,preparing,ready');
+      fetchOrders('confirmed,pending,preparing,ready');
       if (event === 'order:created' && soundEnabled) playOrderChime();
     }
   });
@@ -289,7 +289,6 @@ export default function KDSPage() {
     }
     if (activeStation === 'sides') {
       return order.items?.some((i) =>
-        i.name?.toLowerCase().includes('salad') ||
         i.name?.toLowerCase().includes('fries') ||
         i.name?.toLowerCase().includes('extra')
       );
@@ -304,7 +303,7 @@ export default function KDSPage() {
     return true;
   });
 
-  const pending = filteredOrders.filter((o) => o.status === 'pending');
+  const pending = filteredOrders.filter((o) => ['confirmed', 'pending'].includes(o.status));
   const preparing = filteredOrders.filter((o) => o.status === 'preparing');
   const ready = filteredOrders.filter((o) => o.status === 'ready');
 
@@ -322,7 +321,7 @@ export default function KDSPage() {
     setActionError('');
     try {
       await api.updateOrderPaymentStatus(orderId, 'paid');
-      await fetchOrders('pending,preparing,ready');
+      await fetchOrders('confirmed,pending,preparing,ready');
     } catch (err) {
       setActionError(err.message || 'Could not confirm payment.');
       console.error(err);

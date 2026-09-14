@@ -20,6 +20,7 @@ import {
   MOBILE_NETWORKS,
   PAYMENT_STATUSES,
   ORDER_STATUSES,
+  getConfiguredPaymentAccounts,
 } from '../utils/paymentProviders.js';
 
 const router = express.Router();
@@ -30,25 +31,13 @@ const router = express.Router();
  */
 router.get('/methods', (req, res) => {
   try {
-    const lipaNumber = process.env.LIPA_NUMBER || '45342017';
-    const merchantName = process.env.MERCHANT_NAME || 'PETER JOSEPH MSIRA';
-    const provider = process.env.LIPA_PROVIDER || 'TIPS / Mixx by Yas';
+    const accounts = getConfiguredPaymentAccounts();
 
     res.json({
       success: true,
-      lipaNumber,
-      merchantName,
-      provider,
+      accounts,
       supportedCurrencies: ['TZS', 'USD', 'KES'],
-      methods: [
-        {
-          id: 'lipa_namba',
-          label: 'Lipa Namba (TIPS)',
-          description: 'Lipa kutoka mitandao yote ya simu (Mixx, M-Pesa, Airtel, Halopesa) na Benki',
-          number: lipaNumber,
-          name: merchantName,
-        },
-      ],
+      methods: accounts.map((account, index) => ({ id: `lipa_namba_${index + 1}`, label: account.label || account.network || 'Lipa Namba', number: account.number, name: account.name || account.label || 'Wrap & Roll' })),
       networks: MOBILE_NETWORKS,
     });
   } catch (error) {
