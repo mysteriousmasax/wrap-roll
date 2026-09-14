@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Image, MapPin, MessageCircle, Mic, Send, ShoppingBag, Square, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { reverseGoogleGeocode } from '../../lib/googleMaps';
 
 export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', onOpenCart }) {
   const [open, setOpen] = useState(false);
@@ -95,9 +96,8 @@ export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', 
         const fallback = `${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}`;
         let address = fallback;
         try {
-          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${coords.latitude}&lon=${coords.longitude}`);
-          const result = await response.json();
-          address = result.display_name || fallback;
+          const result = await reverseGoogleGeocode(coords.latitude, coords.longitude);
+          address = result.address || fallback;
         } catch {}
         sendMessage(`Please deliver to: ${address}`, { messageType: 'location', metadata: { latitude: coords.latitude, longitude: coords.longitude, address } });
       },

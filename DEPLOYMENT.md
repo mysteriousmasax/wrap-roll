@@ -14,6 +14,8 @@ Copy `.env.example` to `.env` and set:
 
 For a separately hosted frontend, set `VITE_API_BASE_URL` to the API URL ending in `/api` and `VITE_WS_URL` to the API WebSocket URL ending in `/ws` before building.
 
+Location search and map selection use Google Maps JavaScript, Places, and Geocoding APIs. Set `VITE_GOOGLE_MAPS_API_KEY` before building the frontend and restrict the browser key in Google Cloud to the local and production web origins. The key is intentionally not stored in the repository.
+
 ## Build and run
 
 ```bash

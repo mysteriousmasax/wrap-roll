@@ -18,6 +18,7 @@
     "postinstall": "npm install --prefix server"
   },
   "dependencies": {
+    "@googlemaps/js-api-loader": "^2.1.1",
     "@imgly/background-removal": "^1.7.0",
     "animejs": "^4.5.0",
     "clsx": "^2.1.1",

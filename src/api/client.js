@@ -55,6 +55,7 @@ export const api = {
     return { blob: await response.blob(), filename: `wrap-roll-menu-book.${format}` };
   },
   getPublicMenu: () => request('/menu/public'),
+  getPublicModifiers: () => request('/menu/modifiers/public'),
   getModifiers: () => request('/menu/modifiers'),
   createModifier: (data) => request('/menu/modifiers', { method: 'POST', body: JSON.stringify(data) }),
   updateModifier: (id, data) => request(`/menu/modifiers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

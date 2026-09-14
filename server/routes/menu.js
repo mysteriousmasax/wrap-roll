@@ -39,6 +39,10 @@ router.get('/public', (req, res) => {
   res.json(db.prepare('SELECT * FROM menu_items WHERE active = 1 ORDER BY category, name').all().map(mapMenuItem));
 });
 
+router.get('/modifiers/public', (req, res) => {
+  res.json(db.prepare('SELECT id, name, price, type FROM modifiers ORDER BY type, name').all());
+});
+
 router.get('/modifiers', authMiddleware, (req, res) => {
   res.json(db.prepare('SELECT * FROM modifiers ORDER BY type, name').all());
 });

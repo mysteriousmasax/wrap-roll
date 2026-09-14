@@ -29,6 +29,7 @@ import LipaNambaPayment from '../../components/public/LipaNambaPayment';
 import LipaPaymentModal from '../../components/public/LipaPaymentModal';
 import RotatingText from '../../components/ui/RotatingText';
 import DepthText from '../../components/ui/DepthText';
+import { reverseGoogleGeocode } from '../../lib/googleMaps';
 
 const categories = [
   { key: 'allMenu', filter: 'all', label: 'All Menu' },
@@ -91,10 +92,12 @@ export default function HomePage() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [activePlacedOrder, setActivePlacedOrder] = useState(null);
   const [publicMenu, setPublicMenu] = useState([]);
+  const [publicModifiers, setPublicModifiers] = useState([]);
   const [tableContext, setTableContext] = useState(null);
   const [selectedMealItem, setSelectedMealItem] = useState(null);
   const [mealQuantity, setMealQuantity] = useState(1);
   const [mealInstructions, setMealInstructions] = useState('');
+  const [mealModifiers, setMealModifiers] = useState([]);
   const [activeCategory, setActiveCategory] = useState('all');
 
   const lipaNambaNumber = useSettingsStore((state) => state.settings.lipa_namba_number || '45342017');
@@ -121,7 +124,12 @@ export default function HomePage() {
   }, {});
 
   useEffect(() => {
-    api.getPublicMenu().then(setPublicMenu).catch(() => {});
+    Promise.all([api.getPublicMenu(), api.getPublicModifiers()])
+      .then(([menu, modifiers]) => {
+        setPublicMenu(menu || []);
+        setPublicModifiers(modifiers || []);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -176,6 +184,7 @@ export default function HomePage() {
     setSelectedMealItem(item);
     setMealQuantity(1);
     setMealInstructions('');
+    setMealModifiers([]);
   };
 
   const addCustomizedMealToCart = () => {
@@ -196,8 +205,9 @@ export default function HomePage() {
           name: selectedMealItem.name,
           description: selectedMealItem.description,
           image: selectedMealItem.image,
-          price: selectedMealItem.price,
+          price: selectedMealItem.price + mealModifiers.reduce((sum, modifier) => sum + Number(modifier.price || 0), 0),
           qty: mealQuantity,
+          modifiers: mealModifiers,
           instructions: mealInstructions,
         },
       ];
@@ -276,11 +286,8 @@ export default function HomePage() {
       async ({ coords }) => {
         const coordinateAddress = `${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}`;
         try {
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${coords.latitude}&lon=${coords.longitude}`
-          );
-          const result = await response.json();
-          setDeliveryAddress(result.display_name || coordinateAddress);
+          const result = await reverseGoogleGeocode(coords.latitude, coords.longitude);
+          setDeliveryAddress(result.address || coordinateAddress);
         } catch {
           setDeliveryAddress(coordinateAddress);
         } finally {
@@ -625,7 +632,7 @@ export default function HomePage() {
                 <div>
                   <h3 className="font-display font-bold text-base text-[#1f1d1b]">{selectedMealItem.name}</h3>
                   <p className="text-xs font-bold text-[#ae002a]">
-                    {formatCurrency(selectedMealItem.price, displayCurrency)}
+                    {formatCurrency(selectedMealItem.price + mealModifiers.reduce((sum, modifier) => sum + Number(modifier.price || 0), 0), displayCurrency)}
                   </p>
                 </div>
               </div>
@@ -694,9 +701,21 @@ export default function HomePage() {
               />
             </div>
 
+            {publicModifiers.filter((modifier) => modifier.type === 'add').length > 0 && (
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-[#746e67] uppercase tracking-wider block">Add extras</label>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {publicModifiers.filter((modifier) => modifier.type === 'add').map((modifier) => {
+                    const selected = mealModifiers.some((entry) => entry.id === modifier.id);
+                    return <button key={modifier.id} type="button" onClick={() => setMealModifiers((current) => selected ? current.filter((entry) => entry.id !== modifier.id) : [...current, modifier])} className={'flex items-center justify-between rounded-xl border px-3 py-2 text-left text-xs font-semibold ' + (selected ? 'border-[#ae002a] bg-[#fff3ec] text-[#ae002a]' : 'border-[#ebdccb] bg-white text-[#554e46]')}><span>{modifier.name}</span><span>{modifier.price > 0 ? `+ ${formatCurrency(modifier.price, displayCurrency)}` : 'Included'}</span></button>;
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="pt-2 flex items-center justify-between">
               <span className="font-bold text-sm text-[#ae002a]">
-                Total: {formatCurrency(selectedMealItem.price * mealQuantity, displayCurrency)}
+                Total: {formatCurrency((selectedMealItem.price + mealModifiers.reduce((sum, modifier) => sum + Number(modifier.price || 0), 0)) * mealQuantity, displayCurrency)}
               </span>
               <button
                 onClick={addCustomizedMealToCart}
