@@ -62,6 +62,33 @@ const restaurantLocation = {
   mapsUrl: 'https://maps.app.goo.gl/gZqwfknocNK6FYNAA',
 };
 
+function OrderTrackingCard({ order, onOpenPayment, now }) {
+  const elapsedMinutes = Math.max(0, Math.floor((now - new Date(order.createdAt).getTime()) / 60000));
+  const paymentLabel = order.paymentStatus === 'paid' ? 'Payment confirmed' : order.paymentStatus === 'manual_review' ? 'Payment submitted for review' : 'Waiting for payment';
+  const kitchenLabel = order.status === 'confirmed' ? 'Confirmed and sent to kitchen' : order.status === 'preparing' ? 'Being prepared' : order.status === 'ready' ? 'Ready for collection' : order.status === 'completed' ? 'Completed' : 'Waiting for payment confirmation';
+  const isPaid = order.paymentStatus === 'paid';
+
+  return (
+    <div className="reference-delivery-card order-tracking-card">
+      <div className="order-tracking-visual">
+        <div className="order-tracking-orbit" />
+        <Clock size={42} />
+        <span>{elapsedMinutes} min</span>
+        <small>time elapsed</small>
+      </div>
+      <div className="reference-delivery-copy order-tracking-copy">
+        <span className="text-xs font-bold uppercase tracking-[0.18em] text-[#ffc72c]">Live order tracker</span>
+        <h2>{order.orderNumber || order.id}</h2>
+        <div className="order-tracking-statuses">
+          <p><span className={isPaid ? 'status-dot status-dot-paid' : 'status-dot'} />{paymentLabel}</p>
+          <p><span className={order.status === 'confirmed' || order.status === 'preparing' || order.status === 'ready' ? 'status-dot status-dot-paid' : 'status-dot'} />{kitchenLabel}</p>
+        </div>
+        <button type="button" onClick={onOpenPayment}>VIEW PAYMENT &amp; ORDER DETAILS</button>
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const { tagId } = useParams();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -90,6 +117,7 @@ export default function HomePage() {
   const [orderStatus, setOrderStatus] = useState('');
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [activePlacedOrder, setActivePlacedOrder] = useState(null);
+  const [trackingNow, setTrackingNow] = useState(Date.now());
   const [publicMenu, setPublicMenu] = useState([]);
   const [publicModifiers, setPublicModifiers] = useState([]);
   const [tableContext, setTableContext] = useState(null);
@@ -104,6 +132,34 @@ export default function HomePage() {
   const cartCount = cartItems.reduce((sum, item) => sum + item.qty, 0);
   const cartSubtotal = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
   const cartTax = cartSubtotal * 0.08;
+
+  useEffect(() => {
+    if (!activePlacedOrder?.id) return undefined;
+    const refreshOrder = async () => {
+      try {
+        const status = await api.getPaymentStatus(activePlacedOrder.paymentReference || `WRPAY-${activePlacedOrder.id.replace(/^WR-/, '')}`);
+        if (status.success) {
+          setActivePlacedOrder((current) => ({
+            ...current,
+            paymentStatus: status.status,
+            status: status.orderStatus,
+            paidAt: status.paidAt,
+          }));
+        }
+      } catch {
+        // Keep the last visible order state while the API is unavailable.
+      }
+    };
+    refreshOrder();
+    const interval = window.setInterval(refreshOrder, 1000);
+    return () => window.clearInterval(interval);
+  }, [activePlacedOrder?.id, activePlacedOrder?.paymentReference]);
+
+  useEffect(() => {
+    if (!activePlacedOrder) return undefined;
+    const interval = window.setInterval(() => setTrackingNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [activePlacedOrder]);
 
   // Group menu items by category
   const menuByCategory = categories.reduce((acc, cat) => {
@@ -460,15 +516,19 @@ export default function HomePage() {
       </section>
 
       <section className="reference-delivery-section public-reveal-section px-6 py-14 sm:px-12 sm:py-20" aria-label="Delivery and catering">
-        <div className="reference-delivery-card">
-          <img src="/hero-food.jpg" alt="Wrap and Roll delivery and catering" />
-          <div className="reference-delivery-copy">
-            <BrandLogo variant="dark" />
-            <h2>DELIVERY &amp; CATERING</h2>
-            <p>Freshness brought to your doorstep.<br />Perfect for meetings, events, or a cozy night in!</p>
-            <button type="button" onClick={() => scrollTo('menu')}>ORDER NOW</button>
+        {activePlacedOrder ? (
+          <OrderTrackingCard order={activePlacedOrder} now={trackingNow} onOpenPayment={() => setPaymentModalOpen(true)} />
+        ) : (
+          <div className="reference-delivery-card">
+            <img src="/hero-food.jpg" alt="Wrap and Roll delivery and catering" />
+            <div className="reference-delivery-copy">
+              <BrandLogo variant="dark" />
+              <h2>DELIVERY &amp; CATERING</h2>
+              <p>Freshness brought to your doorstep.<br />Perfect for meetings, events, or a cozy night in!</p>
+              <button type="button" onClick={() => scrollTo('menu')}>ORDER NOW</button>
+            </div>
           </div>
-        </div>
+        )}
       </section>
 
       {/* Story Section */}
@@ -830,12 +890,22 @@ export default function HomePage() {
           order={activePlacedOrder}
           onClose={() => {
             setPaymentModalOpen(false);
-            setActivePlacedOrder(null);
           }}
           onSuccess={(paidOrder) => {
             setActivePlacedOrder(paidOrder);
           }}
         />
+      )}
+
+      {activePlacedOrder && !paymentModalOpen && (
+        <button
+          type="button"
+          onClick={() => setPaymentModalOpen(true)}
+          className="fixed bottom-6 left-6 z-40 rounded-full border border-[#ebdccb] bg-[#fffdfa] px-4 py-3 text-left text-xs font-bold text-[#ae002a] shadow-xl transition hover:-translate-y-0.5"
+        >
+          <span className="block text-[10px] uppercase tracking-wider text-[#746e67]">Order {activePlacedOrder.orderNumber || activePlacedOrder.id}</span>
+          <span>{activePlacedOrder.paymentStatus === 'paid' ? 'Payment confirmed' : 'Payment status: checking'}</span>
+        </button>
       )}
 
       {/* Floating Cart Button */}

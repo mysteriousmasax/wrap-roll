@@ -20,15 +20,16 @@ import InternalQrCode from '../ui/InternalQrCode';
 
 const NETWORKS = [
   {
-    id: 'mixx',
-    name: 'Mixx by Yas / TIPS',
-    color: '#004aad',
-    ussd: '*150*01#',
-    badge: 'TIPS Direct',
+    id: 'mpesa',
+    name: 'Vodacom M-Pesa',
+    color: '#e60000',
+    ussd: '*150*00#',
+    accountIndex: 0,
+    badge: 'M-Pesa',
     steps: [
-      'Piga *150*01#',
-      'Chagua 4 (Lipa kwa Simu / TIPS)',
-      'Chagua 1 (Lipa Namba)',
+      'Piga *150*00#',
+      'Chagua Lipa kwa M-Pesa',
+      'Chagua Lipa kwa Simu / TIPS Mitandao Yote',
       'Weka Lipa Namba: [LIPA_NUMBER]',
       'Jina litatokea: [MERCHANT_NAME]',
       'Weka Kiasi na Kumbukumbu',
@@ -36,48 +37,19 @@ const NETWORKS = [
     ],
   },
   {
-    id: 'mpesa',
-    name: 'Vodacom M-Pesa',
-    color: '#e60000',
-    ussd: '*150*00#',
-    badge: 'TIPS / M-Pesa',
+    id: 'nmb',
+    name: 'NMB Mkononi',
+    color: '#0072bc',
+    ussd: '',
+    accountIndex: 1,
+    badge: 'NMB',
     steps: [
-      'Piga *150*00#',
-      'Chagua 4 (Lipa kwa M-Pesa)',
-      'Chagua 1 (Lipa kwa Simu / TIPS Mitandao Yote)',
+      'Fungua NMB Mkononi au NMB Mobile Banking',
+      'Chagua Lipa kwa Simu / Lipa Namba',
       'Weka Lipa Namba: [LIPA_NUMBER] ([MERCHANT_NAME])',
-      'Weka Kiasi kamili',
-      'Weka Namba ya Kumbukumbu',
-      'Weka PIN yako kukamilisha',
-    ],
-  },
-  {
-    id: 'airtel',
-    name: 'Airtel Money',
-    color: '#ff0000',
-    ussd: '*150*60#',
-    badge: 'TIPS / Airtel',
-    steps: [
-      'Piga *150*60#',
-      'Chagua 5 (Lipa Bili / Lipa kwa Simu)',
-      'Chagua 1 (Mitandao Mingine / TIPS)',
-      'Weka Lipa Namba: [LIPA_NUMBER] ([MERCHANT_NAME])',
-      'Weka Kiasi na Kumbukumbu',
-      'Weka PIN kuthibitisha',
-    ],
-  },
-  {
-    id: 'halopesa',
-    name: 'Halopesa',
-    color: '#ff7700',
-    ussd: '*150*88#',
-    badge: 'TIPS / Halopesa',
-    steps: [
-      'Piga *150*88#',
-      'Chagua 5 (Lipa kwa Halopesa / TIPS)',
-      'Weka Lipa Namba: [LIPA_NUMBER] ([MERCHANT_NAME])',
-      'Weka Kiasi na Kumbukumbu',
-      'Weka PIN kuthibitisha',
+      'Thibitisha jina la mfanyabiashara: [MERCHANT_NAME]',
+      'Weka kiasi na kumbukumbu ya malipo',
+      'Thibitisha kwa PIN yako ya NMB',
     ],
   },
 ];
@@ -86,6 +58,7 @@ export default function LipaPaymentModal({
   order,
   isOpen,
   onClose,
+  onSuccess = () => {},
   currency = 'TZS',
 }) {
   const [selectedNetwork, setSelectedNetwork] = useState(NETWORKS[0]);
@@ -120,7 +93,7 @@ export default function LipaPaymentModal({
 
   // Poll for real-time payment and order status updates
   useEffect(() => {
-    if (!liveOrder?.id || !isOpen) return;
+    if (!liveOrder?.id) return;
 
     const pollStatus = async () => {
       try {
@@ -139,16 +112,23 @@ export default function LipaPaymentModal({
     };
 
     pollStatus();
-    const interval = setInterval(pollStatus, 3500);
+    const interval = setInterval(pollStatus, 1000);
     return () => clearInterval(interval);
-  }, [liveOrder?.id, paymentRef, isOpen]);
+  }, [liveOrder?.id, paymentRef]);
 
   // WebSocket real-time update handler
   useWebSocket((event, data) => {
+    const isThisOrder = data?.id === liveOrder?.id || data?.orderNumber === liveOrder?.orderNumber || data?.paymentReference === paymentRef;
+    if (!isThisOrder) return;
+
     if (event === 'order:updated' || event === 'order:confirmed') {
-      if (data?.id === liveOrder?.id || data?.orderNumber === liveOrder?.orderNumber) {
-        setLiveOrder(data);
-      }
+      setLiveOrder(data);
+    } else if (event === 'payment:manual_review') {
+      setLiveOrder((prev) => ({ ...prev, paymentStatus: 'manual_review' }));
+    } else if (event === 'payment:confirmed') {
+      setLiveOrder((prev) => ({ ...prev, paymentStatus: 'paid', status: 'confirmed', orderStatus: 'confirmed' }));
+    } else if (event === 'payment:rejected') {
+      setLiveOrder((prev) => ({ ...prev, paymentStatus: 'failed' }));
     }
   });
 
@@ -184,6 +164,12 @@ export default function LipaPaymentModal({
           ...prev,
           paymentStatus: 'manual_review',
         }));
+        onSuccess({
+          ...liveOrder,
+          paymentStatus: 'manual_review',
+          status: 'pending_payment',
+        });
+        onClose();
       }
     } catch (err) {
       setErrorMessage(err.message || 'Failed to submit payment details.');
@@ -349,7 +335,7 @@ export default function LipaPaymentModal({
                 <div className="space-y-3">
                   <div>
                     <span className="text-[10px] uppercase font-bold text-[#746e67] tracking-wider">
-                      Lipa Namba (TIPS)
+                      {selectedNetwork.name} Lipa Namba
                     </span>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-2xl font-black text-[#1f1d1b] tracking-wider">
@@ -373,12 +359,16 @@ export default function LipaPaymentModal({
                     <p className="text-xs font-bold text-[#1f1d1b]">{merchantName}</p>
                   </div>
 
-                  <a
-                    href={`tel:${selectedNetwork.ussd}`}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#004aad] text-white text-xs font-bold hover:bg-[#003780] transition-colors w-full justify-center shadow-sm"
-                  >
-                    <Smartphone size={14} /> Open USSD ({selectedNetwork.ussd})
-                  </a>
+                  {selectedNetwork.ussd ? (
+                    <a
+                      href={`tel:${selectedNetwork.ussd}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#004aad] text-white text-xs font-bold hover:bg-[#003780] transition-colors w-full justify-center shadow-sm"
+                    >
+                      <Smartphone size={14} /> Open USSD ({selectedNetwork.ussd})
+                    </a>
+                  ) : (
+                    <p className="text-[11px] text-[#746e67] text-center">Use the NMB Mkononi app to complete payment.</p>
+                  )}
                 </div>
               </div>
 
@@ -392,7 +382,10 @@ export default function LipaPaymentModal({
                     <button
                       key={net.id}
                       type="button"
-                      onClick={() => setSelectedNetwork(net)}
+                      onClick={() => {
+                        setSelectedNetwork(net);
+                        setSelectedAccountIndex(net.accountIndex);
+                      }}
                       className={
                         'px-2.5 py-2 rounded-xl text-xs font-bold border transition-all text-center flex flex-col items-center ' +
                         (selectedNetwork.id === net.id
@@ -400,8 +393,8 @@ export default function LipaPaymentModal({
                           : 'border-[#ebdccb] bg-white text-[#554e46] hover:bg-[#faeee2]')
                       }
                     >
-                      <span>{net.name.split(' ')[0]}</span>
-                      <span className="text-[9px] opacity-80">{net.ussd}</span>
+                      <span>{net.id === 'mpesa' ? 'M-Pesa' : 'NMB'}</span>
+                      <span className="text-[9px] opacity-80">{net.ussd || 'Mobile Banking'}</span>
                     </button>
                   ))}
                 </div>
@@ -441,23 +434,29 @@ export default function LipaPaymentModal({
                     <div className="flex items-center gap-2 pt-1 font-mono text-[11px] font-bold text-amber-900">
                       <RefreshCw size={12} className="animate-spin" /> Auto-refreshing status...
                     </div>
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="mt-2 w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-900 transition hover:bg-amber-100"
+                    >
+                      Continue Browsing
+                    </button>
                   </div>
                 ) : (
                   <form onSubmit={handleSubmitManual} className="space-y-3">
                     <p className="text-[11px] text-[#746e67]">
-                      Enter the transaction ID from your mobile-money SMS, then press Done to wait for payment confirmation:
+                      Add your transaction ID or payment details if available, then press I Have Paid. This information is optional and helps us verify your payment faster:
                     </p>
                     <div className="flex gap-2">
                       <input
-                        required
                         value={smsTransactionId}
                         onChange={(e) => setSmsTransactionId(e.target.value)}
-                        placeholder="e.g. 9AA34XY789 or TXN..."
+                        placeholder="Optional transaction ID or payment details"
                         className="flex-1 px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs font-mono uppercase focus:outline-none focus:border-[#ae002a]"
                       />
                       <button
                         type="submit"
-                        disabled={submitting || !smsTransactionId.trim() || !lipaAccount}
+                        disabled={submitting || !lipaAccount}
                         className="px-4 py-2.5 rounded-xl bg-[#ae002a] text-white font-bold text-xs hover:bg-[#920023] transition-colors disabled:opacity-50 whitespace-nowrap shadow-md"
                       >
                         {submitting ? 'Submitting...' : 'I Have Paid'}

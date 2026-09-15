@@ -1932,6 +1932,83 @@ button, input, select, textarea { max-width: 100%; }
   font-weight: 800;
   cursor: pointer;
 }
+.order-tracking-card {
+  display: grid;
+  grid-template-columns: minmax(220px, .8fr) minmax(0, 1.2fr);
+  background: #1f1d1b;
+}
+.order-tracking-visual {
+  position: relative;
+  display: flex;
+  min-height: 300px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  background: #ae002a;
+  color: #ffc72c;
+  font-weight: 800;
+}
+.order-tracking-visual svg {
+  position: relative;
+  z-index: 1;
+}
+.order-tracking-visual span {
+  position: relative;
+  z-index: 1;
+  font-size: 34px;
+  line-height: 1;
+}
+.order-tracking-visual small {
+  position: relative;
+  z-index: 1;
+  color: #fff;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+}
+.order-tracking-orbit {
+  position: absolute;
+  width: 210px;
+  height: 210px;
+  border: 1px solid rgba(255, 199, 44, .55);
+  border-radius: 50%;
+  box-shadow: 0 0 0 24px rgba(255, 199, 44, .08), 0 0 0 48px rgba(255, 199, 44, .06);
+}
+.order-tracking-copy {
+  min-height: 300px;
+  align-items: flex-start;
+  padding: 38px;
+  text-align: left;
+}
+.order-tracking-copy h2 {
+  font-size: 28px;
+}
+.order-tracking-statuses {
+  display: grid;
+  width: 100%;
+  gap: 10px;
+  margin: 10px 0 8px;
+}
+.order-tracking-statuses p {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+}
+.status-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #ffc72c;
+  box-shadow: 0 0 0 4px rgba(255, 199, 44, .16);
+}
+.status-dot-paid {
+  background: #79d6a5;
+  box-shadow: 0 0 0 4px rgba(121, 214, 165, .16);
+}
 .public-reveal-section {
   animation: reference-section-rise .8s .18s cubic-bezier(.2,.75,.25,1) both;
 }
@@ -1974,6 +2051,16 @@ button, input, select, textarea { max-width: 100%; }
   }
   .reference-delivery-card img {
     aspect-ratio: 1.55 / 1;
+  }
+  .order-tracking-card {
+    grid-template-columns: 1fr;
+  }
+  .order-tracking-visual {
+    min-height: 220px;
+  }
+  .order-tracking-copy {
+    min-height: 260px;
+    padding: 28px 22px;
   }
 }
 .hero-heading-animation [data-char] {
