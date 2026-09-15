@@ -246,6 +246,9 @@ export default function SettingsPage() {
                   </select>
                 </div>
                 <Input label="Tax ID / TIN" value={form.tax_id || ''} onChange={(e) => update('tax_id', e.target.value)} />
+                <Input label="TRA VRN" placeholder="NOT REGISTERED" value={form.tra_vrn || ''} onChange={(e) => update('tra_vrn', e.target.value)} />
+                <Input label="VFD Serial Number" value={form.tra_serial_number || ''} onChange={(e) => update('tra_serial_number', e.target.value)} />
+                <Input label="VFD UIN" value={form.tra_uin || ''} onChange={(e) => update('tra_uin', e.target.value)} />
               </div>
             </Card>
           )}

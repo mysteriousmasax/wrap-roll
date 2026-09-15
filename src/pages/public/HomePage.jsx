@@ -20,7 +20,7 @@ import {
   Mail,
 } from 'lucide-react';
 import { api } from '../../api/client';
-import { formatCurrency } from '../../utils/format';
+import { formatCurrency, printFiscalInvoice } from '../../utils/format';
 import BrandLogo from '../../components/brand/BrandLogo';
 import useSettingsStore from '../../store/useSettingsStore';
 import useTranslation from '../../i18n/useTranslation';
@@ -126,6 +126,7 @@ export default function HomePage() {
   const [mealInstructions, setMealInstructions] = useState('');
   const [mealModifiers, setMealModifiers] = useState([]);
   const [activeCategory, setActiveCategory] = useState('all');
+  const printedOrderRef = useRef(null);
 
   const publicSettings = useSettingsStore((state) => state.settings);
 
@@ -160,6 +161,12 @@ export default function HomePage() {
     const interval = window.setInterval(() => setTrackingNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, [activePlacedOrder]);
+
+  useEffect(() => {
+    if (activePlacedOrder?.paymentStatus !== 'paid' || printedOrderRef.current === activePlacedOrder.id) return;
+    printedOrderRef.current = activePlacedOrder.id;
+    printFiscalInvoice(activePlacedOrder, publicSettings);
+  }, [activePlacedOrder?.paymentStatus, activePlacedOrder?.id, publicSettings]);
 
   // Group menu items by category
   const menuByCategory = categories.reduce((acc, cat) => {

@@ -1,12 +1,37 @@
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle, Receipt, ArrowRight } from 'lucide-react';
-import { formatCurrency, printThermalReceipt } from '../../utils/format';
+import { formatCurrency, printFiscalInvoice } from '../../utils/format';
+import { api } from '../../api/client';
+import useSettingsStore from '../../store/useSettingsStore';
 import Button from '../../components/ui/Button';
 
 export default function PaymentSuccessPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { order, orderId, total, method, awaitingConfirmation } = location.state || {};
+  const [confirmedOrder, setConfirmedOrder] = useState(order || null);
+  const printedOrderRef = useRef(null);
+  const settings = useSettingsStore((state) => state.settings);
+
+  useEffect(() => {
+    if (!orderId || !awaitingConfirmation) return undefined;
+    const refresh = async () => {
+      try {
+        const result = await api.getPaymentStatus(location.state?.paymentReference || orderId);
+        if (result.success) setConfirmedOrder((current) => ({ ...(current || {}), ...result, paymentStatus: result.status, id: orderId, total: total ?? current?.total }));
+      } catch {}
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 1000);
+    return () => window.clearInterval(interval);
+  }, [orderId, awaitingConfirmation, location.state?.paymentReference, total]);
+
+  useEffect(() => {
+    if (confirmedOrder?.paymentStatus !== 'paid' || printedOrderRef.current === orderId) return;
+    printedOrderRef.current = orderId;
+    printFiscalInvoice(confirmedOrder, settings);
+  }, [confirmedOrder?.paymentStatus, orderId, settings]);
 
   if (!orderId && !order) {
     return (
@@ -55,7 +80,7 @@ export default function PaymentSuccessPage() {
           <Button variant="secondary" onClick={() => navigate('/pos')} className="flex-1" size="lg">
             New Order
           </Button>
-          <Button onClick={() => printThermalReceipt(receiptOrder)} className="flex-1" size="lg">
+          <Button onClick={() => printFiscalInvoice(confirmedOrder || receiptOrder, settings)} className="flex-1" size="lg">
             <Receipt size={16} /> Receipt
           </Button>
         </div>

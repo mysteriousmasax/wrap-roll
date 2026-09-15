@@ -91,6 +91,7 @@ export default function LipaPaymentModal({
     }).catch(() => setPaymentAccounts([])).finally(() => setAccountsLoading(false));
   }, [isOpen]);
 
+
   // Poll for real-time payment and order status updates
   useEffect(() => {
     if (!liveOrder?.id) return;

@@ -27,12 +27,21 @@ export function buildReceipt(order, settings = {}) {
   const currency = setting(settings, 'currency', 'TZS');
   const restaurant = setting(settings, 'restaurant_name', 'Wrap & Roll');
   const branch = setting(settings, 'branch_location', '');
+  const customer = order.customer || {};
   const chunks = [
     Buffer.from([ESC, 0x40]),
     Buffer.from([ESC, 0x61, 0x01, ESC, 0x45, 0x01]),
     line(restaurant),
     line(branch),
+    line(`TEL: ${setting(settings, 'phone')}`),
+    line(`TIN: ${setting(settings, 'tax_id', 'Not configured')}`),
+    line(`VRN: ${setting(settings, 'tra_vrn', 'NOT REGISTERED')}`),
+    line(`SERIAL: ${setting(settings, 'tra_serial_number', 'Pending VFD')}`),
+    line(`UIN: ${setting(settings, 'tra_uin', 'Pending VFD')}`),
     Buffer.from([ESC, 0x45, 0x00, ESC, 0x61, 0x00]),
+    line(`CUSTOMER: ${customer.name || order.customerName || order.customer_name || 'Walk-in customer'}`),
+    line(`CUSTOMER TIN: ${customer.tin || customer.customerTin || ''}`),
+    line(`MOBILE: ${customer.phone || order.customerPhone || order.customer_phone || ''}`),
     line(`Order: ${order.id || order.order_number || ''}`),
     line(new Date().toLocaleString('en-TZ')),
     line(`Type: ${order.type || order.orderType || ''}`),
@@ -52,6 +61,8 @@ export function buildReceipt(order, settings = {}) {
     line(`TOTAL: ${money(order.total, currency)}`),
     Buffer.from([ESC, 0x45, 0x00]),
     line(`Payment: ${order.paymentMethod || order.method || ''}`),
+    line(`Receipt No: ${order.receiptNumber || order.receipt_number || 'Pending VFD'}`),
+    line('Verification: Pending VFD'),
     line('Thank you for dining with us.'),
     Buffer.from('\n\n\n', 'ascii'),
     Buffer.from([GS, 0x56, 0x00]),
