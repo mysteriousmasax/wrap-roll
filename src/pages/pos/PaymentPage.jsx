@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, QrCode, AlertCircle, CheckCircle } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
+import { api } from '../../api/client';
 import useCartStore from '../../store/useCartStore';
 import useOrderStore from '../../store/useOrderStore';
 import useSettingsStore from '../../store/useSettingsStore';
@@ -30,7 +31,7 @@ function SavedQrCodes({ accounts, amount }) {
 }
 
 export default function PaymentPage() {
-  const [paymentReference, setPaymentReference] = useState('');
+  const [transactionId, setTransactionId] = useState('');
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
@@ -92,7 +93,6 @@ export default function PaymentPage() {
         deliveryLatitude,
         deliveryLongitude,
         paymentMethod: 'lipa_namba',
-        paymentReference: paymentReference.trim() || `LIPA-${Date.now()}`,
         paymentTiming: 'pay-later',
         orderSource,
       });
@@ -106,8 +106,16 @@ export default function PaymentPage() {
         return;
       }
 
+      await api.submitManualPayment({
+        paymentReference: order.paymentReference,
+        transactionId: transactionId.trim(),
+        senderPhone: customerPhone,
+        senderName: customerName || 'Guest',
+        notes: 'Payment claim submitted from FOH POS',
+      });
+
       clearCart();
-      navigate('/pos/success', { state: { orderId: order.id, total: order.total, method: 'lipa_namba', awaitingConfirmation: true } });
+      navigate('/pos/success', { state: { orderId: order.id, total: order.total, method: 'lipa_namba', paymentReference: order.paymentReference, awaitingConfirmation: true } });
     } catch (err) {
       setError(err.message || 'Payment failed. Please try again.');
       setProcessing(false);
@@ -205,8 +213,8 @@ export default function PaymentPage() {
         <div className="card mb-6">
           <h3 className="font-bold text-sm mb-2">Lipa Namba payment</h3>
           <p className="text-xs text-surface-on-variant mb-3">Scan the QR, complete payment, then tap Done. The kitchen will confirm receipt before preparing the order.</p>
-          <label className="block text-xs font-semibold text-surface-on-variant mb-1">Payment reference (optional)</label>
-          <input value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} placeholder="e.g. MPESA12345" className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+          <label className="block text-xs font-semibold text-surface-on-variant mb-1">Mobile money transaction ID (optional)</label>
+          <input value={transactionId} onChange={(e) => setTransactionId(e.target.value)} placeholder="e.g. MPESA12345" className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
         </div>
 
         <div className="flex gap-3">
