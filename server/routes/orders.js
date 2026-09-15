@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
+import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/deletionPolicy.js';
 import { broadcast } from '../ws.js';
 import { getOrderById, getOrders, nextOrderId, nextPaymentReference } from '../utils/orders.js';
 import { buildOrderConfirmationMessage, getCustomerNotificationChannels } from '../utils/orderNotifications.js';
@@ -425,9 +426,10 @@ router.patch('/:id/payment-status', authMiddleware, (req, res) => {
   res.json(order);
 });
 
-router.delete('/:id', authMiddleware, requireRole('admin', 'executive', 'manager'), (req, res) => {
+router.delete('/:id', authMiddleware, deletionViewer, requireAdilaDeletion, (req, res) => {
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
+  recordDeletion({ resourceType: 'order', resourceId: order.id, snapshot: order, reason: req.body?.reason, user: req.user });
   const now = new Date().toISOString();
   db.prepare("UPDATE orders SET status = 'cancelled', payment_status = CASE WHEN payment_status = 'paid' THEN 'refunded' ELSE 'failed' END, updated_at = ? WHERE id = ?").run(now, order.id);
   db.prepare("UPDATE payments SET status = CASE WHEN status = 'paid' THEN 'refunded' ELSE 'failed' END, updated_at = ? WHERE order_id = ?").run(now, order.id);

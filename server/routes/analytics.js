@@ -34,7 +34,7 @@ function buildRangeSeries(rows, formatLabel) {
 function getSeriesForRange(range) {
   const groups = new Map();
   const orders = getLiveOrders();
-  const expenses = db.prepare("SELECT expense_date, amount FROM business_expenses WHERE status != 'rejected'").all();
+  const expenses = db.prepare("SELECT expense_date, amount FROM business_expenses WHERE status NOT IN ('rejected', 'deleted')").all();
   const payroll = db.prepare("SELECT pay_period, net_pay FROM payroll_records").all();
 
   const periodKey = (dateValue) => {
@@ -106,7 +106,7 @@ function getOperationalSummaries(requestedDate = '') {
   const pettyCash = db.prepare(`
     SELECT id, description AS item, amount AS total, payment_method AS paymentMethod, expense_date AS date, supplier AS remarks, created_by
     FROM business_expenses
-    WHERE expense_date >= ? AND status != 'rejected'
+    WHERE expense_date >= ? AND status NOT IN ('rejected', 'deleted')
       AND (LOWER(category) LIKE '%petty%' OR LOWER(payment_method) = 'cash')
     ORDER BY expense_date DESC, id DESC LIMIT 7
   `).all(weekStartValue);
@@ -164,7 +164,7 @@ router.get('/summary', authMiddleware, (req, res) => {
   const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
   const todayTotals = getCurrentPeriodRevenue(todayStart, tomorrowStart);
   const monthTotals = getCurrentPeriodRevenue(monthStart, nextMonthStart);
-  const monthExpenses = Number(db.prepare("SELECT COALESCE(SUM(amount), 0) AS amount FROM business_expenses WHERE status != 'rejected' AND expense_date >= ? AND expense_date < ?").get(monthStart.slice(0, 10), nextMonthStart.slice(0, 10)).amount || 0);
+  const monthExpenses = Number(db.prepare("SELECT COALESCE(SUM(amount), 0) AS amount FROM business_expenses WHERE status NOT IN ('rejected', 'deleted') AND expense_date >= ? AND expense_date < ?").get(monthStart.slice(0, 10), nextMonthStart.slice(0, 10)).amount || 0);
   const monthPayroll = Number(db.prepare("SELECT COALESCE(SUM(net_pay), 0) AS amount FROM payroll_records WHERE substr(pay_period, 1, 7) = ?").get(monthStart.slice(0, 7)).amount || 0);
   const activeOrders = getOrders({ status: 'pending,preparing,ready' });
   const todayOrders = getOrders({}).filter((o) => o.createdAt >= todayStart && o.createdAt < tomorrowStart);
@@ -254,7 +254,7 @@ router.get('/reports', authMiddleware, (req, res) => {
   const expenseRows = db.prepare(`
     SELECT category, COALESCE(SUM(amount), 0) AS amount
     FROM business_expenses
-    WHERE status != 'rejected'
+    WHERE status NOT IN ('rejected', 'deleted')
     GROUP BY category
   `).all();
   const payrollTotal = Number(db.prepare('SELECT COALESCE(SUM(net_pay), 0) AS amount FROM payroll_records').get().amount || 0);
@@ -342,7 +342,7 @@ function getFinancialReport(type) {
   const revenue = orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
   const vatRate = Number(db.prepare("SELECT value FROM settings WHERE key = 'vat_rate'").get()?.value || 0);
   const tax = revenue * (vatRate / 100);
-  const expenses = db.prepare("SELECT expense_date, category, description, supplier, amount, payment_method, status FROM business_expenses WHERE status != 'rejected' ORDER BY expense_date DESC").all();
+  const expenses = db.prepare("SELECT expense_date, category, description, supplier, amount, payment_method, status FROM business_expenses WHERE status NOT IN ('rejected', 'deleted') ORDER BY expense_date DESC").all();
   const payroll = db.prepare('SELECT pay_period, staff_name, basic_pay, overtime, allowances, deductions, net_pay, status FROM payroll_records ORDER BY pay_period DESC').all();
   const inventory = db.prepare('SELECT name, sku, category, quantity, unit, unit_cost, quantity * unit_cost AS value, supplier, expiry_date FROM inventory ORDER BY value DESC').all();
   const payments = db.prepare("SELECT payment_method AS method, COUNT(*) AS orders, COALESCE(SUM(total), 0) AS amount, SUM(CASE WHEN payment_status IN ('paid', 'completed') THEN 1 ELSE 0 END) AS paid_orders FROM orders WHERE status != 'cancelled' AND payment_method IS NOT NULL GROUP BY payment_method ORDER BY amount DESC").all();

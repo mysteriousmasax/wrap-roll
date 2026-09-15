@@ -161,7 +161,7 @@ export default function CRMPage() {
     try {
       await api.updateCustomerLoyalty(selectedCustomer.id, customerForm);
       const invoice = await api.createCustomerInvoice(selectedCustomer.id);
-      printInvoice(invoice, printWindow);
+      if (invoice.printStatus !== 'printed') printInvoice(invoice, printWindow);
       setStatus(`Invoice ${invoice.invoiceNumber} created.`);
       await loadCustomers();
     } catch (error) {
@@ -308,7 +308,7 @@ export default function CRMPage() {
                       {customer.atRisk && <span className="badge-red">At Risk</span>}
                     </div>
                     <div className="customer-meta-row">
-                      <span>{customer.totalOrders || customer.visits || 0} orders</span>
+                      <span>{customer.totalOrders || customer.visits || 0} orders</span><span className="font-bold text-[#ae002a]">{customer.rollPoints || 0} Roll Points</span>
                       <span>•</span>
                       <span>{customer.tableVisits || 0} table visits</span>
                       <span>•</span>

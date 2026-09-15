@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
+import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/deletionPolicy.js';
 
 const router = Router();
 
@@ -37,7 +38,7 @@ function auditInventoryChange(itemId, action, user, changes) {
 }
 
 router.get('/', authMiddleware, (req, res) => {
-  res.json(db.prepare('SELECT * FROM inventory ORDER BY name').all().map(mapInventory));
+  res.json(db.prepare('SELECT * FROM inventory WHERE COALESCE(deleted_at, \'\') = \'\' ORDER BY name').all().map(mapInventory));
 });
 
 router.post('/', authMiddleware, (req, res) => {
@@ -131,6 +132,17 @@ router.post('/:id/adjust', authMiddleware, (req, res) => {
 router.get('/:id/audit', authMiddleware, (req, res) => {
   const rows = db.prepare('SELECT * FROM inventory_audit WHERE inventory_id = ? ORDER BY created_at DESC').all(req.params.id);
   res.json(rows.map((row) => ({ ...row, changes: JSON.parse(row.changes || '{}') })));
+});
+
+router.delete('/:id', authMiddleware, deletionViewer, requireAdilaDeletion, (req, res) => {
+  const existing = db.prepare('SELECT * FROM inventory WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Item not found' });
+  recordDeletion({ resourceType: 'inventory', resourceId: existing.id, snapshot: existing, reason: req.body?.reason, user: req.user });
+  const now = new Date().toISOString();
+  db.prepare('UPDATE inventory SET deleted_at = ? WHERE id = ?').run(now, existing.id);
+  recordDeletion({ resourceType: 'inventory', resourceId: existing.id, snapshot: existing, reason: req.body?.reason, user: req.user });
+  broadcast('inventory:updated', { itemId: existing.id, action: 'deleted' });
+  res.json({ ok: true, deleted: true, id: existing.id });
 });
 
 export default router;

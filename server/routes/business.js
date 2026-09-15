@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
+import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/deletionPolicy.js';
 
 const router = Router();
 
@@ -15,7 +16,7 @@ function monthBounds() {
 router.get('/overview', authMiddleware, (_req, res) => {
   const { start, end, period } = monthBounds();
   const sales = db.prepare("SELECT COALESCE(SUM(total), 0) AS revenue, COUNT(*) AS orders FROM orders WHERE created_at >= ? AND created_at < ? AND status = 'completed' AND payment_status IN ('paid', 'completed')").get(start, end);
-  const expenses = db.prepare("SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count FROM business_expenses WHERE expense_date >= ? AND expense_date < ? AND status != 'rejected'").get(start.slice(0, 10), end.slice(0, 10));
+  const expenses = db.prepare("SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count FROM business_expenses WHERE expense_date >= ? AND expense_date < ? AND status NOT IN ('rejected', 'deleted')").get(start.slice(0, 10), end.slice(0, 10));
   const payroll = db.prepare('SELECT COALESCE(SUM(net_pay), 0) AS total FROM payroll_records WHERE pay_period = ?').get(period);
   const tax = db.prepare("SELECT COALESCE(SUM(tax), 0) AS total FROM orders WHERE created_at >= ? AND created_at < ? AND status = 'completed' AND payment_status IN ('paid', 'completed')").get(start, end);
   const lowStock = db.prepare('SELECT id, name, quantity, unit, threshold, supplier FROM inventory WHERE quantity <= threshold ORDER BY quantity ASC LIMIT 8').all();
@@ -38,7 +39,12 @@ router.get('/overview', authMiddleware, (_req, res) => {
 });
 
 router.get('/expenses', authMiddleware, (_req, res) => {
-  res.json(db.prepare('SELECT * FROM business_expenses ORDER BY expense_date DESC, id DESC LIMIT 100').all());
+  res.json(db.prepare("SELECT * FROM business_expenses WHERE status != 'deleted' ORDER BY expense_date DESC, id DESC LIMIT 100").all());
+});
+
+router.get('/deletion-audit', authMiddleware, deletionViewer, (req, res) => {
+  const rows = db.prepare('SELECT * FROM deletion_audit ORDER BY deleted_at DESC LIMIT 500').all();
+  res.json(rows.map((row) => ({ ...row, deletedSnapshot: JSON.parse(row.deleted_snapshot || '{}') })));
 });
 
 router.post('/expenses', authMiddleware, (req, res) => {
@@ -72,11 +78,13 @@ router.put('/expenses/:id', authMiddleware, requireRole('admin'), (req, res) => 
   res.json(db.prepare('SELECT * FROM business_expenses WHERE id = ?').get(req.params.id));
 });
 
-router.delete('/expenses/:id', authMiddleware, requireRole('admin'), (req, res) => {
-  const result = db.prepare('DELETE FROM business_expenses WHERE id = ?').run(req.params.id);
-  if (!result.changes) return res.status(404).json({ error: 'Expense not found.' });
+router.delete('/expenses/:id', authMiddleware, deletionViewer, requireAdilaDeletion, (req, res) => {
+  const existing = db.prepare('SELECT * FROM business_expenses WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Expense not found.' });
+  recordDeletion({ resourceType: 'business_expense', resourceId: existing.id, snapshot: existing, reason: req.body?.reason, user: req.user });
+  db.prepare("UPDATE business_expenses SET status = 'deleted' WHERE id = ?").run(existing.id);
   broadcast('business:updated', { type: 'expense_deleted' });
-  res.status(204).end();
+  res.json({ ok: true, deleted: true, id: existing.id });
 });
 
 router.patch('/expenses/:id/status', authMiddleware, (req, res) => {

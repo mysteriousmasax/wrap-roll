@@ -7,6 +7,7 @@
 
 import crypto from 'crypto';
 import db from '../db/database.js';
+import { awardRollPoints } from './rollPoints.js';
 
 export const PAYMENT_STATUSES = {
   PENDING: 'pending',
@@ -300,6 +301,7 @@ export class ManualLipaProvider extends BasePaymentProvider {
         updated_at = ?
       WHERE id = ? OR payment_reference = ?
     `).run(PAYMENT_STATUSES.PAID, ORDER_STATUSES.CONFIRMED, now, now, payment.order_id, paymentReference);
+    awardRollPoints(payment.order_id);
 
     // Add order audit event
     db.prepare(`

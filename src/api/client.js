@@ -79,6 +79,7 @@ export const api = {
   updateOrderStatus: (id, status) => request(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   updateOrderPaymentStatus: (id, paymentStatus, notes) => request(`/orders/${id}/payment-status`, { method: 'PATCH', body: JSON.stringify({ paymentStatus, notes }) }),
   deleteOrder: (id) => request(`/orders/${id}`, { method: 'DELETE' }),
+  getDeletionAudit: () => request('/business/deletion-audit'),
   printReceipt: (order) => request('/printer/receipt', { method: 'POST', body: JSON.stringify(order) }),
   printTestReceipt: () => request('/printer/test', { method: 'POST' }),
 

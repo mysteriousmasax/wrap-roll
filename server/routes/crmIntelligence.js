@@ -62,7 +62,7 @@ function buildSnapshot() {
   const unresolvedComplaints = db.prepare("SELECT COUNT(*) AS count FROM chat_conversations WHERE status != 'resolved'").get().count;
   const unpaidOrders = db.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(total), 0) AS amount FROM orders WHERE status != 'cancelled' AND (payment_status IS NULL OR payment_status NOT IN ('paid', 'completed'))").get();
   const delayedOrders = db.prepare("SELECT COUNT(*) AS count FROM orders WHERE status IN ('pending', 'preparing') AND created_at < ?").get(dateIso(1)).count;
-  const expenses = db.prepare("SELECT category, SUM(amount) AS amount FROM business_expenses WHERE status != 'rejected' GROUP BY category ORDER BY amount DESC LIMIT 10").all();
+  const expenses = db.prepare("SELECT category, SUM(amount) AS amount FROM business_expenses WHERE status NOT IN ('rejected', 'deleted') GROUP BY category ORDER BY amount DESC LIMIT 10").all();
   return {
     generatedAt: new Date().toISOString(),
     customerSummary: { total: customers.length, repeatRate: customers.length ? repeatCustomers / customers.length : 0, vip: customers.filter((c) => c.segment === 'vip').length, inactive: customers.filter((c) => c.segment === 'inactive').length, atRisk: customers.filter((c) => c.segment === 'at-risk').length },

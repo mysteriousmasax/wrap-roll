@@ -70,6 +70,7 @@ export async function initDatabase() {
       nfc_tag_type TEXT,
       loyalty_notes TEXT,
       preferred_channel TEXT DEFAULT 'pos'
+      ,roll_points_balance INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS invoices (
@@ -89,6 +90,29 @@ export async function initDatabase() {
       created_at TEXT NOT NULL,
       FOREIGN KEY (customer_id) REFERENCES customers(id),
       FOREIGN KEY (order_id) REFERENCES orders(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS customer_points_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL,
+      points_delta INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      order_id TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS deletion_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      resource_type TEXT NOT NULL,
+      resource_id TEXT NOT NULL,
+      deleted_snapshot TEXT NOT NULL DEFAULT '{}',
+      reason TEXT,
+      requested_by_id INTEGER,
+      requested_by_name TEXT,
+      executed_by_id INTEGER,
+      executed_by_name TEXT NOT NULL,
+      deleted_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS loyalty_items (
@@ -228,6 +252,7 @@ export async function initDatabase() {
       unit_cost REAL DEFAULT 0,
       expiry_date TEXT,
       storage_location TEXT
+        ,deleted_at TEXT
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_identity ON inventory(lower(trim(name)), lower(trim(unit)));
@@ -235,7 +260,7 @@ export async function initDatabase() {
     CREATE TABLE IF NOT EXISTS inventory_audit (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       inventory_id INTEGER NOT NULL,
-      action TEXT NOT NULL CHECK(action IN ('created', 'updated')),
+      action TEXT NOT NULL CHECK(action IN ('created', 'updated', 'deleted')),
       changed_by_id INTEGER,
       changed_by_name TEXT NOT NULL,
       changed_by_role TEXT,
@@ -620,6 +645,7 @@ function migrateSchema(db) {
   if (!faqCols.some((col) => col.name === 'question_sw')) db.exec('ALTER TABLE chat_faqs ADD COLUMN question_sw TEXT');
   if (!faqCols.some((col) => col.name === 'answer_sw')) db.exec('ALTER TABLE chat_faqs ADD COLUMN answer_sw TEXT');
   const inventoryCols = db.prepare('PRAGMA table_info(inventory)').all();
+    if (!inventoryCols.some((col) => col.name === 'deleted_at')) db.exec('ALTER TABLE inventory ADD COLUMN deleted_at TEXT');
   if (!inventoryCols.some((col) => col.name === 'image_url')) db.exec('ALTER TABLE inventory ADD COLUMN image_url TEXT');
   if (!inventoryCols.some((col) => col.name === 'category')) db.exec("ALTER TABLE inventory ADD COLUMN category TEXT DEFAULT 'ingredients'");
   if (!inventoryCols.some((col) => col.name === 'sku')) db.exec('ALTER TABLE inventory ADD COLUMN sku TEXT');
@@ -639,6 +665,7 @@ function migrateSchema(db) {
   if (!customerCols.some((col) => col.name === 'nfc_tag_type')) db.exec('ALTER TABLE customers ADD COLUMN nfc_tag_type TEXT');
   if (!customerCols.some((col) => col.name === 'loyalty_notes')) db.exec('ALTER TABLE customers ADD COLUMN loyalty_notes TEXT');
   if (!customerCols.some((col) => col.name === 'preferred_channel')) db.exec("ALTER TABLE customers ADD COLUMN preferred_channel TEXT DEFAULT 'pos'");
+  if (!customerCols.some((col) => col.name === 'roll_points_balance')) db.exec('ALTER TABLE customers ADD COLUMN roll_points_balance INTEGER NOT NULL DEFAULT 0');
 
   const holidayCols = db.prepare('PRAGMA table_info(holiday_events)').all();
   if (holidayCols.length === 0) {

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
+import { printReceipt } from '../utils/escposPrinter.js';
 
 const router = Router();
 
@@ -34,6 +35,8 @@ function mapCustomer(row, extra = {}) {
     tin: row.tin || '',
     billingAddress: row.billing_address || '',
     visits: Number(row.visits || 0),
+    rollPoints: Number(row.roll_points_balance || 0),
+    rollPoints: Number(row.roll_points_balance || 0),
     atRisk: !!row.at_risk,
     totalOrders: Number(extra.totalOrders || 0),
     tableVisits: Number(extra.tableVisits || 0),
@@ -187,7 +190,7 @@ router.patch('/:id/loyalty', authMiddleware, (req, res) => {
   res.json(mapCustomer(updated));
 });
 
-router.post('/:id/invoices', authMiddleware, (req, res) => {
+router.post('/:id/invoices', authMiddleware, async (req, res) => {
   const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
   const order = db.prepare(`SELECT * FROM orders WHERE (customer_phone = ? OR customer_email = ? OR customer_name = ?)
@@ -198,7 +201,15 @@ router.post('/:id/invoices', authMiddleware, (req, res) => {
   const now = new Date().toISOString();
   db.prepare(`INSERT OR IGNORE INTO invoices (invoice_number, customer_id, order_id, customer_type, company_name, tin, billing_address, subtotal, tax, total, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(invoiceNumber, customer.id, order.id, customer.customer_type || 'individual', customer.company_name || null, customer.tin || null, customer.billing_address || null, order.subtotal, order.tax, order.total, now);
-  res.status(201).json({ invoiceNumber, customer: mapCustomer(customer), order, items, createdAt: now });
+  let printStatus = 'failed';
+  try {
+    const settings = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((row) => [row.key, row.value]));
+    await printReceipt({ ...order, items, invoiceNumber, customer: mapCustomer(customer) }, settings);
+    printStatus = 'printed';
+  } catch (error) {
+    console.warn('Invoice printer unavailable:', error.message);
+  }
+  res.status(201).json({ invoiceNumber, customer: mapCustomer(customer), order, items, createdAt: now, printStatus });
 });
 
 router.post('/whatsapp', authMiddleware, (req, res) => {

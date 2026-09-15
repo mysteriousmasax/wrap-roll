@@ -3,6 +3,7 @@ import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { createMenuBookExport } from '../utils/menuBookExport.js';
 import { broadcast } from '../ws.js';
+import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/deletionPolicy.js';
 
 const router = Router();
 
@@ -90,10 +91,11 @@ router.put('/modifiers/:id', authMiddleware, requireRole('admin', 'manager'), (r
   res.json(modifier);
 });
 
-router.delete('/modifiers/:id', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
+router.delete('/modifiers/:id', authMiddleware, deletionViewer, requireAdilaDeletion, (req, res) => {
   const existing = db.prepare('SELECT * FROM modifiers WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Modifier not found' });
 
+  recordDeletion({ resourceType: 'modifier', resourceId: existing.id, snapshot: existing, reason: req.body?.reason, user: req.user });
   db.prepare('DELETE FROM modifiers WHERE id = ?').run(req.params.id);
   broadcast('menu:updated', { type: 'modifier', action: 'deleted', id: Number(req.params.id) });
   res.json({ ok: true });
@@ -134,9 +136,10 @@ router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
   res.json(mapMenuItem(item));
 });
 
-router.delete('/:id', authMiddleware, requireRole('admin'), (req, res) => {
+router.delete('/:id', authMiddleware, deletionViewer, requireAdilaDeletion, (req, res) => {
   const existing = db.prepare('SELECT * FROM menu_items WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Item not found' });
+  recordDeletion({ resourceType: 'menu_item', resourceId: existing.id, snapshot: existing, reason: req.body?.reason, user: req.user });
   db.prepare('UPDATE menu_items SET active = 0 WHERE id = ?').run(req.params.id);
   broadcast('menu:updated', { type: 'item', action: 'deleted', id: Number(req.params.id) });
   res.json({ ok: true });

@@ -40,6 +40,7 @@ export function buildReceipt(order, settings = {}) {
     line(`CUSTOMER TIN: ${customer.tin || customer.customerTin || ''}`),
     line(`MOBILE: ${customer.phone || order.customerPhone || order.customer_phone || ''}`),
     line(`Order: ${order.id || order.order_number || ''}`),
+    line(`Invoice: ${order.invoiceNumber || order.invoice_number || ''}`),
     line(new Date().toLocaleString('en-TZ')),
     line(`Type: ${order.type || order.orderType || ''}`),
     line('--------------------------------'),
