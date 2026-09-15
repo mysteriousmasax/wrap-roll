@@ -78,6 +78,8 @@ export const api = {
   getPublicOrder: (id, phone) => request(`/orders/public/${encodeURIComponent(id)}?phone=${encodeURIComponent(phone)}`),
   updateOrderStatus: (id, status) => request(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   updateOrderPaymentStatus: (id, paymentStatus, notes) => request(`/orders/${id}/payment-status`, { method: 'PATCH', body: JSON.stringify({ paymentStatus, notes }) }),
+  printReceipt: (order) => request('/printer/receipt', { method: 'POST', body: JSON.stringify(order) }),
+  printTestReceipt: () => request('/printer/test', { method: 'POST' }),
 
   getPaymentMethods: () => request('/payments/methods'),
   createPaymentIntent: (data) => request('/payments/create-intent', { method: 'POST', body: JSON.stringify(data) }),
@@ -107,6 +109,7 @@ export const api = {
   askCrmAssistant: (question) => request('/crm-intelligence/ask', { method: 'POST', body: JSON.stringify({ question }) }),
   requestCrmAction: (type, payload) => request('/crm-intelligence/actions', { method: 'POST', body: JSON.stringify({ type, payload }) }),
   updateCustomerLoyalty: (id, data) => request(`/customers/${id}/loyalty`, { method: 'PATCH', body: JSON.stringify(data) }),
+  createCustomerInvoice: (id) => request(`/customers/${id}/invoices`, { method: 'POST' }),
   getLoyaltyItems: () => request('/loyalty'),
   getCampaignDashboard: () => request('/loyalty/dashboard'),
   dispatchCustomerCampaign: () => request('/loyalty/campaign/dispatch', { method: 'POST' }),

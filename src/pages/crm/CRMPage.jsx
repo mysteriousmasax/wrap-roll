@@ -5,8 +5,8 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import Button from '../../components/ui/Button';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
-import { formatCurrency } from '../../utils/format';
-import { Search, Users, Star, AlertTriangle, Crown, TabletSmartphone, Mail, Instagram, Facebook, MessageSquareText, UtensilsCrossed, MapPinned, Gift, CalendarDays, Save, Sparkles, ShieldAlert, Send, Brain, Target } from 'lucide-react';
+import { formatCurrency, printInvoice } from '../../utils/format';
+import { Search, Users, Star, AlertTriangle, Crown, TabletSmartphone, Mail, Instagram, Facebook, MessageSquareText, UtensilsCrossed, MapPinned, Gift, CalendarDays, Save, Sparkles, ShieldAlert, Send, Brain, Target, Receipt } from 'lucide-react';
 
 function WhatsAppLogo({ className = 'h-4 w-4' }) {
   return (
@@ -40,6 +40,7 @@ export default function CRMPage() {
   const [aiOutput, setAiOutput] = useState('');
   const [aiQuestion, setAiQuestion] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
 
   const loadCustomers = async () => {
     const data = await api.getCustomers();
@@ -53,6 +54,10 @@ export default function CRMPage() {
         customerSegment: match.customerSegment || match.customer_segment || 'regular',
         nfcTagCode: match.nfcTagCode || match.nfc_tag_code || '',
         nfcTagType: match.nfcTagType || match.nfc_tag_type || 'key_holder',
+        customerType: match.customerType || 'individual',
+        companyName: match.companyName || '',
+        tin: match.tin || '',
+        billingAddress: match.billingAddress || '',
         loyaltyNotes: match.loyaltyNotes || match.loyalty_notes || '',
         preferredChannel: match.preferredChannel || match.preferred_channel || 'pos',
       });
@@ -78,6 +83,10 @@ export default function CRMPage() {
             customerSegment: customersData[0].customerSegment || customersData[0].customer_segment || 'regular',
             nfcTagCode: customersData[0].nfcTagCode || customersData[0].nfc_tag_code || '',
             nfcTagType: customersData[0].nfcTagType || customersData[0].nfc_tag_type || 'key_holder',
+            customerType: customersData[0].customerType || 'individual',
+            companyName: customersData[0].companyName || '',
+            tin: customersData[0].tin || '',
+            billingAddress: customersData[0].billingAddress || '',
             loyaltyNotes: customersData[0].loyaltyNotes || customersData[0].loyalty_notes || '',
             preferredChannel: customersData[0].preferredChannel || customersData[0].preferred_channel || 'pos',
           });
@@ -137,6 +146,29 @@ export default function CRMPage() {
       setStatus(`Holiday alert sent to ${response.sentCount} customers.`);
     } catch (error) {
       setStatus(error.message || 'Unable to dispatch event notifications');
+    }
+  };
+
+  const createInvoice = async () => {
+    if (!selectedCustomer) return;
+    const printWindow = window.open('', '_blank', 'width=720,height=900');
+    if (!printWindow) {
+      setStatus('Chrome blocked the print window. Allow pop-ups for this site and try again.');
+      return;
+    }
+    printWindow.document.write('<p style="font-family:Arial,sans-serif;padding:32px">Preparing invoice...</p>');
+    setInvoiceLoading(true);
+    try {
+      await api.updateCustomerLoyalty(selectedCustomer.id, customerForm);
+      const invoice = await api.createCustomerInvoice(selectedCustomer.id);
+      printInvoice(invoice, printWindow);
+      setStatus(`Invoice ${invoice.invoiceNumber} created.`);
+      await loadCustomers();
+    } catch (error) {
+      printWindow.close();
+      setStatus(error.message || 'Unable to create invoice. A paid order is required.');
+    } finally {
+      setInvoiceLoading(false);
     }
   };
 
@@ -335,9 +367,12 @@ export default function CRMPage() {
               <label className="block"><span className="text-surface-on-variant block mb-1">NFC tag code</span><input value={customerForm.nfcTagCode || ''} onChange={(e) => handleCustomerChange('nfcTagCode', e.target.value)} className="input-field w-full" placeholder="WR-0001-123456" /></label>
               <label className="block"><span className="text-surface-on-variant block mb-1">NFC type</span><select value={customerForm.nfcTagType || 'key_holder'} onChange={(e) => handleCustomerChange('nfcTagType', e.target.value)} className="input-field w-full"><option value="key_holder">Key Holder</option><option value="engraved_card">Engraved Card</option><option value="phone_holder">Phone Holder</option><option value="premium_kit">Premium Kit</option></select></label>
               <label className="block"><span className="text-surface-on-variant block mb-1">Preferred channel</span><select value={customerForm.preferredChannel || 'pos'} onChange={(e) => handleCustomerChange('preferredChannel', e.target.value)} className="input-field w-full"><option value="pos">In-person</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">Email</option><option value="instagram">Instagram</option><option value="facebook">Facebook</option></select></label>
+              <label className="block"><span className="text-surface-on-variant block mb-1">Customer type</span><select value={customerForm.customerType || 'individual'} onChange={(e) => handleCustomerChange('customerType', e.target.value)} className="input-field w-full"><option value="individual">Normal customer</option><option value="company">Company customer</option></select></label>
+              {customerForm.customerType === 'company' && <><label className="block"><span className="text-surface-on-variant block mb-1">Company name</span><input value={customerForm.companyName || ''} onChange={(e) => handleCustomerChange('companyName', e.target.value)} className="input-field w-full" /></label><label className="block"><span className="text-surface-on-variant block mb-1">TIN</span><input value={customerForm.tin || ''} onChange={(e) => handleCustomerChange('tin', e.target.value)} className="input-field w-full" /></label><label className="block"><span className="text-surface-on-variant block mb-1">Billing address</span><input value={customerForm.billingAddress || ''} onChange={(e) => handleCustomerChange('billingAddress', e.target.value)} className="input-field w-full" /></label></>}
               <label className="block"><span className="text-surface-on-variant block mb-1">Loyalty notes</span><textarea value={customerForm.loyaltyNotes || ''} onChange={(e) => handleCustomerChange('loyaltyNotes', e.target.value)} rows="3" className="input-field w-full" placeholder="Birthday offer, couples table, favorite items..." /></label>
               <div className="flex gap-2">
                 <Button size="sm" onClick={saveCustomerProfile} disabled={savingCustomer}><Save size={14} /> {savingCustomer ? 'Saving...' : 'Save'}</Button>
+                <Button variant="secondary" size="sm" onClick={createInvoice} disabled={invoiceLoading}><Receipt size={14} /> {invoiceLoading ? 'Creating...' : 'Create Invoice'}</Button>
                 <Button variant="secondary" size="sm" onClick={sendHolidayNotice}><Sparkles size={14} /> Notify</Button>
               </div>
               {status && <p className="text-[11px] text-primary">{status}</p>}

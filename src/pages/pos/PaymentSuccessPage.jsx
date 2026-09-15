@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { CheckCircle, Receipt, ArrowRight } from 'lucide-react';
-import { formatCurrency, printReceipt } from '../../utils/format';
+import { formatCurrency, printThermalReceipt } from '../../utils/format';
 import Button from '../../components/ui/Button';
 
 export default function PaymentSuccessPage() {
@@ -55,7 +55,7 @@ export default function PaymentSuccessPage() {
           <Button variant="secondary" onClick={() => navigate('/pos')} className="flex-1" size="lg">
             New Order
           </Button>
-          <Button onClick={() => printReceipt(receiptOrder)} className="flex-1" size="lg">
+          <Button onClick={() => printThermalReceipt(receiptOrder)} className="flex-1" size="lg">
             <Receipt size={16} /> Receipt
           </Button>
         </div>

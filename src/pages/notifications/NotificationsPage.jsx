@@ -2,6 +2,7 @@ import PageHeader from '../../components/layout/PageHeader';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import useNotificationStore from '../../store/useNotificationStore';
+import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, CheckCircle, Info, XCircle, CheckCheck } from 'lucide-react';
 
 const iconMap = { warning: AlertTriangle, info: Info, success: CheckCircle, error: XCircle };
@@ -9,8 +10,14 @@ const colorMap = { warning: 'text-warning bg-warning/10', info: 'text-primary bg
 
 export default function NotificationsPage() {
   const { notifications, markRead, markAllRead, getUnreadCount } = useNotificationStore();
+  const navigate = useNavigate();
   const notificationList = Array.isArray(notifications) ? notifications : [];
   const unread = getUnreadCount();
+
+  const openNotification = async (notification) => {
+    await markRead(notification.id);
+    if (notification.destination) navigate(notification.destination);
+  };
 
   return (
     <div className="p-4 sm:p-6">
@@ -22,7 +29,7 @@ export default function NotificationsPage() {
         {notificationList.map((notif) => {
           const Icon = iconMap[notif.type] || Info;
           return (
-            <Card key={notif.id} className={'flex items-start gap-4 ' + (!notif.read ? 'ring-1 ring-primary/20 bg-primary/[0.02]' : '')} onClick={() => markRead(notif.id)}>
+            <Card key={notif.id} className={'flex items-start gap-4 cursor-pointer ' + (!notif.read ? 'ring-1 ring-primary/20 bg-primary/[0.02]' : '')} onClick={() => openNotification(notif)}>
               <div className={'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ' + colorMap[notif.type]}>
                 <Icon size={18} />
               </div>

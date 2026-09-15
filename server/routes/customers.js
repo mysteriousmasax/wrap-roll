@@ -29,6 +29,10 @@ function mapCustomer(row, extra = {}) {
     lastVisit: row.last_visit,
     phone: row.phone,
     email: row.email,
+    customerType: row.customer_type || 'individual',
+    companyName: row.company_name || '',
+    tin: row.tin || '',
+    billingAddress: row.billing_address || '',
     visits: Number(row.visits || 0),
     atRisk: !!row.at_risk,
     totalOrders: Number(extra.totalOrders || 0),
@@ -150,7 +154,7 @@ router.post('/', authMiddleware, (req, res) => {
 });
 
 router.patch('/:id/loyalty', authMiddleware, (req, res) => {
-  const { tier, birthday, anniversary, customerSegment, nfcTagCode, nfcTagType, loyaltyNotes, preferredChannel, itemType, itemName, itemCode, status } = req.body;
+  const { tier, birthday, anniversary, customerSegment, nfcTagCode, nfcTagType, loyaltyNotes, preferredChannel, customerType, companyName, tin, billingAddress, itemType, itemName, itemCode, status } = req.body;
   const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
@@ -163,9 +167,13 @@ router.patch('/:id/loyalty', authMiddleware, (req, res) => {
       nfc_tag_code = COALESCE(?, nfc_tag_code),
       nfc_tag_type = COALESCE(?, nfc_tag_type),
       loyalty_notes = COALESCE(?, loyalty_notes),
-      preferred_channel = COALESCE(?, preferred_channel)
+      preferred_channel = COALESCE(?, preferred_channel),
+      customer_type = COALESCE(?, customer_type),
+      company_name = COALESCE(?, company_name),
+      tin = COALESCE(?, tin),
+      billing_address = COALESCE(?, billing_address)
     WHERE id = ?`
-  ).run(tier ?? null, birthday ?? null, anniversary ?? null, customerSegment ?? null, nfcTagCode ?? null, nfcTagType ?? null, loyaltyNotes ?? null, preferredChannel ?? null, req.params.id);
+  ).run(tier ?? null, birthday ?? null, anniversary ?? null, customerSegment ?? null, nfcTagCode ?? null, nfcTagType ?? null, loyaltyNotes ?? null, preferredChannel ?? null, customerType ?? null, companyName ?? null, tin ?? null, billingAddress ?? null, req.params.id);
 
   if (itemName || itemType || itemCode) {
     const now = new Date().toISOString();
@@ -177,6 +185,20 @@ router.patch('/:id/loyalty', authMiddleware, (req, res) => {
   const updated = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   broadcast('customer:updated', { customerId: updated.id, customer: mapCustomer(updated) });
   res.json(mapCustomer(updated));
+});
+
+router.post('/:id/invoices', authMiddleware, (req, res) => {
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+  const order = db.prepare(`SELECT * FROM orders WHERE (customer_phone = ? OR customer_email = ? OR customer_name = ?)
+    AND payment_status IN ('paid', 'completed') ORDER BY created_at DESC LIMIT 1`).get(customer.phone || '', customer.email || '', customer.name);
+  if (!order) return res.status(400).json({ error: 'No paid order found for this customer' });
+  const items = db.prepare('SELECT name, qty, price, modifiers, special_instructions FROM order_items WHERE order_id = ?').all(order.id);
+  const invoiceNumber = `INV-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(order.id).replace(/\D/g, '').slice(-6)}`;
+  const now = new Date().toISOString();
+  db.prepare(`INSERT OR IGNORE INTO invoices (invoice_number, customer_id, order_id, customer_type, company_name, tin, billing_address, subtotal, tax, total, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(invoiceNumber, customer.id, order.id, customer.customer_type || 'individual', customer.company_name || null, customer.tin || null, customer.billing_address || null, order.subtotal, order.tax, order.total, now);
+  res.status(201).json({ invoiceNumber, customer: mapCustomer(customer), order, items, createdAt: now });
 });
 
 router.post('/whatsapp', authMiddleware, (req, res) => {

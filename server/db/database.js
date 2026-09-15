@@ -72,6 +72,25 @@ export async function initDatabase() {
       preferred_channel TEXT DEFAULT 'pos'
     );
 
+    CREATE TABLE IF NOT EXISTS invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_number TEXT NOT NULL UNIQUE,
+      customer_id INTEGER NOT NULL,
+      order_id TEXT NOT NULL,
+      customer_type TEXT NOT NULL DEFAULT 'individual',
+      company_name TEXT,
+      tin TEXT,
+      billing_address TEXT,
+      subtotal REAL NOT NULL,
+      tax REAL NOT NULL,
+      total REAL NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'TZS',
+      status TEXT NOT NULL DEFAULT 'issued',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id),
+      FOREIGN KEY (order_id) REFERENCES orders(id)
+    );
+
     CREATE TABLE IF NOT EXISTS loyalty_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       customer_id INTEGER NOT NULL,
@@ -657,6 +676,10 @@ function migrateSchema(db) {
   }
 
   const orderCols = db.prepare('PRAGMA table_info(orders)').all();
+  if (!customerCols.some((col) => col.name === 'customer_type')) db.exec("ALTER TABLE customers ADD COLUMN customer_type TEXT DEFAULT 'individual'");
+  if (!customerCols.some((col) => col.name === 'company_name')) db.exec('ALTER TABLE customers ADD COLUMN company_name TEXT');
+  if (!customerCols.some((col) => col.name === 'tin')) db.exec('ALTER TABLE customers ADD COLUMN tin TEXT');
+  if (!customerCols.some((col) => col.name === 'billing_address')) db.exec('ALTER TABLE customers ADD COLUMN billing_address TEXT');
   if (!orderCols.some((col) => col.name === 'order_number')) db.exec('ALTER TABLE orders ADD COLUMN order_number TEXT');
   if (!orderCols.some((col) => col.name === 'customer_phone')) db.exec('ALTER TABLE orders ADD COLUMN customer_phone TEXT');
   if (!orderCols.some((col) => col.name === 'customer_email')) db.exec('ALTER TABLE orders ADD COLUMN customer_email TEXT');

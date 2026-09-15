@@ -249,6 +249,7 @@ export default function PaymentVerificationPage() {
               {payments.length ? (
                 payments.map((p) => {
                   const isReview = p.status === 'manual_review';
+                  const isPending = p.status === 'pending';
                   const isPaid = p.status === 'paid';
                   const isFailed = p.status === 'failed';
 
@@ -342,7 +343,7 @@ export default function PaymentVerificationPage() {
 
                       {/* Actions */}
                       <td className="p-4 text-right">
-                        {isReview ? (
+                        {isReview || isPending ? (
                           <div className="inline-flex items-center gap-2 justify-end">
                             <button
                               onClick={() => {
@@ -351,7 +352,7 @@ export default function PaymentVerificationPage() {
                               }}
                               className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-colors inline-flex items-center gap-1"
                             >
-                              <Check size={14} /> Verify Payment
+                              <Check size={14} /> {isPending ? 'Confirm Payment' : 'Verify Payment'}
                             </button>
                             <button
                               onClick={() => {

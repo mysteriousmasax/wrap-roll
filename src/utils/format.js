@@ -1,4 +1,5 @@
 import useSettingsStore from '../store/useSettingsStore';
+import { api } from '../api/client';
 
 export const formatCurrency = (amount, currency) => {
   const cur = currency || useSettingsStore.getState().getCurrency() || localStorage.getItem('wraproll_display_currency') || 'TZS';
@@ -39,5 +40,24 @@ export function printReceipt(order) {
       <script>window.print();</script>
     </body></html>
   `);
+  win.document.close();
+}
+
+export async function printThermalReceipt(order) {
+  try {
+    await api.printReceipt(order);
+    return true;
+  } catch {
+    printReceipt(order);
+    return false;
+  }
+}
+
+export function printInvoice(invoice, printWindow = null) {
+  const win = printWindow || window.open('', '_blank', 'width=720,height=900');
+  if (!win) return;
+  const customer = invoice.customer || {};
+  const items = (invoice.items || []).map((item) => `<tr><td>${item.qty}x ${item.name}</td><td align="right">${formatCurrency(item.price * item.qty, invoice.order?.currency || 'TZS')}</td></tr>`).join('');
+  win.document.write(`<html><head><title>${invoice.invoiceNumber}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#24211e}header{display:flex;justify-content:space-between;border-bottom:2px solid #ae002a;padding-bottom:16px}table{width:100%;border-collapse:collapse;margin:24px 0}td{padding:8px 0;border-bottom:1px solid #eee}h1{color:#ae002a}footer{margin-top:40px;font-size:12px;color:#746e67}</style></head><body><header><div><h1>Wrap &amp; Roll</h1><p>Invoice ${invoice.invoiceNumber}</p></div><div><strong>${customer.customerType === 'company' ? customer.companyName || customer.name : customer.name}</strong><p>${customer.tin ? `TIN: ${customer.tin}<br>` : ''}${customer.billingAddress || customer.address || ''}</p></div></header><p>Order: ${invoice.order?.order_number || invoice.order?.id || ''}</p><table>${items}</table><p>Subtotal: ${formatCurrency(invoice.order?.subtotal || 0)}</p><p>Tax: ${formatCurrency(invoice.order?.tax || 0)}</p><h2>Total: ${formatCurrency(invoice.order?.total || 0)}</h2><footer>Issued ${new Date(invoice.createdAt).toLocaleString()}</footer><script>window.print()</script></body></html>`);
   win.document.close();
 }

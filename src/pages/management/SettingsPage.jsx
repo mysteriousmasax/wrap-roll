@@ -5,13 +5,14 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import { api } from '../../api/client';
 import useSettingsStore from '../../store/useSettingsStore';
-import { Save, Store, Receipt, CreditCard, Globe, Shield, Bell, MessageCircle, Plus, Trash2, Brain, Download } from 'lucide-react';
+import { Save, Store, Receipt, CreditCard, Globe, Shield, Bell, MessageCircle, Plus, Trash2, Brain, Download, Printer } from 'lucide-react';
 import { downloadAsset } from '../../utils/downloadAsset';
 
 const sections = [
   { id: 'general', label: 'General', icon: Store },
   { id: 'tax', label: 'Tax & Currency', icon: Receipt },
   { id: 'payments', label: 'Payments', icon: CreditCard },
+  { id: 'printer', label: 'Receipt Printer', icon: Printer },
   { id: 'appearance', label: 'Website Motion', icon: Globe },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'chat', label: 'Chat Auto-Replies', icon: MessageCircle },
@@ -53,6 +54,7 @@ export default function SettingsPage() {
   const [training, setTraining] = useState(null);
   const [aiActivity, setAiActivity] = useState([]);
   const [retraining, setRetraining] = useState(false);
+  const [testingPrinter, setTestingPrinter] = useState(false);
 
   useEffect(() => {
     if (loaded) {
@@ -101,6 +103,19 @@ export default function SettingsPage() {
   };
 
   const togglePayment = (key) => update(key, form[key] === 'true' ? 'false' : 'true');
+
+  const testPrinter = async () => {
+    setTestingPrinter(true);
+    try {
+      await saveSettings(form);
+      await api.printTestReceipt();
+      setMessage('Test receipt sent successfully');
+    } catch (error) {
+      setMessage(error.message || 'Unable to print test receipt');
+    } finally {
+      setTestingPrinter(false);
+    }
+  };
 
   const updateLipaAccounts = (accounts) => {
     setLipaAccounts(accounts);
@@ -274,6 +289,28 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
+            </Card>
+          )}
+          {activeSection === 'printer' && (
+            <Card>
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div><h3 className="font-display font-bold">Receipt Printer</h3><p className="text-xs text-surface-on-variant mt-1">Romeson RBP58 / RBP58B ESC/POS connection</p></div>
+                <Button size="sm" variant="secondary" onClick={testPrinter} disabled={testingPrinter}><Printer size={14} /> {testingPrinter ? 'Testing...' : 'Test Print'}</Button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-surface-on-variant uppercase mb-1.5">Transport</label>
+                  <select className="input-field" value={form.printer_transport || 'serial'} onChange={(e) => update('printer_transport', e.target.value)}>
+                    <option value="serial">Bluetooth / COM port</option>
+                    <option value="tcp">Network / TCP</option>
+                  </select>
+                </div>
+                <Input label="Windows COM Port" placeholder="COM7" value={form.printer_path || ''} onChange={(e) => update('printer_path', e.target.value)} />
+                <Input label="Baud Rate" type="number" value={form.printer_baud_rate || '9600'} onChange={(e) => update('printer_baud_rate', e.target.value)} />
+                <Input label="Network Host" placeholder="192.168.1.50" value={form.printer_host || ''} onChange={(e) => update('printer_host', e.target.value)} />
+                <Input label="Network Port" type="number" value={form.printer_port || '9100'} onChange={(e) => update('printer_port', e.target.value)} />
+              </div>
+              <p className="text-xs text-surface-on-variant mt-4">Pair the printer in Windows first. For Bluetooth SPP, select the outgoing COM port assigned to the Romeson device.</p>
             </Card>
           )}
           {activeSection === 'appearance' && (

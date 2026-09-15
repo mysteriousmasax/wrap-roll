@@ -12,6 +12,12 @@ function timeAgo(iso) {
 }
 
 function mapNotification(row) {
+  const orderMatch = String(row.message || '').match(/Order\s+(WR-[A-Z0-9-]+)/i);
+  const destination = row.type === 'info' && /payment claim/i.test(row.title || '')
+    ? '/management/payments'
+    : orderMatch
+      ? `/orders?search=${encodeURIComponent(orderMatch[1])}`
+      : null;
   return {
     id: row.id,
     type: row.type,
@@ -20,6 +26,7 @@ function mapNotification(row) {
     read: !!row.read,
     time: timeAgo(row.created_at),
     createdAt: row.created_at,
+    destination,
   };
 }
 
