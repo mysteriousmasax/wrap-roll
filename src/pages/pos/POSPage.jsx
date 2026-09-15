@@ -625,7 +625,7 @@ export default function POSPage() {
   }
 
   return (
-    <div className="pos-page flex flex-1 h-[calc(100vh-3.5rem)] overflow-hidden bg-[#faf7f2]">
+    <div className="pos-page flex flex-1 min-h-[calc(100vh-3.5rem)] lg:h-[calc(100vh-3.5rem)] overflow-x-hidden lg:overflow-hidden bg-[#faf7f2] pb-24 lg:pb-0">
       {/* Main Catalog Area */}
       <div className="pos-catalog flex-1 flex flex-col min-w-0">
         {location.state?.offlineQueued && (
@@ -698,8 +698,8 @@ export default function POSPage() {
         </div>
 
         {/* Product Grid Area */}
-        <div className="pos-product-area flex-1 overflow-y-auto p-3">
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+        <div className="pos-product-area flex-1 overflow-y-auto p-2 sm:p-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3">
             {filteredItems.map((item) => (
               <ProductCard key={item.id} item={item} onClick={handleItemClick} />
             ))}

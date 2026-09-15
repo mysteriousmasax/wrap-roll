@@ -124,7 +124,7 @@ export default function DashboardLayout() {
       />
       <div className="dashboard-column flex-1 flex flex-col min-w-0 overflow-y-auto overflow-x-hidden">
         <TopBar title={title} onMenuClick={() => setSidebarOpen(true)} />
-        <main className="dashboard-main flex-none">
+        <main className="dashboard-main flex-none min-w-0 px-2 sm:px-0">
           <Outlet />
         </main>
       </div>
