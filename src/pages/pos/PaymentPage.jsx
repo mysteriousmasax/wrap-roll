@@ -1,56 +1,25 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, QrCode, AlertCircle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, AlertCircle } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
-import { api } from '../../api/client';
 import useCartStore from '../../store/useCartStore';
 import useOrderStore from '../../store/useOrderStore';
 import useSettingsStore from '../../store/useSettingsStore';
 import Button from '../../components/ui/Button';
-import InternalQrCode from '../../components/ui/InternalQrCode';
-
-function SavedQrCodes({ accounts, amount }) {
-  if (!accounts.length) return null;
-  return (
-    <div className="card mb-6 border border-primary/20 bg-primary/[0.03]">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div><h3 className="font-bold text-sm">Scan to pay</h3><p className="mt-0.5 text-xs text-surface-on-variant">Use the QR code for your preferred Lipa Namba account.</p></div>
-        <span className="text-sm font-bold text-primary">{formatCurrency(amount)}</span>
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {accounts.map((account, index) => (
-          <div key={`${account.number}-${index}`} className="rounded-xl border border-outline-variant bg-white p-3 text-center">
-            <p className="mb-2 text-xs font-bold">{account.label || `Payment account ${index + 1}`}</p>
-            <InternalQrCode number={account.number} uploadedImage={account.qrImage} useInternal={account.useInternalQr !== false} alt={`${account.label || 'Lipa Namba'} payment QR code`} className="mx-auto aspect-square w-40 rounded-lg border border-outline-variant object-contain" />
-            {account.number && <p className="mt-2 text-xs font-semibold text-surface-on-variant">Lipa Namba: {account.number}</p>}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+import LipaPaymentModal from '../../components/public/LipaPaymentModal';
 
 export default function PaymentPage() {
-  const [transactionId, setTransactionId] = useState('');
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [paymentOrder, setPaymentOrder] = useState(null);
 
   const { items, getSubtotal, getTax, getTotal, orderType, tableNumber, customerName, customerPhone: cartCustomerPhone, deliveryAddress, deliveryLatitude, deliveryLongitude, orderSource, clearCart } = useCartStore();
   const createOrder = useOrderStore((s) => s.createOrder);
   const taxRate = useSettingsStore((s) => s.settings.tax_rate);
   const currency = useSettingsStore((s) => s.settings.currency || 'TZS');
-  const lipaNambaAccountsValue = useSettingsStore((s) => s.settings.lipa_namba_accounts || '');
   const navigate = useNavigate();
-  const savedQrAccounts = (() => {
-    try {
-      const accounts = JSON.parse(lipaNambaAccountsValue || '[]');
-      return Array.isArray(accounts) ? accounts.filter((account) => account?.number || account?.qrImage) : [];
-    } catch {
-      return [];
-    }
-  })();
 
   useEffect(() => {
     if (cartCustomerPhone) setCustomerPhone(cartCustomerPhone);
@@ -106,16 +75,8 @@ export default function PaymentPage() {
         return;
       }
 
-      await api.submitManualPayment({
-        paymentReference: order.paymentReference,
-        transactionId: transactionId.trim(),
-        senderPhone: customerPhone,
-        senderName: customerName || 'Guest',
-        notes: 'Payment claim submitted from FOH POS',
-      });
-
       clearCart();
-      navigate('/pos/success', { state: { orderId: order.id, total: order.total, method: 'lipa_namba', paymentReference: order.paymentReference, awaitingConfirmation: true } });
+      setPaymentOrder(order);
     } catch (err) {
       setError(err.message || 'Payment failed. Please try again.');
       setProcessing(false);
@@ -143,8 +104,6 @@ export default function PaymentPage() {
           <h1 className="mt-1 text-2xl font-display font-bold">Complete Payment</h1>
           <p className="mt-1 text-sm text-surface-on-variant">Choose your payment method and enter your details</p>
         </div>
-
-        <SavedQrCodes accounts={savedQrAccounts} amount={getTotal()} />
 
         <div className="card mb-6">
           <h3 className="font-bold text-sm mb-3">Order Summary</h3>
@@ -208,15 +167,6 @@ export default function PaymentPage() {
           </div>
         </div>
 
-        <SavedQrCodes accounts={savedQrAccounts} amount={getTotal()} />
-        {!savedQrAccounts.length && <div className="card mb-6 bg-yellow-50 border border-yellow-200"><p className="text-sm text-yellow-800">No payment QR has been uploaded in Settings yet.</p></div>}
-        <div className="card mb-6">
-          <h3 className="font-bold text-sm mb-2">Lipa Namba payment</h3>
-          <p className="text-xs text-surface-on-variant mb-3">Scan the QR, complete payment, then tap Done. The kitchen will confirm receipt before preparing the order.</p>
-          <label className="block text-xs font-semibold text-surface-on-variant mb-1">Mobile money transaction ID (optional)</label>
-          <input value={transactionId} onChange={(e) => setTransactionId(e.target.value)} placeholder="e.g. MPESA12345" className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
-        </div>
-
         <div className="flex gap-3">
           <Button
             variant="secondary"
@@ -231,7 +181,7 @@ export default function PaymentPage() {
             disabled={processing || !customerEmail || !customerPhone}
             className="flex-1"
           >
-            {processing ? 'Submitting...' : 'Done - Send to Kitchen'}
+            {processing ? 'Creating order...' : 'Continue to payment'}
           </Button>
         </div>
 
@@ -241,6 +191,16 @@ export default function PaymentPage() {
           </p>
         </div>
       </div>
+      <LipaPaymentModal
+        order={paymentOrder}
+        isOpen={Boolean(paymentOrder)}
+        currency={currency}
+        onClose={() => setPaymentOrder(null)}
+        onSuccess={(submittedOrder) => {
+          setPaymentOrder(null);
+          navigate('/pos/success', { state: { orderId: submittedOrder.id, total: submittedOrder.total, method: 'lipa_namba', paymentReference: submittedOrder.paymentReference, awaitingConfirmation: true } });
+        }}
+      />
     </div>
   );
 }
