@@ -24,9 +24,9 @@ export default function ReportsPage() {
   const [previewReport, setPreviewReport] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  const loadReport = () => api.getReports().then(setReport).finally(() => setLoading(false));
-  useEffect(() => { loadReport(); const timer = window.setInterval(loadReport, 30000); return () => window.clearInterval(timer); }, []);
-  useWebSocket((event) => { if (['order:created', 'order:updated', 'business:updated', 'staff:updated', 'inventory:updated'].includes(event)) loadReport(); });
+  const loadReport = () => api.getReports(range).then(setReport).finally(() => setLoading(false));
+  useEffect(() => { loadReport(); const timer = window.setInterval(loadReport, 30000); return () => window.clearInterval(timer); }, [range]);
+  useWebSocket((event) => { if (['order:created', 'order:updated', 'order:confirmed', 'payment:confirmed', 'business:updated', 'staff:updated', 'inventory:updated'].includes(event)) loadReport(); });
 
   const generateAiReview = async () => {
     setAiLoading(true);

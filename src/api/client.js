@@ -78,6 +78,7 @@ export const api = {
   getPublicOrder: (id, phone) => request(`/orders/public/${encodeURIComponent(id)}?phone=${encodeURIComponent(phone)}`),
   updateOrderStatus: (id, status) => request(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   updateOrderPaymentStatus: (id, paymentStatus, notes) => request(`/orders/${id}/payment-status`, { method: 'PATCH', body: JSON.stringify({ paymentStatus, notes }) }),
+  deleteOrder: (id) => request(`/orders/${id}`, { method: 'DELETE' }),
   printReceipt: (order) => request('/printer/receipt', { method: 'POST', body: JSON.stringify(order) }),
   printTestReceipt: () => request('/printer/test', { method: 'POST' }),
 
@@ -145,7 +146,7 @@ export const api = {
   markAllNotificationsRead: () => request('/notifications/read-all', { method: 'PATCH' }),
 
   getSales: () => request('/analytics/sales'),
-  getAnalyticsSummary: () => request('/analytics/summary'),
+  getAnalyticsSummary: (date) => request(`/analytics/summary${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   saveOperationalSummary: (type, date, payload) => request(`/analytics/operational-summary/${encodeURIComponent(type)}/${encodeURIComponent(date)}`, { method: 'PUT', body: JSON.stringify({ payload }) }),
   approveOperationalSummary: (type, date) => request(`/analytics/operational-summary/${encodeURIComponent(type)}/${encodeURIComponent(date)}/approve`, { method: 'PATCH' }),
   getCategorySales: () => request('/analytics/categories'),
@@ -160,7 +161,7 @@ export const api = {
   updateChatFaq: (id, data) => request(`/chat/faq/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteChatFaq: (id) => request(`/chat/faq/${id}`, { method: 'DELETE' }),
   getAnalyticsReports: () => request('/analytics/reports'),
-  getReports: () => request('/analytics/reports'),
+  getReports: (range) => request(`/analytics/reports${range ? `?range=${encodeURIComponent(range)}` : ''}`),
   getFinancialReportPreview: (type) => request(`/analytics/reports/data?type=${encodeURIComponent(type)}`),
   exportFinancialReport: async (type, format) => {
     const token = getToken();

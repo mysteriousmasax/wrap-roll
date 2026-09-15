@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import db from '../db/database.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
 import { getOrderById, getOrders, nextOrderId, nextPaymentReference } from '../utils/orders.js';
 import { buildOrderConfirmationMessage, getCustomerNotificationChannels } from '../utils/orderNotifications.js';
@@ -423,6 +423,18 @@ router.patch('/:id/payment-status', authMiddleware, (req, res) => {
   }
 
   res.json(order);
+});
+
+router.delete('/:id', authMiddleware, requireRole('admin', 'executive', 'manager'), (req, res) => {
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  const now = new Date().toISOString();
+  db.prepare("UPDATE orders SET status = 'cancelled', payment_status = CASE WHEN payment_status = 'paid' THEN 'refunded' ELSE 'failed' END, updated_at = ? WHERE id = ?").run(now, order.id);
+  db.prepare("UPDATE payments SET status = CASE WHEN status = 'paid' THEN 'refunded' ELSE 'failed' END, updated_at = ? WHERE order_id = ?").run(now, order.id);
+  db.prepare("INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata) VALUES (?, 'deleted', 'cancelled', ?, ?, ?)").run(order.id, req.user.id, now, JSON.stringify({ deletedBy: req.user.name, role: req.user.role }));
+  const updated = getOrderById(order.id);
+  broadcast('order:updated', updated);
+  res.json({ ok: true, order: updated });
 });
 
 export default router;

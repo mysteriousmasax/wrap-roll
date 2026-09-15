@@ -84,9 +84,11 @@ export default function LipaPaymentModal({
     api.getPublicSettings().then((settings) => {
       try {
         const accounts = JSON.parse(settings.lipa_namba_accounts || '[]');
-        setPaymentAccounts(Array.isArray(accounts) ? accounts.filter((account) => account?.number) : []);
+        const validAccounts = Array.isArray(accounts) ? accounts.filter((account) => account?.number) : [];
+        setPaymentAccounts(validAccounts.length ? validAccounts : settings.lipa_namba_number ? [{ number: settings.lipa_namba_number, name: settings.lipa_namba_name || 'Wrap & Roll', network: settings.lipa_namba_provider || 'Lipa Namba', label: settings.lipa_namba_name || 'Main Lipa Namba' }] : []);
+        setSelectedAccountIndex(0);
       } catch {
-        setPaymentAccounts([]);
+        setPaymentAccounts(settings.lipa_namba_number ? [{ number: settings.lipa_namba_number, name: settings.lipa_namba_name || 'Wrap & Roll', network: settings.lipa_namba_provider || 'Lipa Namba' }] : []);
       }
     }).catch(() => setPaymentAccounts([])).finally(() => setAccountsLoading(false));
   }, [isOpen]);

@@ -113,6 +113,7 @@ export default function HomePage() {
   );
   const [paymentReference, setPaymentReference] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryCoordinates, setDeliveryCoordinates] = useState({ latitude: null, longitude: null });
   const [locating, setLocating] = useState(false);
   const [orderStatus, setOrderStatus] = useState('');
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -313,6 +314,8 @@ export default function HomePage() {
         customerPhone,
         customerEmail,
         deliveryAddress: tableContext ? '' : deliveryAddress,
+        deliveryLatitude: tableContext ? null : deliveryCoordinates.latitude,
+        deliveryLongitude: tableContext ? null : deliveryCoordinates.longitude,
         orderType: tableContext ? 'dine-in' : 'delivery',
         tableNumber: tableContext?.number || null,
         orderSource: tableContext ? 'nfc' : 'website',
@@ -340,8 +343,10 @@ export default function HomePage() {
         try {
           const result = await reverseGoogleGeocode(coords.latitude, coords.longitude);
           setDeliveryAddress(result.address || coordinateAddress);
+          setDeliveryCoordinates({ latitude: coords.latitude, longitude: coords.longitude });
         } catch {
           setDeliveryAddress(coordinateAddress);
+          setDeliveryCoordinates({ latitude: coords.latitude, longitude: coords.longitude });
         } finally {
           setLocating(false);
         }

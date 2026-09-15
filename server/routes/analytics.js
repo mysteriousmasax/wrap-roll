@@ -95,10 +95,10 @@ function getCurrentPeriodRevenue(start, end) {
   return db.prepare("SELECT COALESCE(SUM(total), 0) AS revenue, COUNT(*) AS orders FROM orders WHERE created_at >= ? AND created_at < ? AND status = 'completed' AND payment_status IN ('paid', 'completed')").get(start, end);
 }
 
-function getOperationalSummaries() {
+function getOperationalSummaries(requestedDate = '') {
   const now = new Date();
   const latestOrderDay = db.prepare("SELECT MAX(substr(created_at, 1, 10)) AS day FROM orders WHERE status = 'completed' AND payment_status IN ('paid', 'completed')").get()?.day;
-  const reportDate = latestOrderDay || now.toISOString().slice(0, 10);
+  const reportDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : (latestOrderDay || now.toISOString().slice(0, 10));
   const reportDateValue = new Date(`${reportDate}T00:00:00Z`);
   const weekStart = new Date(reportDateValue);
   weekStart.setUTCDate(weekStart.getUTCDate() - 6);
@@ -208,7 +208,7 @@ router.get('/summary', authMiddleware, (req, res) => {
       monthlyRevenue: percentChange(Number(monthTotals.revenue || 0), Number(getCurrentPeriodRevenue(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString(), monthStart).revenue || 0)),
       activeKitchenOrders: null,
     },
-    operational: getOperationalSummaries(),
+    operational: getOperationalSummaries(req.query.date),
     ranges: summaryRanges,
   });
 });

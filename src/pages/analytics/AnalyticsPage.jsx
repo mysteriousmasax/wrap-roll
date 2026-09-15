@@ -78,7 +78,7 @@ export default function AnalyticsPage() {
       const [sales, categories, sum, orders] = await Promise.all([
         api.getSales(),
         api.getCategorySales(),
-        api.getAnalyticsSummary(),
+        api.getAnalyticsSummary(new Date().toISOString().slice(0, 10)),
         api.getOrders(),
       ]);
       setSalesData(sales || []);
@@ -102,7 +102,7 @@ export default function AnalyticsPage() {
   }, []);
 
   useWebSocket((event) => {
-    if (['order:created', 'order:updated', 'business:updated', 'staff:updated', 'inventory:updated'].includes(event)) loadAnalytics();
+    if (['order:created', 'order:updated', 'order:confirmed', 'payment:confirmed', 'business:updated', 'staff:updated', 'inventory:updated'].includes(event)) loadAnalytics();
   });
 
   if (loading) {
