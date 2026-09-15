@@ -95,7 +95,8 @@ export function getConfiguredPaymentAccounts() {
       return null;
     }
   };
-  const accounts = parseAccounts(stored) || parseAccounts(process.env.LIPA_ACCOUNTS_JSON) || [];
+  const storedAccounts = parseAccounts(stored);
+  const accounts = storedAccounts?.length ? storedAccounts : (parseAccounts(process.env.LIPA_ACCOUNTS_JSON) || []);
   return accounts.filter((account) => account?.number && !String(account.number).includes('45342017'));
 }
 
