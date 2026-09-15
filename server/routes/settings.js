@@ -19,6 +19,8 @@ const publicDefaults = {
   vat_rate: '18',
   currency: 'TZS',
   tax_id: '',
+  branch_code: '',
+  branch_name: '',
   payment_card: 'true',
   payment_mobile: 'true',
   payment_cash: 'true',

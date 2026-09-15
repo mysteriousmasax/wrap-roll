@@ -28,6 +28,7 @@ import PeopleHubPage from './pages/management/PeopleHubPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
 import HomePage from './pages/public/HomePage';
 import PrivacyPolicyPage from './pages/public/PrivacyPolicyPage';
+import BranchSetupPage from './pages/desktop/BranchSetupPage';
 
 const ROUTE_ROLES = {
   '/pos': ['admin', 'foh'],
@@ -96,6 +97,7 @@ function AppRoutes() {
       <Route path="/table/:tagId" element={<HomePage />} />
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/desktop-setup" element={<BranchSetupPage />} />
 
       <Route
         element={

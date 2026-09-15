@@ -13,6 +13,7 @@ const sections = [
   { id: 'tax', label: 'Tax & Currency', icon: Receipt },
   { id: 'payments', label: 'Payments', icon: CreditCard },
   { id: 'printer', label: 'Receipt Printer', icon: Printer },
+  { id: 'desktop', label: 'Desktop POS', icon: Download },
   { id: 'appearance', label: 'Website Motion', icon: Globe },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'chat', label: 'Chat Auto-Replies', icon: MessageCircle },
@@ -55,6 +56,7 @@ export default function SettingsPage() {
   const [aiActivity, setAiActivity] = useState([]);
   const [retraining, setRetraining] = useState(false);
   const [testingPrinter, setTestingPrinter] = useState(false);
+  const [desktopRelease, setDesktopRelease] = useState(null);
 
   useEffect(() => {
     if (loaded) {
@@ -71,6 +73,11 @@ export default function SettingsPage() {
       api.getAiActivity().then((result) => setAiActivity(result.activity || [])).catch(() => setMessage('Unable to load AI activity'));
     }
   }, [activeSection, loaded]);
+
+  useEffect(() => {
+    if (activeSection !== 'desktop' || desktopRelease) return;
+    api.getDesktopRelease().then(setDesktopRelease).catch(() => setDesktopRelease({ error: 'Desktop installer is not published yet.' }));
+  }, [activeSection, desktopRelease]);
 
   const update = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -311,6 +318,15 @@ export default function SettingsPage() {
                 <Input label="Network Port" type="number" value={form.printer_port || '9100'} onChange={(e) => update('printer_port', e.target.value)} />
               </div>
               <p className="text-xs text-surface-on-variant mt-4">Pair the printer in Windows first. For Bluetooth SPP, select the outgoing COM port assigned to the Romeson device.</p>
+            </Card>
+          )}
+          {activeSection === 'desktop' && (
+            <Card>
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Download size={18} /></div>
+                <div><h3 className="font-display font-bold">Offline Desktop POS</h3><p className="mt-1 text-xs text-surface-on-variant">Download the signed Windows installer for a branch till and kitchen display. Windows will ask the operator to approve the installer.</p></div>
+              </div>
+              {desktopRelease?.url ? <div className="mt-5 rounded-xl border border-outline-variant bg-surface-container-low p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-bold">Version {desktopRelease.version}</p><p className="mt-1 text-xs text-surface-on-variant">After installation, the first launch asks for the branch code and branch name.</p></div><Button onClick={() => window.open(desktopRelease.url, '_blank')}><Download size={14} /> Download installer</Button></div>{desktopRelease.sha256 && <p className="mt-3 break-all font-mono text-[10px] text-surface-on-variant">SHA-256: {desktopRelease.sha256}</p>}</div> : <div className="mt-5 rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">{desktopRelease?.error || 'Loading release information...'}</div>}
             </Card>
           )}
           {activeSection === 'appearance' && (

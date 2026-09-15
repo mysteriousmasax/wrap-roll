@@ -42,6 +42,12 @@ Google Business Profile cannot be fetched automatically from only a public Maps 
 
 Set `LIPA_ACCOUNTS_JSON` in Railway to the real Megamore payment accounts before accepting orders. It must be a JSON array with `network`, `number`, `name`, and optional `ussd` fields. The old hardcoded account is intentionally removed; without configured accounts checkout blocks payment submission.
 
+## Desktop POS release
+
+Build the signed Windows installer with `npm run desktop:build`, publish the resulting NSIS `.exe` to a trusted release host, then set `DESKTOP_POS_DOWNLOAD_URL`, `DESKTOP_POS_VERSION`, `DESKTOP_POS_SHA256`, and `DESKTOP_POS_SIZE` in Railway. Admin Settings will show the verified release metadata and download link. Windows still requires the operator to run the downloaded installer and approve UAC.
+
+Each new desktop installation opens a local branch setup screen before FOH/KDS. Enter a unique branch code and branch name; the values are stored in that branch's local offline SQLite database.
+
 ## Windows POS installation
 
 1. Copy the project to a simple path such as `C:\WrapRollPOS`.

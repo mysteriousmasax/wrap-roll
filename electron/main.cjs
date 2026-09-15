@@ -27,12 +27,63 @@ function requestHealth() {
   });
 }
 
+function requestJson(route) {
+  return new Promise((resolve, reject) => {
+    const request = http.get(`http://127.0.0.1:${PORT}${route}`, (response) => {
+      let body = '';
+      response.on('data', (chunk) => { body += chunk; });
+      response.on('end', () => {
+        try { resolve({ status: response.statusCode, data: JSON.parse(body || '{}') }); } catch (error) { reject(error); }
+      });
+    });
+    request.setTimeout(1500, () => request.destroy(new Error('Local POS request timed out')));
+    request.on('error', reject);
+  });
+}
+
 async function waitForServer() {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     if (await requestHealth()) return true;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   return false;
+}
+
+async function ensureBranchSetup() {
+  try {
+    const status = await requestJson('/api/desktop/branch-status');
+    if (status.data.configured) return true;
+  } catch {}
+
+  const setupWindow = new BrowserWindow({
+    width: 560,
+    height: 620,
+    resizable: false,
+    title: 'Wrap & Roll Branch Setup',
+    backgroundColor: '#fffdfa',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  await setupWindow.loadURL(`http://127.0.0.1:${PORT}/desktop-setup`);
+  let completed = false;
+  await new Promise((resolve) => {
+    const timer = setInterval(async () => {
+      try {
+        const status = await requestJson('/api/desktop/branch-status');
+        if (status.data.configured) {
+          completed = true;
+          clearInterval(timer);
+          if (!setupWindow.isDestroyed()) setupWindow.close();
+          resolve();
+        }
+      } catch {}
+    }, 500);
+    setupWindow.on('closed', () => {
+      clearInterval(timer);
+      if (!completed && !app.isQuitting) app.quit();
+      resolve();
+    });
+  });
+  return !app.isQuitting;
 }
 
 function startServer() {
@@ -106,6 +157,7 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
+  if (!(await ensureBranchSetup())) return;
   const displays = screen.getAllDisplays();
   const primary = screen.getPrimaryDisplay();
   const secondary = displays.find((display) => display.id !== primary.id) || primary;

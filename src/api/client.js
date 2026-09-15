@@ -141,6 +141,9 @@ export const api = {
   getSettings: () => request('/settings'),
   getPublicSettings: () => request('/settings/public'),
   updateSettings: (data) => request('/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  getDesktopRelease: () => request('/desktop/release'),
+  getDesktopBranchStatus: () => request('/desktop/branch-status'),
+  enrollDesktopBranch: (data) => request('/desktop/branch-enroll', { method: 'POST', body: JSON.stringify(data) }),
 
   getNotifications: () => request('/notifications'),
   markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: 'PATCH' }),

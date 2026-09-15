@@ -23,6 +23,7 @@ import loyaltyRoutes from './routes/loyalty.js';
 import businessRoutes from './routes/business.js';
 import crmIntelligenceRoutes from './routes/crmIntelligence.js';
 import printerRoutes from './routes/printer.js';
+import desktopRoutes from './routes/desktop.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' || process.env.PORT || process.env.RAILWAY_ENVIRONMENT ? '0.0.0.0' : '127.0.0.1');
@@ -73,6 +74,7 @@ app.use('/api/loyalty', loyaltyRoutes);
 app.use('/api/business', businessRoutes);
 app.use('/api/crm-intelligence', crmIntelligenceRoutes);
 app.use('/api/printer', printerRoutes);
+app.use('/api/desktop', desktopRoutes);
 
 app.use(express.static(clientDist, { index: false, setHeaders: (res, filePath) => {
   if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-store');
