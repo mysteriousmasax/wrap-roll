@@ -14,6 +14,7 @@ function getImageSource(image) {
 export default function ProductCard({ item, onClick }) {
   return (
     <div
+      data-pos-item-id={item.id}
       onClick={() => onClick(item)}
       className="pos-product-card bg-white rounded-xl shadow-ambient hover:shadow-elevated transition-all cursor-pointer overflow-hidden active:scale-[0.98] group"
     >

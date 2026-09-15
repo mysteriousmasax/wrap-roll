@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Plus, Minus, Utensils, Sparkles, Check } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
 import Button from '../../components/ui/Button';
@@ -9,6 +9,12 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
   const [selectedModifiers, setSelectedModifiers] = useState([]);
   const [specialInstructions, setSpecialInstructions] = useState('');
   const [quantity, setQuantity] = useState(1);
+
+  useEffect(() => {
+    setSelectedModifiers([]);
+    setSpecialInstructions('');
+    setQuantity(1);
+  }, [item?.id]);
 
 
   if (!isOpen || !item) return null;

@@ -591,6 +591,7 @@ export default function POSPage() {
   });
 
   const handleItemClick = (item) => {
+    document.querySelector(`[data-pos-item-id="${CSS.escape(String(item.id))}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
     setSelectedItem(item);
     setShowCustomization(true);
   };

@@ -159,7 +159,6 @@ export default function CRMPage() {
     printWindow.document.write('<p style="font-family:Arial,sans-serif;padding:32px">Preparing invoice...</p>');
     setInvoiceLoading(true);
     try {
-      await api.updateCustomerLoyalty(selectedCustomer.id, customerForm);
       const invoice = await api.createCustomerInvoice(selectedCustomer.id);
       if (invoice.printStatus !== 'printed') printInvoice(invoice, printWindow);
       setStatus(`Invoice ${invoice.invoiceNumber} created.`);
