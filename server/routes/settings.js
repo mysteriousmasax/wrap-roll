@@ -37,7 +37,12 @@ router.get('/public', (req, res) => {
   const settings = { ...publicDefaults };
   for (const row of rows) settings[row.key] = row.value;
 
-  if (!settings.lipa_namba_accounts || settings.lipa_namba_accounts === '[]') settings.lipa_namba_accounts = process.env.LIPA_ACCOUNTS_JSON || '[]';
+  try {
+    const storedAccounts = JSON.parse(settings.lipa_namba_accounts || '[]');
+    if (!Array.isArray(storedAccounts)) throw new Error('Stored payment accounts are not an array');
+  } catch {
+    settings.lipa_namba_accounts = process.env.LIPA_ACCOUNTS_JSON || '[]';
+  }
 
   res.json(settings);
 });

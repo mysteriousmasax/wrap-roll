@@ -87,13 +87,16 @@ export const MOBILE_NETWORKS = {
 
 export function getConfiguredPaymentAccounts() {
   const stored = db.prepare("SELECT value FROM settings WHERE key = 'lipa_namba_accounts'").get()?.value || '';
-  const configured = stored && stored !== '[]' ? stored : (process.env.LIPA_ACCOUNTS_JSON || '[]');
-  try {
-    const accounts = JSON.parse(configured);
-    return Array.isArray(accounts) ? accounts.filter((account) => account?.number && !String(account.number).includes('45342017')) : [];
-  } catch {
-    return [];
-  }
+  const parseAccounts = (value) => {
+    try {
+      const accounts = JSON.parse(value || '[]');
+      return Array.isArray(accounts) ? accounts : null;
+    } catch {
+      return null;
+    }
+  };
+  const accounts = parseAccounts(stored) || parseAccounts(process.env.LIPA_ACCOUNTS_JSON) || [];
+  return accounts.filter((account) => account?.number && !String(account.number).includes('45342017'));
 }
 
 /**
