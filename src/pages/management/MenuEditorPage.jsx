@@ -36,6 +36,25 @@ import {
 const DEFAULT_CATEGORIES = ['wraps', 'salads', 'rolls', 'pizzas', 'burgers', 'combos', 'sides', 'coffee', 'cold-drinks', 'soft-drinks'];
 const FALLBACK_MENU_IMAGE = 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=600&h=600&fit=crop';
 
+function makeIngredientRow(ingredient = {}) {
+  return {
+    name: ingredient.name || ingredient.inventoryName || ingredient.item || '',
+    quantity: String(ingredient.quantity ?? ''),
+    unit: ingredient.unit || 'kg',
+    inventoryId: ingredient.inventoryId ?? ingredient.id ?? '',
+  };
+}
+
+function normalizeIngredientRows(value) {
+  if (Array.isArray(value)) {
+    return value.map((ingredient) => makeIngredientRow(ingredient));
+  }
+  if (typeof value === 'string') {
+    return value.split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean).map((entry) => makeIngredientRow({ name: entry, quantity: '1', unit: 'kg' }));
+  }
+  return [makeIngredientRow()];
+}
+
 function getSafeMenuImage(image) {
   if (typeof image !== 'string') return FALLBACK_MENU_IMAGE;
   const value = image.trim();
@@ -47,6 +66,7 @@ function getSafeMenuImage(image) {
 export default function MenuEditorPage() {
   const [items, setItems] = useState([]);
   const [modifiers, setModifiers] = useState([]);
+  const [inventoryItems, setInventoryItems] = useState([]);
   const [activeCategory, setActiveCategory] = useState('all');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
@@ -55,6 +75,8 @@ export default function MenuEditorPage() {
   const [showModifiers, setShowModifiers] = useState(false);
   const [showNewCategoryModal, setShowNewCategoryModal] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [categoryEditSlug, setCategoryEditSlug] = useState(null);
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
   const [customCategories, setCustomCategories] = useState([]);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [modifierForm, setModifierForm] = useState({ name: '', price: '', type: 'add' });
@@ -68,6 +90,8 @@ export default function MenuEditorPage() {
     modifier_ids: [],
     image: '',
     prep_time_minutes: '8',
+    ingredients: [makeIngredientRow()],
+    cooking_instructions: '',
     popular: false,
     active: true,
   });
@@ -97,9 +121,29 @@ export default function MenuEditorPage() {
     }
   };
 
+  const loadInventory = async () => {
+    try {
+      const rows = await api.getInventory();
+      setInventoryItems(rows || []);
+    } catch (error) {
+      setLoadError(error.message || 'Unable to load inventory items.');
+    }
+  };
+
+  const loadCategories = async () => {
+    try {
+      const rows = await api.getMenuCategories();
+      setCustomCategories((rows || []).map((category) => category.slug || category.name));
+    } catch (error) {
+      setLoadError(error.message || 'Unable to load categories.');
+    }
+  };
+
   useEffect(() => {
     loadMenu();
     loadModifiers();
+    loadInventory();
+    loadCategories();
   }, []);
 
   useWebSocket((event) => {
@@ -138,6 +182,8 @@ export default function MenuEditorPage() {
       modifier_ids: (item.modifiers || []).map((modifier) => modifier.id),
       image: item.image || '',
       prep_time_minutes: String(item.prep_time_minutes ?? 8),
+      ingredients: normalizeIngredientRows(item.ingredients),
+      cooking_instructions: item.cooking_instructions || '',
       popular: item.popular,
       active: item.active,
     });
@@ -146,6 +192,12 @@ export default function MenuEditorPage() {
 
   const saveEdit = async () => {
     if (!form.name || !form.price) return;
+    const ingredientPayload = (form.ingredients || []).map((entry) => ({
+      name: entry.name?.trim() || '',
+      quantity: Number(entry.quantity) || 0,
+      unit: entry.unit?.trim() || 'kg',
+      inventoryId: entry.inventoryId || '',
+    })).filter((entry) => entry.name && entry.quantity > 0);
     await api.updateMenuItem(editItem.id, {
       name: form.name,
       description: form.description,
@@ -155,6 +207,8 @@ export default function MenuEditorPage() {
       modifier_ids: form.modifier_ids,
       image: form.image,
       prep_time_minutes: Number(form.prep_time_minutes || 8),
+      ingredients: ingredientPayload,
+      cooking_instructions: form.cooking_instructions,
       popular: form.popular,
       active: form.active,
     });
@@ -164,6 +218,12 @@ export default function MenuEditorPage() {
 
   const saveAdd = async () => {
     if (!form.name || !form.price) return;
+    const ingredientPayload = (form.ingredients || []).map((entry) => ({
+      name: entry.name?.trim() || '',
+      quantity: Number(entry.quantity) || 0,
+      unit: entry.unit?.trim() || 'kg',
+      inventoryId: entry.inventoryId || '',
+    })).filter((entry) => entry.name && entry.quantity > 0);
     await api.createMenuItem({
       name: form.name,
       description: form.description,
@@ -173,6 +233,8 @@ export default function MenuEditorPage() {
       modifier_ids: form.modifier_ids,
       image: form.image,
       prep_time_minutes: Number(form.prep_time_minutes || 8),
+      ingredients: ingredientPayload,
+      cooking_instructions: form.cooking_instructions,
       popular: form.popular,
     });
     setShowAdd(false);
@@ -218,16 +280,25 @@ export default function MenuEditorPage() {
     }
   };
 
-  const handleAddNewCategory = (e) => {
+  const handleAddNewCategory = async (e) => {
     e.preventDefault();
     if (!newCategoryName.trim()) return;
     const cleanCat = newCategoryName.trim().toLowerCase().replace(/\s+/g, '-');
-    if (!customCategories.includes(cleanCat)) {
-      setCustomCategories((prev) => [...prev, cleanCat]);
+    try {
+      if (categoryEditSlug) {
+        await api.updateMenuCategory(categoryEditSlug, { name: newCategoryName.trim() });
+      } else if (!customCategories.includes(cleanCat)) {
+        await api.createMenuCategory({ name: newCategoryName.trim() });
+      }
+      await loadCategories();
+      await loadMenu();
+      setForm((f) => ({ ...f, category: cleanCat, categories: [cleanCat] }));
+      setNewCategoryName('');
+      setCategoryEditSlug(null);
+      setShowNewCategoryModal(false);
+    } catch (error) {
+      setLoadError(error.message || 'Unable to save category.');
     }
-    setForm((f) => ({ ...f, category: cleanCat }));
-    setNewCategoryName('');
-    setShowNewCategoryModal(false);
   };
 
   const resetForm = () =>
@@ -240,6 +311,8 @@ export default function MenuEditorPage() {
       modifier_ids: [],
       image: '',
       prep_time_minutes: '8',
+      ingredients: [makeIngredientRow()],
+      cooking_instructions: '',
       popular: false,
       active: true,
     });
@@ -270,6 +343,70 @@ export default function MenuEditorPage() {
         value={form.description}
         onChange={(e) => setForm({ ...form, description: e.target.value })}
       />
+      <div className="grid gap-3 md:grid-cols-2">
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <label className="block text-xs font-bold uppercase tracking-wider text-[#746e67]">Recipe ingredients</label>
+            <button
+              type="button"
+              onClick={() => setForm((current) => ({ ...current, ingredients: [...(current.ingredients || [makeIngredientRow()]), makeIngredientRow()] }))}
+              className="text-[10px] font-bold uppercase tracking-wide text-[#ae002a] hover:underline"
+            >
+              + Add ingredient
+            </button>
+          </div>
+          <div className="space-y-2">
+            {(form.ingredients || [makeIngredientRow()]).map((ingredient, index) => (
+              <div key={index} className="grid grid-cols-[1.5fr_0.8fr_0.7fr_auto] gap-2 rounded-xl border border-[#ebdccb] bg-white p-2">
+                <input
+                  list="inventory-name-options"
+                  value={ingredient.name}
+                  onChange={(e) => setForm((current) => ({ ...current, ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === index ? { ...entry, name: e.target.value } : entry) }))}
+                  placeholder="Inventory item"
+                  className="w-full rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2 py-1.5 text-[11px] text-[#24211e] outline-none focus:border-[#ae002a]"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={ingredient.quantity}
+                  onChange={(e) => setForm((current) => ({ ...current, ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantity: e.target.value } : entry) }))}
+                  placeholder="Qty"
+                  className="w-full rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2 py-1.5 text-[11px] text-[#24211e] outline-none focus:border-[#ae002a]"
+                />
+                <input
+                  value={ingredient.unit}
+                  onChange={(e) => setForm((current) => ({ ...current, ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === index ? { ...entry, unit: e.target.value } : entry) }))}
+                  placeholder="kg"
+                  className="w-full rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2 py-1.5 text-[11px] text-[#24211e] outline-none focus:border-[#ae002a]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setForm((current) => ({ ...current, ingredients: (current.ingredients || [makeIngredientRow()]).filter((_, rowIndex) => rowIndex !== index) || [makeIngredientRow()] }))}
+                  className="rounded-lg border border-[#ebdccb] bg-[#fff5f5] px-2 py-1.5 text-[#ae002a] hover:bg-[#ffe5e5]"
+                  title="Remove ingredient"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <datalist id="inventory-name-options">
+            {inventoryItems.map((inventoryItem) => (
+              <option key={inventoryItem.id} value={inventoryItem.name} />
+            ))}
+          </datalist>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-[#746e67]">Cooking procedure</label>
+          <textarea
+            value={form.cooking_instructions}
+            onChange={(e) => setForm({ ...form, cooking_instructions: e.target.value })}
+            className="min-h-[92px] w-full rounded-xl border border-[#ebdccb] bg-white px-3 py-2 text-xs text-[#24211e] outline-none focus:border-[#ae002a]"
+            placeholder="1. Grill chicken, 2. Assemble wrap, 3. Finish with sauce"
+          />
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <Input
           label="Price (TZS)"
@@ -760,35 +897,59 @@ export default function MenuEditorPage() {
       </div>
 
       {/* Category Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-        <button
-          onClick={() => setActiveCategory('all')}
-          className={
-            'px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors ' +
-            (activeCategory === 'all'
-              ? 'bg-[#ae002a] text-white shadow-sm'
-              : 'bg-white border border-[#ebdccb] text-[#554e46] hover:bg-[#faeee2]')
-          }
-        >
-          All Items ({items.length})
-        </button>
-        {allCategories.map((cat) => {
-          const count = items.filter((i) => i.category === cat).length;
-          return (
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
             <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
+              onClick={() => setActiveCategory('all')}
               className={
-                'px-3.5 py-1.5 rounded-full text-xs font-bold capitalize whitespace-nowrap transition-colors ' +
-                (activeCategory === cat
+                'px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors ' +
+                (activeCategory === 'all'
                   ? 'bg-[#ae002a] text-white shadow-sm'
                   : 'bg-white border border-[#ebdccb] text-[#554e46] hover:bg-[#faeee2]')
               }
             >
-              {cat} ({count})
+              All Items ({items.length})
             </button>
-          );
-        })}
+            {allCategories.map((cat) => {
+              const count = items.filter((i) => (i.categories || [i.category]).includes(cat)).length;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  className={
+                    'px-3.5 py-1.5 rounded-full text-xs font-bold capitalize whitespace-nowrap transition-colors ' +
+                    (activeCategory === cat
+                      ? 'bg-[#ae002a] text-white shadow-sm'
+                      : 'bg-white border border-[#ebdccb] text-[#554e46] hover:bg-[#faeee2]')
+                  }
+                >
+                  {cat} ({count})
+                </button>
+              );
+            })}
+          </div>
+          <button type="button" onClick={() => setShowCategoryManager((value) => !value)} className="shrink-0 rounded-full border border-[#ebdccb] bg-white px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-[#554e46] hover:bg-[#faeee2]">
+            {showCategoryManager ? 'Hide categories' : 'Manage categories'}
+          </button>
+        </div>
+        {showCategoryManager && (
+          <div className="rounded-2xl border border-[#ebdccb] bg-[#fffaf4] p-3">
+            <div className="flex flex-wrap gap-2">
+              {allCategories.map((cat) => (
+                <div key={cat} className="flex items-center gap-1 rounded-full border border-[#ebdccb] bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[#554e46]">
+                  <span>{cat}</span>
+                  <button type="button" onClick={() => { setCategoryEditSlug(cat); setNewCategoryName(cat); setShowNewCategoryModal(true); }} className="rounded p-0.5 text-[#ae002a] hover:bg-[#faeee2]" title="Edit category">
+                    <Edit3 size={11} />
+                  </button>
+                  <button type="button" onClick={async () => { await api.deleteMenuCategory(cat); await loadCategories(); await loadMenu(); }} className="rounded p-0.5 text-[#ae002a] hover:bg-[#ffe5e5]" title="Delete category">
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {loadError && (
@@ -819,7 +980,7 @@ export default function MenuEditorPage() {
                 }}
               />
               <span className="absolute right-3 top-3 rounded-full bg-white/95 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[#ae002a] shadow-sm">
-                {item.category}
+                {(item.categories || [item.category]).filter(Boolean).slice(0, 2).join(' · ')}
               </span>
               <button type="button" title="Download food image" onClick={() => downloadMenuImage(item)} disabled={!item.image} className="absolute bottom-3 right-3 rounded-xl bg-white/95 p-2 text-[#ae002a] shadow-sm hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"><Download size={14} /></button>
             </div>
@@ -856,8 +1017,12 @@ export default function MenuEditorPage() {
       {/* Add New Category Modal */}
       <Modal
         isOpen={showNewCategoryModal}
-        onClose={() => setShowNewCategoryModal(false)}
-        title="Add Food Category"
+        onClose={() => {
+          setShowNewCategoryModal(false);
+          setCategoryEditSlug(null);
+          setNewCategoryName('');
+        }}
+        title={categoryEditSlug ? 'Edit Food Category' : 'Add Food Category'}
       >
         <form onSubmit={handleAddNewCategory} className="space-y-4">
           <Input
@@ -869,13 +1034,17 @@ export default function MenuEditorPage() {
           <div className="flex gap-3 pt-2">
             <Button
               variant="secondary"
-              onClick={() => setShowNewCategoryModal(false)}
+              onClick={() => {
+                setShowNewCategoryModal(false);
+                setCategoryEditSlug(null);
+                setNewCategoryName('');
+              }}
               className="flex-1"
             >
               Cancel
             </Button>
             <Button type="submit" className="flex-1 bg-[#ae002a] text-white hover:bg-[#920023]">
-              Add Category
+              {categoryEditSlug ? 'Save Category' : 'Add Category'}
             </Button>
           </div>
         </form>

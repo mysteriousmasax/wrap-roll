@@ -31,7 +31,17 @@ export async function initDatabase() {
       image TEXT,
       prep_time_minutes INTEGER DEFAULT 8,
       popular INTEGER DEFAULT 0,
-      active INTEGER DEFAULT 1
+      active INTEGER DEFAULT 1,
+      ingredients TEXT DEFAULT '[]',
+      cooking_instructions TEXT DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS menu_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      slug TEXT NOT NULL UNIQUE,
+      active INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS modifiers (
@@ -590,6 +600,13 @@ export async function initDatabase() {
 
 function migrateSchema(db) {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS menu_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      slug TEXT NOT NULL UNIQUE,
+      active INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS menu_item_categories (
       menu_item_id INTEGER NOT NULL,
       category TEXT NOT NULL,
@@ -606,6 +623,9 @@ function migrateSchema(db) {
   `);
   db.prepare(`INSERT OR IGNORE INTO menu_item_categories (menu_item_id, category)
     SELECT id, category FROM menu_items WHERE category IS NOT NULL AND trim(category) <> ''`).run();
+  db.prepare(`INSERT OR IGNORE INTO menu_categories (name, slug, active, created_at)
+    SELECT DISTINCT category, lower(replace(trim(category), ' ', '-')), 1, datetime('now')
+    FROM menu_items WHERE category IS NOT NULL AND trim(category) <> ''`).run();
   const cols = db.prepare('PRAGMA table_info(orders)').all();
   if (cols.length > 0 && !cols.some((c) => c.name === 'delivery_address')) {
     db.exec('ALTER TABLE orders ADD COLUMN delivery_address TEXT');
@@ -691,6 +711,8 @@ function migrateSchema(db) {
   if (!inventoryCols.some((col) => col.name === 'storage_location')) db.exec('ALTER TABLE inventory ADD COLUMN storage_location TEXT');
   const menuCols = db.prepare('PRAGMA table_info(menu_items)').all();
   if (!menuCols.some((col) => col.name === 'prep_time_minutes')) db.exec('ALTER TABLE menu_items ADD COLUMN prep_time_minutes INTEGER DEFAULT 8');
+  if (!menuCols.some((col) => col.name === 'ingredients')) db.exec("ALTER TABLE menu_items ADD COLUMN ingredients TEXT DEFAULT '[]'");
+  if (!menuCols.some((col) => col.name === 'cooking_instructions')) db.exec("ALTER TABLE menu_items ADD COLUMN cooking_instructions TEXT DEFAULT ''");
   const orderItemCols = db.prepare('PRAGMA table_info(order_items)').all();
   if (!orderItemCols.some((col) => col.name === 'prep_time_minutes')) db.exec('ALTER TABLE order_items ADD COLUMN prep_time_minutes INTEGER DEFAULT 8');
   const customerCols = db.prepare('PRAGMA table_info(customers)').all();

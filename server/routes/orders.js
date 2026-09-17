@@ -9,8 +9,54 @@ import { PAYMENT_STATUSES, ORDER_STATUSES } from '../utils/paymentProviders.js';
 
 const router = Router();
 
+function parseMenuIngredients(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return value.split(',').map((entry) => entry.trim()).filter(Boolean);
+    }
+  }
+  return [];
+}
+
+function deductRecipeInventory(menuItemId, qty, inventoryUsage = []) {
+  const menuItem = db.prepare('SELECT id, name, ingredients, cooking_instructions FROM menu_items WHERE id = ?').get(menuItemId);
+  if (!menuItem) return;
+  const ingredientRows = parseMenuIngredients(menuItem.ingredients);
+  const usage = Array.isArray(inventoryUsage) && inventoryUsage.length ? inventoryUsage : ingredientRows;
+
+  for (const ingredient of usage) {
+    if (!ingredient || typeof ingredient !== 'object') continue;
+    const inventoryId = ingredient.inventoryId ?? ingredient.inventory_id ?? ingredient.id ?? null;
+    const name = String(ingredient.inventoryName || ingredient.inventory_name || ingredient.name || ingredient.item || '').trim();
+    const amount = Number(ingredient.quantity ?? ingredient.amount ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+
+    let item = null;
+    if (inventoryId) {
+      item = db.prepare('SELECT * FROM inventory WHERE id = ?').get(Number(inventoryId));
+    }
+    if (!item && name) {
+      item = db.prepare('SELECT * FROM inventory WHERE lower(trim(name)) = lower(trim(?)) ORDER BY id DESC LIMIT 1').get(name);
+    }
+    if (!item) continue;
+
+    const nextQty = Number(item.quantity) - (Number(amount) * qty);
+    if (nextQty < 0) {
+      throw new Error(`${item.name} stock is insufficient for ${menuItem.name}.`);
+    }
+    db.prepare('UPDATE inventory SET quantity = ? WHERE id = ?').run(nextQty, item.id);
+    db.prepare('INSERT INTO inventory_audit (inventory_id, action, changed_by_id, changed_by_name, changed_by_role, changes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(item.id, 'updated', null, 'System', 'system', JSON.stringify({ quantity: { from: item.quantity, to: nextQty }, reason: { from: null, to: `Order deduction for ${menuItem.name}` } }), new Date().toISOString());
+    broadcast('inventory:updated', { itemId: item.id, action: 'order-deducted' });
+  }
+}
+
 function priceOrderItems(items) {
-  const findMenuItem = db.prepare('SELECT id, name, price, prep_time_minutes FROM menu_items WHERE id = ? AND active = 1');
+  const findMenuItem = db.prepare('SELECT id, name, price, prep_time_minutes, ingredients FROM menu_items WHERE id = ? AND active = 1');
   const findModifier = db.prepare('SELECT name, price, type FROM modifiers WHERE name = ?');
   const pricedItems = items.map((item) => {
     const menuItem = findMenuItem.get(Number(item.menuItemId));
@@ -28,6 +74,7 @@ function priceOrderItems(items) {
       prepTimeMinutes: Number(menuItem.prep_time_minutes ?? 8),
       modifiers: modifierNames,
       specialInstructions: item.specialInstructions || null,
+      ingredients: parseMenuIngredients(menuItem.ingredients),
     };
   });
   return { items: pricedItems, subtotal: pricedItems.reduce((sum, item) => sum + item.price * item.qty, 0) };
@@ -205,6 +252,10 @@ function createOrderRecord(
         paymentStatus: initialPaymentStatus,
       })
     );
+
+    for (const line of priced.items) {
+      deductRecipeInventory(line.menuItemId, line.qty, line.ingredients);
+    }
 
     if (tableNumber) {
       db.prepare('UPDATE tables SET status = ?, current_order_id = ? WHERE number = ?').run('occupied', id, tableNumber);

@@ -45,6 +45,10 @@ export const api = {
   updateProfile: (data) => request('/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
 
   getMenu: (all = false) => request(`/menu${all ? '?all=1' : ''}`),
+  getMenuCategories: () => request('/menu/categories'),
+  createMenuCategory: (data) => request('/menu/categories', { method: 'POST', body: JSON.stringify(data) }),
+  updateMenuCategory: (slug, data) => request(`/menu/categories/${encodeURIComponent(slug)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteMenuCategory: (slug) => request(`/menu/categories/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
   exportMenuBook: async (format) => {
     const token = getToken();
     const response = await fetch(`${API_BASE}/menu/export?format=${encodeURIComponent(format)}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });

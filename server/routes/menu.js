@@ -16,6 +16,23 @@ function getMenuImage(image) {
   return fallbackMenuImage;
 }
 
+function normalizeMenuCategories(categories) {
+  return [...new Set((Array.isArray(categories) ? categories : [categories]).map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))];
+}
+
+function parseIngredients(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return value.split(',').map((item) => item.trim()).filter(Boolean);
+    }
+  }
+  return [];
+}
+
 function mapMenuItem(row) {
   const categories = db.prepare('SELECT category FROM menu_item_categories WHERE menu_item_id = ? ORDER BY category').all(row.id).map((entry) => entry.category);
   const modifiers = db.prepare(`
@@ -37,8 +54,54 @@ function mapMenuItem(row) {
     prep_time_minutes: Number(row.prep_time_minutes ?? 8),
     popular: !!row.popular,
     active: !!row.active,
+    ingredients: parseIngredients(row.ingredients),
+    cooking_instructions: row.cooking_instructions || '',
   };
 }
+
+router.get('/categories', authMiddleware, (req, res) => {
+  const rows = db.prepare('SELECT name, slug, active FROM menu_categories ORDER BY name').all();
+  res.json(rows);
+});
+
+router.post('/categories', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Category name is required' });
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'category';
+  try {
+    const result = db.prepare('INSERT INTO menu_categories (name, slug, active, created_at) VALUES (?, ?, 1, ?)').run(name, slug, new Date().toISOString());
+    const row = db.prepare('SELECT name, slug, active FROM menu_categories WHERE id = ?').get(result.lastInsertRowid);
+    broadcast('menu:updated', { type: 'category', action: 'created', id: row.slug });
+    res.status(201).json(row);
+  } catch (error) {
+    if (String(error.message).includes('UNIQUE constraint failed')) return res.status(409).json({ error: 'Category already exists' });
+    throw error;
+  }
+});
+
+router.put('/categories/:slug', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
+  const existing = db.prepare('SELECT * FROM menu_categories WHERE slug = ? OR id = ?').get(req.params.slug, Number(req.params.slug));
+  if (!existing) return res.status(404).json({ error: 'Category not found' });
+  const name = String(req.body?.name || existing.name).trim();
+  if (!name) return res.status(400).json({ error: 'Category name is required' });
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'category';
+  db.prepare('UPDATE menu_categories SET name = ?, slug = ? WHERE id = ?').run(name, slug, existing.id);
+  db.prepare('UPDATE menu_item_categories SET category = ? WHERE category = ?').run(slug, existing.slug);
+  db.prepare('UPDATE menu_items SET category = ? WHERE category = ?').run(slug, existing.slug);
+  const row = db.prepare('SELECT name, slug, active FROM menu_categories WHERE id = ?').get(existing.id);
+  broadcast('menu:updated', { type: 'category', action: 'updated', id: row.slug });
+  res.json(row);
+});
+
+router.delete('/categories/:slug', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
+  const existing = db.prepare('SELECT * FROM menu_categories WHERE slug = ? OR id = ?').get(req.params.slug, Number(req.params.slug));
+  if (!existing) return res.status(404).json({ error: 'Category not found' });
+  db.prepare('DELETE FROM menu_categories WHERE id = ?').run(existing.id);
+  db.prepare('DELETE FROM menu_item_categories WHERE category = ?').run(existing.slug);
+  db.prepare('UPDATE menu_items SET category = "" WHERE category = ?').run(existing.slug);
+  broadcast('menu:updated', { type: 'category', action: 'deleted', id: existing.slug });
+  res.json({ ok: true });
+});
 
 router.get('/', authMiddleware, (req, res) => {
   const { all } = req.query;
@@ -112,13 +175,14 @@ router.delete('/modifiers/:id', authMiddleware, deletionViewer, requireAdilaDele
 });
 
 router.post('/', authMiddleware, requireRole('admin'), (req, res) => {
-  const { name, description, price, category, categories, modifier_ids: modifierIds = [], image, popular, prep_time_minutes } = req.body;
-  const nextCategories = [...new Set((Array.isArray(categories) ? categories : [category]).map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))];
+  const { name, description, price, category, categories, modifier_ids: modifierIds = [], image, popular, prep_time_minutes, ingredients, cooking_instructions } = req.body;
+  const nextCategories = normalizeMenuCategories(categories ?? category);
   if (!name || price == null || nextCategories.length === 0) return res.status(400).json({ error: 'Name, price, and at least one category required' });
   const prepMinutes = Number(prep_time_minutes ?? 8);
+  const normalizedIngredients = JSON.stringify(Array.isArray(ingredients) ? ingredients : []);
   const result = db.prepare(
-    'INSERT INTO menu_items (name, description, price, category, image, prep_time_minutes, popular, active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
-  ).run(name, description || '', Number(price), nextCategories[0], image || '', Number.isFinite(prepMinutes) ? prepMinutes : 8, popular ? 1 : 0);
+    'INSERT INTO menu_items (name, description, price, category, image, prep_time_minutes, popular, active, ingredients, cooking_instructions) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)'
+  ).run(name, description || '', Number(price), nextCategories[0], image || '', Number.isFinite(prepMinutes) ? prepMinutes : 8, popular ? 1 : 0, normalizedIngredients, String(cooking_instructions || ''));
   const linkCategory = db.prepare('INSERT OR IGNORE INTO menu_item_categories (menu_item_id, category) VALUES (?, ?)');
   nextCategories.forEach((value) => linkCategory.run(result.lastInsertRowid, value));
   const linkModifier = db.prepare('INSERT OR IGNORE INTO menu_item_modifiers (menu_item_id, modifier_id) VALUES (?, ?)');
@@ -129,16 +193,15 @@ router.post('/', authMiddleware, requireRole('admin'), (req, res) => {
 });
 
 router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
-  const { name, description, price, category, categories, modifier_ids: modifierIds, image, popular, active, prep_time_minutes } = req.body;
+  const { name, description, price, category, categories, modifier_ids: modifierIds, image, popular, active, prep_time_minutes, ingredients, cooking_instructions } = req.body;
   const existing = db.prepare('SELECT * FROM menu_items WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Item not found' });
-  const nextCategories = categories === undefined
-    ? null
-    : [...new Set((Array.isArray(categories) ? categories : [category]).map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))];
+  const nextCategories = categories === undefined ? null : normalizeMenuCategories(categories ?? category);
   if (nextCategories && nextCategories.length === 0) return res.status(400).json({ error: 'At least one category is required' });
   const nextPrepMinutes = prep_time_minutes == null ? existing.prep_time_minutes ?? 8 : Number(prep_time_minutes) || 8;
+  const normalizedIngredients = ingredients === undefined ? existing.ingredients || '[]' : JSON.stringify(Array.isArray(ingredients) ? ingredients : []);
   db.prepare(
-    'UPDATE menu_items SET name = ?, description = ?, price = ?, category = ?, image = ?, prep_time_minutes = ?, popular = ?, active = ? WHERE id = ?'
+    'UPDATE menu_items SET name = ?, description = ?, price = ?, category = ?, image = ?, prep_time_minutes = ?, popular = ?, active = ?, ingredients = ?, cooking_instructions = ? WHERE id = ?'
   ).run(
     name ?? existing.name,
     description ?? existing.description,
@@ -148,6 +211,8 @@ router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
     nextPrepMinutes,
     popular != null ? (popular ? 1 : 0) : existing.popular,
     active != null ? (active ? 1 : 0) : existing.active,
+    normalizedIngredients,
+    cooking_instructions == null ? (existing.cooking_instructions || '') : String(cooking_instructions),
     req.params.id
   );
   if (nextCategories) {
