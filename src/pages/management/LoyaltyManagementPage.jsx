@@ -30,7 +30,7 @@ export default function LoyaltyManagementPage() {
     const timer = window.setInterval(loadItems, 30000);
     return () => window.clearInterval(timer);
   }, []);
-  useWebSocket((event) => { if (['order:created', 'order:updated', 'customer:updated'].includes(event)) loadItems(); });
+  useWebSocket((event) => { if (['order:created', 'order:updated', 'customer:updated', 'customer:deleted'].includes(event)) loadItems(); });
 
   const filtered = items.filter((customer) => {
     const haystack = `${customer.name} ${customer.nfcTagCode || ''} ${customer.customerSegment || ''}`.toLowerCase();

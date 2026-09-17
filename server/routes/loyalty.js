@@ -8,13 +8,22 @@ function toInt(value) {
   return Number(value || 0);
 }
 
+function parseJson(value, fallback = []) {
+  try {
+    const parsed = JSON.parse(value || 'null');
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function mapCustomer(row) {
   return {
     id: row.id,
     name: row.name,
     tier: row.tier,
     lifetimeValue: Number(row.lifetime_value || 0),
-    favoriteItems: JSON.parse(row.favorite_items || '[]'),
+    favoriteItems: parseJson(row.favorite_items, []),
     lastVisit: row.last_visit,
     phone: row.phone,
     email: row.email,
@@ -28,6 +37,27 @@ function mapCustomer(row) {
     loyaltyNotes: row.loyalty_notes,
     preferredChannel: row.preferred_channel || 'pos',
   };
+}
+
+function getCustomerOrderSummary(customer) {
+  const phone = String(customer.phone || '').replace(/\D/g, '');
+  const email = String(customer.email || '').trim().toLowerCase();
+  const name = String(customer.name || '').trim().toLowerCase();
+
+  const orderRows = db.prepare(`
+    SELECT id, customer_name, customer_phone, customer_email, order_type, total, created_at
+    FROM orders
+    WHERE (? <> '' AND replace(replace(replace(replace(customer_phone, ' ', ''), '+', ''), '-', ''), '(', '') LIKE '%' || ?)
+       OR (? <> '' AND lower(trim(customer_email)) = ?)
+       OR (? <> '' AND lower(trim(customer_name)) = ?)
+    ORDER BY created_at DESC
+  `).all(phone, phone, email, email, name, name);
+
+  const lifetimeValue = orderRows.reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const lastVisit = orderRows[0]?.created_at ? orderRows[0].created_at.slice(0, 10) : customer.last_visit;
+  const visits = orderRows.length;
+
+  return { orderRows, lifetimeValue, lastVisit, visits };
 }
 
 router.get('/', authMiddleware, (req, res) => {
@@ -51,10 +81,23 @@ router.get('/', authMiddleware, (req, res) => {
     byCustomer.set(item.customer_id, current);
   });
 
-  const data = customerRows.map((customer) => ({
-    ...mapCustomer(customer),
-    loyaltyItems: byCustomer.get(customer.id) || [],
-  }));
+  const data = customerRows.map((customer) => {
+    const summary = getCustomerOrderSummary(customer);
+    const baseCustomer = mapCustomer(customer);
+    return {
+      ...baseCustomer,
+      lifetimeValue: Number(customer.lifetime_value || summary.lifetimeValue || 0),
+      lastVisit: summary.lastVisit || customer.last_visit,
+      visits: toInt(customer.visits || summary.visits),
+      loyaltyItems: byCustomer.get(customer.id) || [],
+      liveOrders: summary.orderRows.map((order) => ({
+        id: order.id,
+        total: Number(order.total || 0),
+        createdAt: order.created_at,
+        orderType: order.order_type,
+      })),
+    };
+  });
 
   res.json(data);
 });

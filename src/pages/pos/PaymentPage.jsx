@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
 import useCartStore from '../../store/useCartStore';
@@ -14,12 +14,18 @@ export default function PaymentPage() {
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [paymentOrder, setPaymentOrder] = useState(null);
+  const location = useLocation();
 
   const { items, getSubtotal, getTax, getTotal, orderType, tableNumber, customerName, customerPhone: cartCustomerPhone, deliveryAddress, deliveryLatitude, deliveryLongitude, orderSource, clearCart } = useCartStore();
+  const setItems = useCartStore((state) => state.setItems);
   const createOrder = useOrderStore((s) => s.createOrder);
   const taxRate = useSettingsStore((s) => s.settings.tax_rate);
   const currency = useSettingsStore((s) => s.settings.currency || 'TZS');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (items.length === 0 && location.state?.checkoutItems?.length) setItems(location.state.checkoutItems);
+  }, [items.length, location.state, setItems]);
 
   useEffect(() => {
     if (cartCustomerPhone) setCustomerPhone(cartCustomerPhone);
@@ -83,7 +89,7 @@ export default function PaymentPage() {
     }
   };
 
-  if (items.length === 0) {
+  if (items.length === 0 && !location.state?.checkoutItems?.length) {
     navigate('/pos', { replace: true });
     return null;
   }

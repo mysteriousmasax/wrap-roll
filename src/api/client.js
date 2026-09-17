@@ -105,6 +105,7 @@ export const api = {
   updateTable: (id, data) => request(`/tables/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   getCustomers: () => request('/customers'),
+  getCustomerOrders: (id) => request(`/customers/${id}/orders`),
   getCrmIntelligence: () => request('/crm-intelligence/snapshot'),
   generateCrmSwot: () => request('/crm-intelligence/swot', { method: 'POST' }),
   generateDailyBriefing: () => request('/crm-intelligence/briefing', { method: 'POST' }),
@@ -131,6 +132,10 @@ export const api = {
   clockStaff: (id, action, location = null) => request(`/staff/${id}/clock`, { method: 'PATCH', body: JSON.stringify({ action, ...(location || {}) }) }),
   createStaffTask: (data) => request('/staff/tasks', { method: 'POST', body: JSON.stringify(data) }),
   updateStaffTask: (id, status) => request(`/staff/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  getKanbanTasks: () => request('/staff/kanban'),
+  createKanbanTask: (data) => request('/staff/kanban', { method: 'POST', body: JSON.stringify(data) }),
+  updateKanbanTask: (id, data) => request(`/staff/kanban/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteKanbanTask: (id) => request(`/staff/kanban/${id}`, { method: 'DELETE' }),
 
   getInventory: () => request('/inventory'),
   getInventoryAudit: (id) => request(`/inventory/${id}/audit`),
@@ -142,6 +147,12 @@ export const api = {
   getPublicSettings: () => request('/settings/public'),
   updateSettings: (data) => request('/settings', { method: 'PUT', body: JSON.stringify(data) }),
   getDesktopRelease: () => request('/desktop/release'),
+  downloadDesktopInstaller: async () => {
+    const token = getToken();
+    const response = await fetch(`${API_BASE}/desktop/installer`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!response.ok) throw new ApiError((await response.json().catch(() => ({}))).error || response.statusText, response.status);
+    return response.blob();
+  },
   getDesktopBranchStatus: () => request('/desktop/branch-status'),
   enrollDesktopBranch: (data) => request('/desktop/branch-enroll', { method: 'POST', body: JSON.stringify(data) }),
 

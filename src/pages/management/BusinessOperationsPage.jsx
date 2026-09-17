@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import PageHeader from '../../components/layout/PageHeader';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -33,6 +33,7 @@ export default function BusinessOperationsPage({ embedded = false }) {
   const [editingExpense, setEditingExpense] = useState(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const refreshTimerRef = useRef(null);
   const [form, setForm] = useState({ expenseDate: new Date().toISOString().slice(0, 10), category: expenseCategories[0], description: '', supplier: '', amount: '', paymentMethod: 'bank', receiptRef: '' });
 
   const loadData = async () => {
@@ -43,7 +44,12 @@ export default function BusinessOperationsPage({ embedded = false }) {
   };
 
   useEffect(() => { loadData().catch(() => setMessage('Business data could not be loaded.')); }, []);
-  useWebSocket((event) => { if (['order:created', 'order:updated', 'business:updated', 'staff:updated', 'inventory:updated'].includes(event)) loadData().catch(() => {}); });
+  useWebSocket((event) => {
+    if (['order:created', 'order:updated', 'order:confirmed', 'payment:confirmed', 'business:updated', 'staff:updated', 'inventory:updated', 'customer:updated', 'settings:updated'].includes(event)) {
+      window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = window.setTimeout(() => loadData().catch(() => {}), 50);
+    }
+  });
 
   const submitExpense = async (event) => {
     event.preventDefault();

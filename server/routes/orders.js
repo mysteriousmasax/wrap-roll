@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
-import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/deletionPolicy.js';
+import { deletionViewer, recordDeletion } from '../utils/deletionPolicy.js';
 import { broadcast } from '../ws.js';
 import { getOrderById, getOrders, nextOrderId, nextPaymentReference } from '../utils/orders.js';
 import { buildOrderConfirmationMessage, getCustomerNotificationChannels } from '../utils/orderNotifications.js';
@@ -104,7 +104,12 @@ function createOrderRecord(
   const tx = db.transaction(() => {
     // Customer loyalty & record sync
     if (customerName?.trim()) {
-      const existingCustomer = customerPhone ? db.prepare('SELECT * FROM customers WHERE phone = ?').get(customerPhone.trim()) : null;
+      const normalizedEmail = String(customerEmail || '').trim().toLowerCase();
+      const normalizedName = String(customerName || '').trim().toLowerCase();
+      const contactMatches = db.prepare('SELECT * FROM customers WHERE (? <> "" AND phone = ?) OR (? <> "" AND lower(email) = ?) ORDER BY id DESC')
+        .all(customerPhone?.trim() || '', customerPhone?.trim() || '', normalizedEmail, normalizedEmail);
+      const nameMatches = db.prepare('SELECT * FROM customers WHERE ? <> "" AND lower(name) = ? ORDER BY id DESC').all(normalizedName, normalizedName);
+      const existingCustomer = contactMatches[0] || (nameMatches.length === 1 ? nameMatches[0] : null);
       if (existingCustomer) {
         db.prepare(
           'UPDATE customers SET name = ?, email = ?, last_visit = ?, visits = visits + 1, lifetime_value = lifetime_value + ?, favorite_items = ? WHERE id = ?'
@@ -426,17 +431,22 @@ router.patch('/:id/payment-status', authMiddleware, (req, res) => {
   res.json(order);
 });
 
-router.delete('/:id', authMiddleware, deletionViewer, requireAdilaDeletion, (req, res) => {
+router.delete('/:id', authMiddleware, deletionViewer, (req, res) => {
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   recordDeletion({ resourceType: 'order', resourceId: order.id, snapshot: order, reason: req.body?.reason, user: req.user });
   const now = new Date().toISOString();
-  db.prepare("UPDATE orders SET status = 'cancelled', payment_status = CASE WHEN payment_status = 'paid' THEN 'refunded' ELSE 'failed' END, updated_at = ? WHERE id = ?").run(now, order.id);
-  db.prepare("UPDATE payments SET status = CASE WHEN status = 'paid' THEN 'refunded' ELSE 'failed' END, updated_at = ? WHERE order_id = ?").run(now, order.id);
-  db.prepare("INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata) VALUES (?, 'deleted', 'cancelled', ?, ?, ?)").run(order.id, req.user.id, now, JSON.stringify({ deletedBy: req.user.name, role: req.user.role }));
-  const updated = getOrderById(order.id);
-  broadcast('order:updated', updated);
-  res.json({ ok: true, order: updated });
+  const deleteOrder = db.transaction(() => {
+    db.prepare('UPDATE tables SET current_order_id = NULL, status = CASE WHEN status = \'occupied\' THEN \'available\' ELSE status END WHERE current_order_id = ?').run(order.id);
+    db.prepare('DELETE FROM refunds WHERE order_id = ?').run(order.id);
+    db.prepare('DELETE FROM payments WHERE order_id = ?').run(order.id);
+    db.prepare('DELETE FROM order_items WHERE order_id = ?').run(order.id);
+    db.prepare('DELETE FROM order_events WHERE order_id = ?').run(order.id);
+    db.prepare('DELETE FROM orders WHERE id = ?').run(order.id);
+  });
+  deleteOrder();
+  broadcast('order:deleted', { orderId: order.id, deletedAt: now });
+  res.json({ ok: true, orderId: order.id, permanentlyDeleted: true });
 });
 
 export default router;

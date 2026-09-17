@@ -18,6 +18,9 @@ import {
   Phone,
   Clock,
   Mail,
+  MessageCircle,
+  Instagram,
+  Star,
 } from 'lucide-react';
 import { api } from '../../api/client';
 import { formatCurrency, printFiscalInvoice } from '../../utils/format';
@@ -62,18 +65,28 @@ const restaurantLocation = {
   mapsUrl: 'https://maps.app.goo.gl/gZqwfknocNK6FYNAA',
 };
 
-function OrderTrackingCard({ order, onOpenPayment, now }) {
-  const elapsedMinutes = Math.max(0, Math.floor((now - new Date(order.createdAt).getTime()) / 60000));
+function OrderTrackingCard({ order, onOpenPayment, now, settings }) {
+  const elapsedEnd = order.status === 'completed'
+    ? new Date(order.completedAt || order.updatedAt || now).getTime()
+    : now;
+  const elapsedSeconds = Math.max(0, Math.floor((elapsedEnd - new Date(order.createdAt).getTime()) / 1000));
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  const remainingSeconds = elapsedSeconds % 60;
   const paymentLabel = order.paymentStatus === 'paid' ? 'Payment confirmed' : order.paymentStatus === 'manual_review' ? 'Payment submitted for review' : 'Waiting for payment';
   const kitchenLabel = order.status === 'confirmed' ? 'Confirmed and sent to kitchen' : order.status === 'preparing' ? 'Being prepared' : order.status === 'ready' ? 'Ready for collection' : order.status === 'completed' ? 'Completed' : 'Waiting for payment confirmation';
   const isPaid = order.paymentStatus === 'paid';
+  const reviewLinks = [
+    { key: 'review_whatsapp_url', label: 'WhatsApp', icon: MessageCircle },
+    { key: 'review_instagram_url', label: 'Instagram', icon: Instagram },
+    { key: 'review_google_url', label: 'Google review', icon: Star },
+  ].filter(({ key }) => settings?.[key]);
 
   return (
     <div className="reference-delivery-card order-tracking-card">
       <div className="order-tracking-visual">
         <div className="order-tracking-orbit" />
         <Clock size={42} />
-        <span>{elapsedMinutes} min</span>
+        <span>{elapsedMinutes} min {String(remainingSeconds).padStart(2, '0')} sec</span>
         <small>time elapsed</small>
       </div>
       <div className="reference-delivery-copy order-tracking-copy">
@@ -83,6 +96,19 @@ function OrderTrackingCard({ order, onOpenPayment, now }) {
           <p><span className={isPaid ? 'status-dot status-dot-paid' : 'status-dot'} />{paymentLabel}</p>
           <p><span className={order.status === 'confirmed' || order.status === 'preparing' || order.status === 'ready' ? 'status-dot status-dot-paid' : 'status-dot'} />{kitchenLabel}</p>
         </div>
+        {order.status === 'completed' && reviewLinks.length > 0 && (
+          <div className="order-review-panel">
+            <strong>Rate your meal</strong>
+            <span>Tell us how we did.</span>
+            <div className="order-review-links">
+              {reviewLinks.map(({ key, label, icon: Icon }) => (
+                <a key={key} href={settings[key]} target="_blank" rel="noreferrer">
+                  <Icon size={15} /> {label}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
         <button type="button" onClick={onOpenPayment}>VIEW PAYMENT &amp; ORDER DETAILS</button>
       </div>
     </div>
@@ -146,6 +172,10 @@ export default function HomePage() {
             paymentStatus: status.status,
             status: status.orderStatus,
             paidAt: status.paidAt,
+            updatedAt: status.updatedAt || current.updatedAt,
+            completedAt: status.orderStatus === 'completed' && current.status !== 'completed'
+              ? Date.now()
+              : current.completedAt,
           }));
         }
       } catch {
@@ -529,7 +559,7 @@ export default function HomePage() {
 
       <section className="reference-delivery-section public-reveal-section px-6 py-14 sm:px-12 sm:py-20" aria-label="Delivery and catering">
         {activePlacedOrder ? (
-          <OrderTrackingCard order={activePlacedOrder} now={trackingNow} onOpenPayment={() => setPaymentModalOpen(true)} />
+          <OrderTrackingCard order={activePlacedOrder} now={trackingNow} settings={publicSettings} onOpenPayment={() => setPaymentModalOpen(true)} />
         ) : (
           <div className="reference-delivery-card">
             <img src="/hero-food.jpg" alt="Wrap and Roll delivery and catering" />

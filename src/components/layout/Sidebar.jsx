@@ -22,6 +22,7 @@ const navItems = [
   { path: '/management/people', label: 'People & HR', icon: UserCog, roles: ['admin'] },
   { path: '/management/loyalty', label: 'Loyalty Items', icon: Gift, roles: ['admin', 'manager'] },
   { path: '/management/campaigns', label: 'Campaigns', icon: Calendar, roles: ['admin', 'manager', 'executive'] },
+  { path: '/management/kanban', label: 'Team Kanban', icon: ClipboardList, roles: ['admin', 'manager', 'executive'] },
   { path: '/management/reports', label: 'Reports', icon: TrendingUp, roles: ['admin', 'executive'] },
   { path: '/assistant', label: 'Gemini Assistant', icon: Sparkles, roles: ['admin', 'executive', 'manager', 'foh', 'kitchen'] },
   { path: '/notifications', label: 'Notifications', icon: Bell, roles: ['admin', 'manager', 'foh'] },

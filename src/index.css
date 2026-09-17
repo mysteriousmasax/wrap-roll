@@ -6,6 +6,22 @@
   html { font-family: 'Montserrat', sans-serif; }
   body { @apply bg-surface text-surface-on antialiased; }
   img { color: transparent; font-size: 0; }
+
+  *:focus-visible {
+    outline: 3px solid rgba(224, 0, 0, 0.28);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px rgba(224, 0, 0, 0.12);
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [role='button']:focus-visible,
+  [tabindex]:not([tabindex='-1']):focus-visible {
+    border-color: rgba(224, 0, 0, 0.48);
+  }
 }
 
 @layer components {
@@ -333,6 +349,115 @@
 @media (max-width: 768px) {
   .customer-list-header {
     flex-direction: column;
+
+/* Keep every KDS control visible on narrow screens. */
+@media (max-width: 699px) {
+  .kds-page {
+    width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .kds-command-bar {
+    width: auto;
+    margin-inline: 8px;
+    padding: 12px !important;
+    gap: 10px !important;
+  }
+
+  .kds-command-bar > div:first-child {
+    min-width: 0;
+  }
+
+  .kds-command-bar > div:first-child h1 {
+    font-size: 16px;
+    line-height: 1.15;
+  }
+
+  .kds-station-tabs {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    overflow: visible;
+    padding: 4px;
+  }
+
+  .kds-station-tabs button {
+    min-width: 0;
+    min-height: 38px;
+    padding: 7px 4px;
+    white-space: normal;
+    line-height: 1.15;
+    text-align: center;
+  }
+
+  .kds-command-bar > div:last-child {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .kds-command-bar > div:last-child button {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: start;
+  }
+
+  .kds-command-bar > div:last-child > span {
+    min-width: 0;
+    padding: 8px 3px;
+    text-align: center;
+    line-height: 1.15;
+    white-space: normal;
+  }
+
+  .kds-command-bar > div:last-child > span:nth-child(2) { grid-column: 1; grid-row: 2; }
+  .kds-command-bar > div:last-child > span:nth-child(3) { grid-column: 2; grid-row: 2; }
+  .kds-command-bar > div:last-child > span:nth-child(4) { grid-column: 3; grid-row: 2; }
+
+  .kds-workspace.is-tickets {
+    padding: 8px;
+  }
+
+  .kds-ticket-board {
+    gap: 10px;
+  }
+
+  .kds-ticket-board .kds-lane {
+    width: 100%;
+    padding: 10px;
+  }
+
+  .kds-order-card-header {
+    padding: 12px;
+  }
+
+  .kds-order-card-header > div:first-child {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .kds-order-id {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    font-size: 20px !important;
+  }
+
+  .kds-order-card-meta {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    letter-spacing: .1em;
+  }
+
+  .kds-order-card-actions button {
+    min-height: 46px;
+    white-space: normal;
+    line-height: 1.15;
+  }
+}
   }
 
   .customer-value-box {
@@ -1256,6 +1381,60 @@
 .kds-page > .kds-chat-inbox { flex: 0 1 220px; min-height: 0; }
 .kds-page > .flex-1.grid { min-height: 0; }
 @media (max-width: 767px) { .dashboard-topbar { height: 58px; padding-inline: 14px; }.pos-page, .kds-page { min-height: calc(100vh - 58px); }.pos-toolbar { padding: 16px 14px; }.pos-product-area { padding: 14px; }.pos-cart-panel { width: 100%; }.kds-command-bar { padding: 14px; }.kds-chat-inbox { margin: 12px; } }
+.kds-action-button { min-height: 46px; line-height: 1.15; }
+@media (max-width: 767px) {
+  .kds-action-button { min-height: 52px; padding: 10px 8px; border-radius: 12px; font-size: 11px; }
+  .kds-order-card-actions { display: grid; grid-template-columns: 1fr; }
+  .kds-order-card-actions .kds-action-button { width: 100%; }
+}
+
+/* Kitchen display: make the active work state easy to scan. */
+.kds-page { background: #f1ece5 !important; }
+.kds-command-bar {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px !important;
+  padding: 16px 18px !important;
+  background: #211d1b !important;
+  border: 0 !important;
+  border-radius: 18px !important;
+  box-shadow: 0 12px 28px rgba(33, 29, 27, .18) !important;
+}
+.kds-command-bar > div:first-child { color: #fff; }
+.kds-command-bar > div:first-child > div:first-child { box-shadow: 0 0 0 5px rgba(224, 0, 0, .18); }
+.kds-command-bar h1 { color: #fff !important; font-size: 18px; letter-spacing: -.02em; }
+.kds-command-kicker { color: #ffc72c !important; }
+.kds-station-tabs { min-width: 0; justify-self: stretch; background: #302a27 !important; border-color: #4b4039 !important; scrollbar-width: thin; }
+.kds-station-tabs button { min-height: 34px; padding-inline: 12px; color: #d8cec5; }
+.kds-station-tabs button:hover { color: #211d1b; }
+.kds-station-tabs button.bg-\[\#ae002a\] { background: #ffc72c !important; color: #211d1b !important; }
+.kds-command-bar > div:last-child { justify-content: flex-end; }
+.kds-command-bar > div:last-child > span { border: 0; font-size: 11px; }
+.kds-command-bar > div:last-child > span:nth-child(2) { background: #ffc72c; color: #211d1b; }
+.kds-command-bar > div:last-child > span:nth-child(3) { background: #f47b38; color: #211d1b; }
+.kds-command-bar > div:last-child > span:nth-child(4) { background: #76d4a2; color: #123b2b; }
+.kds-command-bar > div:last-child button { border-color: #5a4d45; background: #302a27; color: #ffc72c; }
+.kds-workspace.is-tickets { padding-top: 12px; }
+.kds-lane { border-radius: 16px !important; box-shadow: 0 8px 18px rgba(62, 39, 24, .07) !important; }
+.kds-lane-new { background: #fff8e8 !important; border-top: 4px solid #ffc72c !important; }
+.kds-lane-cooking { background: #fff0e9 !important; border-top: 4px solid #f47b38 !important; }
+.kds-lane-ready { background: #edf8f0 !important; border-top: 4px solid #2d8d68 !important; }
+.kds-empty-lane { display: grid; min-height: 112px; place-content: center; justify-items: center; gap: 3px; color: #8a7c70; text-align: center; }
+.kds-empty-lane span { color: #c9b9aa; font-size: 10px; font-weight: 900; letter-spacing: .18em; }
+.kds-empty-lane strong { color: #3c342f; font-size: 14px; }
+.kds-empty-lane p { margin: 0; font-size: 11px; }
+.kds-lane .kds-order-card { border-radius: 14px; box-shadow: 0 8px 18px rgba(62, 39, 24, .11); }
+.kds-order-id { color: #211d1b !important; font-size: 22px !important; }
+.kds-order-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.kds-order-grid .kds-order-card { min-width: 0; }
+@media (max-width: 699px) {
+  .kds-command-bar { grid-template-columns: 1fr; gap: 12px !important; }
+  .kds-station-tabs { width: 100%; }
+  .kds-command-bar > div:last-child { justify-content: space-between; }
+  .kds-workspace.is-tickets { padding-top: 8px; }
+  .kds-order-grid { grid-template-columns: 1fr; }
+}
 
 .public-header .brand-mark { width: 220px; flex-basis: 220px; }
 .public-header .brand-logo { width: 214px; height: 58px; border-radius: 10px; }
@@ -1294,6 +1473,14 @@
 }
 
 html, body, #root { min-width: 0; width: 100%; }
+html, body, #root { min-height: 100%; }
+html { scroll-behavior: smooth; }
+body { overflow-x: hidden; }
+input, textarea, select, [contenteditable="true"] { user-select: text; pointer-events: auto; }
+input, textarea, select { scroll-margin-bottom: 8rem; }
+button, a, input, textarea, select { touch-action: manipulation; }
+.dashboard-column { min-height: 0; overscroll-behavior: contain; }
+.dashboard-main { min-width: 0; width: 100%; overflow-x: clip; }
 img, svg, video, canvas { max-width: 100%; }
 button, input, select, textarea { max-width: 100%; }
 
@@ -1375,6 +1562,9 @@ button, input, select, textarea { max-width: 100%; }
 }
 
 @media (max-width: 767px) {
+  html, body, #root { min-height: 100dvh; }
+  .dashboard-column { overflow-y: auto; overflow-x: hidden; }
+  .dashboard-main { overflow: visible; padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
   .dashboard-main { min-width: 0; padding: 1rem; overflow-x: hidden; }
   .dashboard-topbar { height: 58px; padding-inline: 12px; }
   .dashboard-topbar h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1732,6 +1922,41 @@ button, input, select, textarea { max-width: 100%; }
 .kds-chat-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 0; height: 100%; margin: 0 -16px -16px; border-top: 1px solid #eadfd2; background: #f7f3ed; }
 .kds-chat-list { min-width: 0; padding: 10px 0; overflow-y: auto; border-right: 1px solid #eadfd2; background: #fffdf9; }
 .kds-chat-search { display: flex; align-items: center; gap: 7px; margin: 0 10px 8px; padding: 8px 10px; border: 1px solid transparent; border-radius: 9px; background: #f3eee8; color: #988b80; font-size: 10px; }.kds-chat-search:focus-within { border-color: #d9bba7; background: #fff; }.kds-chat-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: #3f3833; font: inherit; }.kds-chat-search input::placeholder { color: #988b80; }
+@media (min-width: 700px) {
+  .kds-workspace.is-tickets { display: block; }
+  .kds-workspace.is-tickets .kds-ticket-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) !important; height: 100%; overflow: hidden; }
+  .kds-workspace.is-tickets .kds-ticket-board > .kds-lane { grid-column: auto !important; }
+  .kds-workspace.is-tickets .kds-lane { max-height: none; }
+  .kds-workspace.is-tickets .kds-order-grid { grid-template-columns: 1fr; }
+}
+
+/* Match the established white, red, and yellow POS language. */
+.kds-page { background: #f7f4ef !important; font-family: Arial, sans-serif; }
+.kds-command-bar {
+  background: #fff !important;
+  border: 1px solid #eadfd2 !important;
+  border-radius: 16px !important;
+  box-shadow: 0 5px 16px rgba(62, 39, 24, .08) !important;
+}
+.kds-command-bar > div:first-child > div:first-child {
+  background: #e00000 !important;
+  box-shadow: 0 0 0 5px rgba(224, 0, 0, .12);
+}
+.kds-command-bar h1 { color: #292522 !important; font-family: Arial, sans-serif; }
+.kds-command-kicker { color: #ae002a !important; }
+.kds-station-tabs { background: #fbf6ee !important; border-color: #eadfd2 !important; }
+.kds-station-tabs button { color: #665a50; }
+.kds-station-tabs button:hover { background: #fff !important; color: #ae002a; }
+.kds-station-tabs button.bg-\[\#ae002a\] { background: #e00000 !important; color: #fff !important; }
+.kds-command-bar > div:last-child button { border-color: #eadfd2; background: #fffaf4; color: #ae002a; }
+.kds-command-bar > div:last-child > span:nth-child(2) { background: #fff1b8; color: #775a00; }
+.kds-command-bar > div:last-child > span:nth-child(3) { background: #ffe1d6; color: #ae002a; }
+.kds-command-bar > div:last-child > span:nth-child(4) { background: #fff1b8; color: #775a00; }
+.kds-lane-new, .kds-lane-cooking, .kds-lane-ready { background: #fff !important; }
+.kds-lane-new { border-top-color: #ffc72c !important; }
+.kds-lane-cooking { border-top-color: #e00000 !important; }
+.kds-lane-ready { border-top-color: #227653 !important; }
+.kds-empty-lane strong, .kds-order-id { font-family: Arial, sans-serif; }
 .kds-chat-no-results { margin: 18px 12px; color: #988b80; font-size: 10px; text-align: center; }
 .kds-chat-state { display: grid; place-items: center; gap: 8px; min-height: 180px; color: #988b80; font-size: 11px; text-align: center; }.kds-chat-state.is-error { color: #b74c16; }.kds-chat-state button { padding: 6px 10px; border: 0; border-radius: 8px; background: #ae002a; color: #fff; font-size: 10px; font-weight: 800; cursor: pointer; }
 .kds-chat-list-item { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 0; border-left: 3px solid transparent; background: transparent; color: #3f3833; text-align: left; cursor: pointer; }
@@ -2009,6 +2234,41 @@ button, input, select, textarea { max-width: 100%; }
   background: #79d6a5;
   box-shadow: 0 0 0 4px rgba(121, 214, 165, .16);
 }
+.order-review-panel {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  margin: 12px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 199, 44, .35);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .08);
+}
+.order-review-panel strong {
+  color: #ffc72c;
+  font-size: 14px;
+}
+.order-review-panel > span {
+  color: rgba(255, 255, 255, .75);
+  font-size: 12px;
+}
+.order-review-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.order-review-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: #ffc72c;
+  color: #5a1b00;
+  font-size: 11px;
+  font-weight: 800;
+}
 .public-reveal-section {
   animation: reference-section-rise .8s .18s cubic-bezier(.2,.75,.25,1) both;
 }
@@ -2071,4 +2331,15 @@ button, input, select, textarea { max-width: 100%; }
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+@media (min-width: 700px) and (max-width: 1100px) {
+  .kds-command-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'brand metrics' 'stations stations';
+  }
+  .kds-command-bar > div:first-child { grid-area: brand; }
+  .kds-command-bar > .kds-station-tabs { grid-area: stations; width: 100%; }
+  .kds-command-bar > div:last-child { grid-area: metrics; }
+}
+.kds-station-tabs button { flex: 0 0 auto; }
 

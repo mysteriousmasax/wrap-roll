@@ -29,6 +29,7 @@ import NotificationsPage from './pages/notifications/NotificationsPage';
 import HomePage from './pages/public/HomePage';
 import PrivacyPolicyPage from './pages/public/PrivacyPolicyPage';
 import BranchSetupPage from './pages/desktop/BranchSetupPage';
+import KanbanPage from './pages/management/KanbanPage';
 
 const ROUTE_ROLES = {
   '/pos': ['admin', 'foh'],
@@ -48,6 +49,7 @@ const ROUTE_ROLES = {
   '/management/people': ['admin'],
   '/management/loyalty': ['admin', 'manager'],
   '/management/campaigns': ['admin', 'manager', 'executive'],
+  '/management/kanban': ['admin', 'manager', 'executive'],
   '/management/settings': ['admin'],
   '/notifications': ['admin', 'manager', 'foh'],
 };
@@ -123,6 +125,7 @@ function AppRoutes() {
         <Route path="/management/people" element={<RoleRoute path="/management/people"><PeopleHubPage /></RoleRoute>} />
         <Route path="/management/loyalty" element={<RoleRoute path="/management/loyalty"><LoyaltyManagementPage /></RoleRoute>} />
         <Route path="/management/campaigns" element={<RoleRoute path="/management/campaigns"><CampaignDashboardPage /></RoleRoute>} />
+        <Route path="/management/kanban" element={<RoleRoute path="/management/kanban"><KanbanPage /></RoleRoute>} />
         <Route path="/management/settings" element={<RoleRoute path="/management/settings"><SettingsPage /></RoleRoute>} />
         <Route path="/notifications" element={<RoleRoute path="/notifications"><NotificationsPage /></RoleRoute>} />
       </Route>

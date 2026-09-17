@@ -21,6 +21,8 @@ function normalizeChannel(value) {
 }
 
 function mapCustomer(row, extra = {}) {
+  let socialLinks = {};
+  try { socialLinks = JSON.parse(row.social_links || '{}'); } catch { socialLinks = {}; }
   return {
     id: row.id,
     name: row.name,
@@ -30,6 +32,7 @@ function mapCustomer(row, extra = {}) {
     lastVisit: row.last_visit,
     phone: row.phone,
     email: row.email,
+    socialLinks,
     customerType: row.customer_type || 'individual',
     companyName: row.company_name || '',
     tin: row.tin || '',
@@ -147,17 +150,48 @@ router.get('/', authMiddleware, (req, res) => {
   res.json(aggregateCustomerData(customerRows, orderRows, orderItemsByOrder));
 });
 
+router.get('/:id/orders', authMiddleware, (req, res) => {
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+  const phone = String(customer.phone || '').replace(/\D/g, '');
+  const email = String(customer.email || '').trim().toLowerCase();
+  const name = String(customer.name || '').trim().toLowerCase();
+  const orders = db.prepare(`
+    SELECT * FROM orders
+    WHERE (? <> '' AND replace(replace(replace(replace(customer_phone, ' ', ''), '+', ''), '-', ''), '(', '') LIKE '%' || ?)
+       OR (? <> '' AND lower(trim(customer_email)) = ?)
+       OR (? <> '' AND lower(trim(customer_name)) = ?)
+    ORDER BY created_at DESC
+  `).all(phone, phone, email, email, name, name);
+  const items = orders.length
+    ? db.prepare('SELECT * FROM order_items WHERE order_id IN (' + orders.map(() => '?').join(',') + ') ORDER BY id').all(...orders.map((order) => order.id))
+    : [];
+  const itemsByOrder = new Map();
+  items.forEach((item) => itemsByOrder.set(item.order_id, [...(itemsByOrder.get(item.order_id) || []), item]));
+  res.json(orders.map((order) => ({ ...order, items: itemsByOrder.get(order.id) || [] })));
+});
+
 router.post('/', authMiddleware, (req, res) => {
-  const { name, tier, phone, email } = req.body;
+  const { name, tier, phone, email, socialLinks = {} } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const result = db.prepare(
-    'INSERT INTO customers (name, tier, phone, email, favorite_items, last_visit) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(name, tier || 'Regular', phone || '', email || '', '[]', new Date().toISOString().slice(0, 10));
+    'INSERT INTO customers (name, tier, phone, email, social_links, favorite_items, last_visit) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(name, tier || 'Regular', phone || '', email || '', JSON.stringify(socialLinks || {}), '[]', new Date().toISOString().slice(0, 10));
   res.status(201).json(mapCustomer(db.prepare('SELECT * FROM customers WHERE id = ?').get(result.lastInsertRowid)));
 });
 
+router.delete('/:id', authMiddleware, (req, res) => {
+  const target = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
+  if (!target) return res.status(404).json({ error: 'Customer not found' });
+
+  const snapshot = { ...target, favoriteItems: JSON.parse(target.favorite_items || '[]') };
+  db.prepare('DELETE FROM customers WHERE id = ?').run(req.params.id);
+  broadcast('customer:deleted', { customerId: Number(req.params.id), customer: snapshot });
+  res.json({ ok: true, deletedCustomerId: Number(req.params.id) });
+});
+
 router.patch('/:id/loyalty', authMiddleware, (req, res) => {
-  const { tier, birthday, anniversary, customerSegment, nfcTagCode, nfcTagType, loyaltyNotes, preferredChannel, customerType, companyName, tin, billingAddress, itemType, itemName, itemCode, status } = req.body;
+  const { tier, birthday, anniversary, customerSegment, nfcTagCode, nfcTagType, loyaltyNotes, preferredChannel, customerType, companyName, tin, billingAddress, socialLinks, itemType, itemName, itemCode, status } = req.body;
   const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
@@ -175,8 +209,9 @@ router.patch('/:id/loyalty', authMiddleware, (req, res) => {
       company_name = COALESCE(?, company_name),
       tin = COALESCE(?, tin),
       billing_address = COALESCE(?, billing_address)
+      ,social_links = COALESCE(?, social_links)
     WHERE id = ?`
-  ).run(tier ?? null, birthday ?? null, anniversary ?? null, customerSegment ?? null, nfcTagCode ?? null, nfcTagType ?? null, loyaltyNotes ?? null, preferredChannel ?? null, customerType ?? null, companyName ?? null, tin ?? null, billingAddress ?? null, req.params.id);
+  ).run(tier ?? null, birthday ?? null, anniversary ?? null, customerSegment ?? null, nfcTagCode ?? null, nfcTagType ?? null, loyaltyNotes ?? null, preferredChannel ?? null, customerType ?? null, companyName ?? null, tin ?? null, billingAddress ?? null, socialLinks === undefined ? null : JSON.stringify(socialLinks || {}), req.params.id);
 
   if (itemName || itemType || itemCode) {
     const now = new Date().toISOString();

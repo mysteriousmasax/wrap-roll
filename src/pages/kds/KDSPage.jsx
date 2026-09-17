@@ -345,7 +345,7 @@ export default function KDSPage() {
             <Flame size={20} />
           </div>
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#ae002a]">
+            <p className="kds-command-kicker text-[10px] font-bold uppercase tracking-[0.16em] text-[#ae002a]">
               Kitchen Display
             </p>
             <h1 className="font-display text-sm sm:text-base font-bold text-[#1f1d1b]">
@@ -355,7 +355,7 @@ export default function KDSPage() {
         </div>
 
         {/* Station Tabs */}
-        <div className="flex items-center gap-1 bg-[#fbf6ee] p-1 rounded-xl border border-[#ebdccb] overflow-x-auto">
+        <div className="kds-station-tabs flex items-center gap-1 bg-[#fbf6ee] p-1 rounded-xl border border-[#ebdccb] overflow-x-auto">
           {STATIONS.map((st) => (
             <button
               key={st.id}
@@ -415,11 +415,13 @@ export default function KDSPage() {
             </div>
           </div>
           {pending.length ? (
-            pending.map((o) => (
-              <OrderCard key={o.id} order={o} now={now} onStatusChange={handleStatusChange} onPaymentConfirm={handlePaymentConfirm} />
-            ))
+            <div className="kds-order-grid">
+              {pending.map((o) => (
+                <OrderCard key={o.id} order={o} now={now} onStatusChange={handleStatusChange} onPaymentConfirm={handlePaymentConfirm} />
+              ))}
+            </div>
           ) : (
-            <p className="text-center py-10 text-xs text-[#746e67]">No new tickets waiting.</p>
+            <div className="kds-empty-lane"><span>01</span><strong>All clear</strong><p>No new tickets waiting.</p></div>
           )}
         </div>
 
@@ -434,11 +436,13 @@ export default function KDSPage() {
             </div>
           </div>
           {preparing.length ? (
-            preparing.map((o) => (
-              <OrderCard key={o.id} order={o} now={now} onStatusChange={handleStatusChange} onPaymentConfirm={handlePaymentConfirm} />
-            ))
+            <div className="kds-order-grid">
+              {preparing.map((o) => (
+                <OrderCard key={o.id} order={o} now={now} onStatusChange={handleStatusChange} onPaymentConfirm={handlePaymentConfirm} />
+              ))}
+            </div>
           ) : (
-            <p className="text-center py-10 text-xs text-[#746e67]">No orders currently cooking.</p>
+            <div className="kds-empty-lane"><span>02</span><strong>Nothing on the line</strong><p>No orders currently cooking.</p></div>
           )}
         </div>
 
@@ -453,11 +457,13 @@ export default function KDSPage() {
             </div>
           </div>
           {ready.length ? (
-            ready.map((o) => (
-              <OrderCard key={o.id} order={o} now={now} onStatusChange={handleStatusChange} onPaymentConfirm={handlePaymentConfirm} />
-            ))
+            <div className="kds-order-grid">
+              {ready.map((o) => (
+                <OrderCard key={o.id} order={o} now={now} onStatusChange={handleStatusChange} onPaymentConfirm={handlePaymentConfirm} />
+              ))}
+            </div>
           ) : (
-            <p className="text-center py-10 text-xs text-[#746e67]">No orders waiting for pickup.</p>
+            <div className="kds-empty-lane"><span>03</span><strong>Pass is clear</strong><p>No orders waiting for pickup.</p></div>
           )}
         </div>
         </div>

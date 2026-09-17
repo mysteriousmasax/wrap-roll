@@ -14,6 +14,7 @@ import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { getOrders } from '../utils/orders.js';
 import { generateOfflineAgentReply, generateOperationsReport, generateStaffAssistantReply } from '../utils/gemini.js';
 import { aiProvider, recordAiActivity } from '../utils/aiActivity.js';
+import { broadcast } from '../ws.js';
 
 const router = Router();
 const logoPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public/wrap-roll-logo-lockup-transparent.png');
@@ -127,13 +128,15 @@ function getOperationalSummaries(requestedDate = '') {
   const savedDaily = db.prepare("SELECT payload, checked_by_name, approved_by_name FROM operational_summaries WHERE summary_type = 'daily_sales' AND report_date = ?").get(reportDate);
   const parseSaved = (record) => { try { return record ? JSON.parse(record.payload || '{}') : null; } catch { return null; } };
   const pettyRows = parseSaved(savedPetty)?.rows;
-  const dailyRows = parseSaved(savedDaily)?.rows;
+  const liveDailyRows = dailySales.map((row, index) => ({ id: `${reportDate}-${index}`, date: reportDate, item: row.item, quantity: Number(row.quantity || 0), openingStock: Number(row.openingStock || 0), closingStock: Number(row.closingStock || 0), price: Number(row.price || 0), difference: Number(row.openingStock || 0) - Number(row.closingStock || 0), total: Number(row.total || 0), checkedBy: row.checkedBy || 'System', remarks: 'Live order activity' }));
   return {
     pettyCash: pettyRows || pettyCash.map((row, index) => ({ id: row.id, item: row.item, rate: Number(row.total || 0), quantity: 1, total: Number(row.total || 0), date: row.date, remarks: row.remarks || row.paymentMethod || 'Cash expense', checkedBy: row.created_by || 'System', rowNumber: index + 1 })),
-    dailySales: dailyRows || dailySales.map((row, index) => ({ id: `${reportDate}-${index}`, date: reportDate, item: row.item, quantity: Number(row.quantity || 0), openingStock: Number(row.openingStock || 0), closingStock: Number(row.closingStock || 0), price: Number(row.price || 0), difference: Number(row.openingStock || 0) - Number(row.closingStock || 0), total: Number(row.total || 0), checkedBy: row.checkedBy || 'System', remarks: 'Live order activity' })),
+    dailySales: liveDailyRows,
     pettyCashTotal: (pettyRows || pettyCash).reduce((sum, row) => sum + (Number(row.total) || (Number(row.rate) || 0) * (Number(row.quantity) || 0)), 0),
-    dailySalesTotal: (dailyRows || dailySales).reduce((sum, row) => sum + Number(row.total || 0), 0),
+    dailySalesTotal: liveDailyRows.reduce((sum, row) => sum + Number(row.total || 0), 0),
     reportDate,
+    dailySalesSavedAt: savedDaily?.updated_at || null,
+    dailySalesSavedBy: savedDaily?.checked_by_name || null,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -146,6 +149,7 @@ router.put('/operational-summary/:type/:date', authMiddleware, (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(summary_type, report_date) DO UPDATE SET payload = excluded.payload, checked_by_id = excluded.checked_by_id, checked_by_name = excluded.checked_by_name, checked_at = excluded.checked_at, updated_at = excluded.updated_at`)
     .run(req.params.type, req.params.date, payload, req.user.id, req.user.name, now, now);
+  broadcast('business:updated', { type: 'operational_summary_saved', summaryType: req.params.type, reportDate: req.params.date });
   res.json({ ok: true, summaryType: req.params.type, reportDate: req.params.date, checkedBy: req.user.name, checkedAt: now });
 });
 
@@ -153,6 +157,7 @@ router.patch('/operational-summary/:type/:date/approve', authMiddleware, require
   const now = new Date().toISOString();
   const result = db.prepare('UPDATE operational_summaries SET approved_by_id = ?, approved_by_name = ?, approved_at = ?, updated_at = ? WHERE summary_type = ? AND report_date = ?').run(req.user.id, req.user.name, now, now, req.params.type, req.params.date);
   if (!result.changes) return res.status(404).json({ error: 'Save the summary before approving it.' });
+  broadcast('business:updated', { type: 'operational_summary_approved', summaryType: req.params.type, reportDate: req.params.date });
   res.json({ ok: true, approvedBy: req.user.name, approvedAt: now });
 });
 

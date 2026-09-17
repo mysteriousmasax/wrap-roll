@@ -33,6 +33,7 @@ export default function CRMPage() {
   const [loading, setLoading] = useState(true);
   const [channelFilter, setChannelFilter] = useState('all');
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
+  const [customerOrders, setCustomerOrders] = useState([]);
   const [savingCustomer, setSavingCustomer] = useState(false);
   const [customerForm, setCustomerForm] = useState({});
   const [status, setStatus] = useState('');
@@ -42,25 +43,40 @@ export default function CRMPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
 
+  useEffect(() => {
+    if (!selectedCustomerId) {
+      setCustomerOrders([]);
+      return;
+    }
+    api.getCustomerOrders(selectedCustomerId).then(setCustomerOrders).catch(() => setCustomerOrders([]));
+  }, [selectedCustomerId]);
+
   const loadCustomers = async () => {
     const data = await api.getCustomers();
     setCustomers(data);
     if (!selectedCustomerId && data[0]) setSelectedCustomerId(data[0].id);
     if (selectedCustomerId) {
       const match = data.find((customer) => customer.id === selectedCustomerId);
-      if (match) setCustomerForm({
-        birthday: match.birthday || '',
-        anniversary: match.anniversary || '',
-        customerSegment: match.customerSegment || match.customer_segment || 'regular',
-        nfcTagCode: match.nfcTagCode || match.nfc_tag_code || '',
-        nfcTagType: match.nfcTagType || match.nfc_tag_type || 'key_holder',
-        customerType: match.customerType || 'individual',
-        companyName: match.companyName || '',
-        tin: match.tin || '',
-        billingAddress: match.billingAddress || '',
-        loyaltyNotes: match.loyaltyNotes || match.loyalty_notes || '',
-        preferredChannel: match.preferredChannel || match.preferred_channel || 'pos',
-      });
+      if (match) {
+        setCustomerForm({
+          birthday: match.birthday || '',
+          anniversary: match.anniversary || '',
+          customerSegment: match.customerSegment || match.customer_segment || 'regular',
+          nfcTagCode: match.nfcTagCode || match.nfc_tag_code || '',
+          nfcTagType: match.nfcTagType || match.nfc_tag_type || 'key_holder',
+          customerType: match.customerType || 'individual',
+          companyName: match.companyName || '',
+          tin: match.tin || '',
+          billingAddress: match.billingAddress || '',
+          loyaltyNotes: match.loyaltyNotes || match.loyalty_notes || '',
+          preferredChannel: match.preferredChannel || match.preferred_channel || 'pos',
+          socialLinks: match.socialLinks || {},
+        });
+      } else if (data[0]) {
+        setSelectedCustomerId(data[0].id);
+      } else {
+        setSelectedCustomerId(null);
+      }
     }
   };
 
@@ -89,6 +105,7 @@ export default function CRMPage() {
             billingAddress: customersData[0].billingAddress || '',
             loyaltyNotes: customersData[0].loyaltyNotes || customersData[0].loyalty_notes || '',
             preferredChannel: customersData[0].preferredChannel || customersData[0].preferred_channel || 'pos',
+            socialLinks: customersData[0].socialLinks || {},
           });
         }
       } finally {
@@ -97,7 +114,7 @@ export default function CRMPage() {
     };
     bootstrap();
   }, []);
-  useWebSocket((event) => { if (['order:created', 'order:updated', 'business:updated', 'staff:updated'].includes(event)) loadCustomers(); });
+  useWebSocket((event) => { if (['order:created', 'order:updated', 'customer:updated', 'customer:deleted', 'business:updated', 'staff:updated'].includes(event)) loadCustomers(); });
 
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) || customers[0] || null;
 
@@ -119,7 +136,8 @@ export default function CRMPage() {
   };
 
   const filtered = customers.filter((customer) => {
-    const matchesSearch = customer.name.toLowerCase().includes(search.toLowerCase());
+    const socialValues = Object.values(customer.socialLinks || {}).join(' ');
+    const matchesSearch = `${customer.name} ${customer.phone || ''} ${customer.email || ''} ${socialValues}`.toLowerCase().includes(search.toLowerCase());
     const matchesChannel = channelFilter === 'all' || customer.channel === channelFilter || customer.channels?.[channelFilter];
     return matchesSearch && matchesChannel;
   });
@@ -366,6 +384,9 @@ export default function CRMPage() {
               <label className="block"><span className="text-surface-on-variant block mb-1">NFC tag code</span><input value={customerForm.nfcTagCode || ''} onChange={(e) => handleCustomerChange('nfcTagCode', e.target.value)} className="input-field w-full" placeholder="WR-0001-123456" /></label>
               <label className="block"><span className="text-surface-on-variant block mb-1">NFC type</span><select value={customerForm.nfcTagType || 'key_holder'} onChange={(e) => handleCustomerChange('nfcTagType', e.target.value)} className="input-field w-full"><option value="key_holder">Key Holder</option><option value="engraved_card">Engraved Card</option><option value="phone_holder">Phone Holder</option><option value="premium_kit">Premium Kit</option></select></label>
               <label className="block"><span className="text-surface-on-variant block mb-1">Preferred channel</span><select value={customerForm.preferredChannel || 'pos'} onChange={(e) => handleCustomerChange('preferredChannel', e.target.value)} className="input-field w-full"><option value="pos">In-person</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">Email</option><option value="instagram">Instagram</option><option value="facebook">Facebook</option></select></label>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {['whatsapp', 'instagram', 'facebook'].map((network) => <label key={network} className="block"><span className="text-surface-on-variant mb-1 block capitalize">{network} link</span><input value={customerForm.socialLinks?.[network] || ''} onChange={(e) => handleCustomerChange('socialLinks', { ...customerForm.socialLinks, [network]: e.target.value })} className="input-field w-full" placeholder={`https://${network}.com/...`} /></label>)}
+              </div>
               <label className="block"><span className="text-surface-on-variant block mb-1">Customer type</span><select value={customerForm.customerType || 'individual'} onChange={(e) => handleCustomerChange('customerType', e.target.value)} className="input-field w-full"><option value="individual">Normal customer</option><option value="company">Company customer</option></select></label>
               {customerForm.customerType === 'company' && <><label className="block"><span className="text-surface-on-variant block mb-1">Company name</span><input value={customerForm.companyName || ''} onChange={(e) => handleCustomerChange('companyName', e.target.value)} className="input-field w-full" /></label><label className="block"><span className="text-surface-on-variant block mb-1">TIN</span><input value={customerForm.tin || ''} onChange={(e) => handleCustomerChange('tin', e.target.value)} className="input-field w-full" /></label><label className="block"><span className="text-surface-on-variant block mb-1">Billing address</span><input value={customerForm.billingAddress || ''} onChange={(e) => handleCustomerChange('billingAddress', e.target.value)} className="input-field w-full" /></label></>}
               <label className="block"><span className="text-surface-on-variant block mb-1">Loyalty notes</span><textarea value={customerForm.loyaltyNotes || ''} onChange={(e) => handleCustomerChange('loyaltyNotes', e.target.value)} rows="3" className="input-field w-full" placeholder="Birthday offer, couples table, favorite items..." /></label>
@@ -375,6 +396,12 @@ export default function CRMPage() {
                 <Button variant="secondary" size="sm" onClick={sendHolidayNotice}><Sparkles size={14} /> Notify</Button>
               </div>
               {status && <p className="text-[11px] text-primary">{status}</p>}
+            </div>
+            <div className="mt-5 border-t border-outline-variant pt-4">
+              <div className="mb-3 flex items-center justify-between gap-2"><h3 className="font-bold text-sm">Order history</h3><span className="text-[10px] text-surface-on-variant">{customerOrders.length} total</span></div>
+              <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                {customerOrders.length ? customerOrders.map((order) => <div key={order.id} className="rounded-xl border border-outline-variant bg-surface-container-low p-3 text-xs"><div className="flex items-start justify-between gap-2"><div><p className="font-bold">{order.order_number || order.id}</p><p className="text-[10px] text-surface-on-variant">{new Date(order.created_at).toLocaleString()}</p></div><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold capitalize text-primary">{order.status}</span></div><div className="mt-2 flex items-center justify-between gap-2"><span>{order.items.map((item) => `${item.qty}x ${item.name}`).join(', ')}</span><strong>{formatCurrency(order.total)}</strong></div>{order.customer_phone || order.customer_email ? <p className="mt-1 text-[10px] text-surface-on-variant">Matched by {order.customer_phone ? 'phone' : order.customer_email ? 'email' : 'name'}</p> : null}</div>) : <p className="text-xs text-surface-on-variant">No matching orders yet.</p>}
+              </div>
             </div>
           </Card>
         )}

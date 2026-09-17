@@ -41,6 +41,21 @@ export async function initDatabase() {
       type TEXT NOT NULL CHECK(type IN ('add', 'remove'))
     );
 
+    CREATE TABLE IF NOT EXISTS menu_item_categories (
+      menu_item_id INTEGER NOT NULL,
+      category TEXT NOT NULL,
+      PRIMARY KEY (menu_item_id, category),
+      FOREIGN KEY (menu_item_id) REFERENCES menu_items(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS menu_item_modifiers (
+      menu_item_id INTEGER NOT NULL,
+      modifier_id INTEGER NOT NULL,
+      PRIMARY KEY (menu_item_id, modifier_id),
+      FOREIGN KEY (menu_item_id) REFERENCES menu_items(id) ON DELETE CASCADE,
+      FOREIGN KEY (modifier_id) REFERENCES modifiers(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS tables (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       number INTEGER NOT NULL UNIQUE,
@@ -70,6 +85,7 @@ export async function initDatabase() {
       nfc_tag_type TEXT,
       loyalty_notes TEXT,
       preferred_channel TEXT DEFAULT 'pos'
+      ,social_links TEXT DEFAULT '{}'
       ,roll_points_balance INTEGER NOT NULL DEFAULT 0
     );
 
@@ -573,6 +589,23 @@ export async function initDatabase() {
 }
 
 function migrateSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS menu_item_categories (
+      menu_item_id INTEGER NOT NULL,
+      category TEXT NOT NULL,
+      PRIMARY KEY (menu_item_id, category),
+      FOREIGN KEY (menu_item_id) REFERENCES menu_items(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS menu_item_modifiers (
+      menu_item_id INTEGER NOT NULL,
+      modifier_id INTEGER NOT NULL,
+      PRIMARY KEY (menu_item_id, modifier_id),
+      FOREIGN KEY (menu_item_id) REFERENCES menu_items(id) ON DELETE CASCADE,
+      FOREIGN KEY (modifier_id) REFERENCES modifiers(id) ON DELETE CASCADE
+    );
+  `);
+  db.prepare(`INSERT OR IGNORE INTO menu_item_categories (menu_item_id, category)
+    SELECT id, category FROM menu_items WHERE category IS NOT NULL AND trim(category) <> ''`).run();
   const cols = db.prepare('PRAGMA table_info(orders)').all();
   if (cols.length > 0 && !cols.some((c) => c.name === 'delivery_address')) {
     db.exec('ALTER TABLE orders ADD COLUMN delivery_address TEXT');
@@ -593,6 +626,10 @@ function migrateSchema(db) {
   const taskCols = db.prepare('PRAGMA table_info(staff_tasks)').all();
   if (!taskCols.some((col) => col.name === 'task_type')) db.exec("ALTER TABLE staff_tasks ADD COLUMN task_type TEXT DEFAULT 'task'");
   if (!taskCols.some((col) => col.name === 'task_payload')) db.exec("ALTER TABLE staff_tasks ADD COLUMN task_payload TEXT DEFAULT '{}'");
+  if (!taskCols.some((col) => col.name === 'priority')) db.exec("ALTER TABLE staff_tasks ADD COLUMN priority TEXT DEFAULT 'medium'");
+  if (!taskCols.some((col) => col.name === 'category')) db.exec("ALTER TABLE staff_tasks ADD COLUMN category TEXT DEFAULT 'General'");
+  if (!taskCols.some((col) => col.name === 'description')) db.exec("ALTER TABLE staff_tasks ADD COLUMN description TEXT DEFAULT ''");
+  if (!taskCols.some((col) => col.name === 'updated_at')) db.exec('ALTER TABLE staff_tasks ADD COLUMN updated_at TEXT');
   db.prepare("UPDATE staff_tasks SET task_type = 'crm_approval' WHERE task_type = 'task' AND (lower(title) LIKE '%approval%' OR lower(title) LIKE '%campaign%' OR lower(title) LIKE '%loyalty%' OR lower(title) LIKE '%follow-up%' OR lower(title) LIKE '%crm action%')").run();
   const notificationCols = db.prepare('PRAGMA table_info(notifications)').all();
   if (!notificationCols.some((col) => col.name === 'audience_role')) db.exec('ALTER TABLE notifications ADD COLUMN audience_role TEXT');
@@ -665,6 +702,7 @@ function migrateSchema(db) {
   if (!customerCols.some((col) => col.name === 'nfc_tag_type')) db.exec('ALTER TABLE customers ADD COLUMN nfc_tag_type TEXT');
   if (!customerCols.some((col) => col.name === 'loyalty_notes')) db.exec('ALTER TABLE customers ADD COLUMN loyalty_notes TEXT');
   if (!customerCols.some((col) => col.name === 'preferred_channel')) db.exec("ALTER TABLE customers ADD COLUMN preferred_channel TEXT DEFAULT 'pos'");
+  if (!customerCols.some((col) => col.name === 'social_links')) db.exec("ALTER TABLE customers ADD COLUMN social_links TEXT DEFAULT '{}'");
   if (!customerCols.some((col) => col.name === 'roll_points_balance')) db.exec('ALTER TABLE customers ADD COLUMN roll_points_balance INTEGER NOT NULL DEFAULT 0');
 
   const holidayCols = db.prepare('PRAGMA table_info(holiday_events)').all();

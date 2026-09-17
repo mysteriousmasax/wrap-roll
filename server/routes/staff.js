@@ -82,6 +82,53 @@ router.get('/tracking', authMiddleware, (req, res) => {
   });
 });
 
+router.get('/kanban', authMiddleware, requireRole('admin', 'executive', 'manager'), (req, res) => {
+  const rows = db.prepare(`SELECT staff_tasks.*, staff.name AS staff_name, creator.name AS creator_name
+    FROM staff_tasks
+    INNER JOIN staff ON staff.id = staff_tasks.staff_id
+    LEFT JOIN users creator ON creator.id = staff_tasks.created_by
+    ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, due_date IS NULL, due_date ASC, staff_tasks.created_at DESC`).all();
+  res.json(rows.map((row) => ({
+    id: row.id, staffId: row.staff_id, staffName: row.staff_name, title: row.title,
+    description: row.description || '', category: row.category || 'General', priority: row.priority || 'medium',
+    status: row.status || 'open', dueDate: row.due_date, createdBy: row.creator_name || 'System',
+    createdAt: row.created_at, updatedAt: row.updated_at || row.created_at,
+  })));
+});
+
+router.post('/kanban', authMiddleware, requireRole('admin', 'executive', 'manager'), (req, res) => {
+  const { staffId, title, description = '', category = 'General', priority = 'medium', dueDate = null } = req.body || {};
+  const staff = db.prepare('SELECT id, name, user_id FROM staff WHERE id = ? AND status != ?').get(Number(staffId), 'removed');
+  if (!staff || !String(title || '').trim()) return res.status(400).json({ error: 'Assignee and task title are required.' });
+  const allowedPriorities = ['low', 'medium', 'high', 'urgent'];
+  const resolvedPriority = allowedPriorities.includes(priority) ? priority : 'medium';
+  const now = new Date().toISOString();
+  const result = db.prepare(`INSERT INTO staff_tasks (staff_id, title, description, category, priority, task_type, task_payload, status, due_date, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'kanban', '{}', 'open', ?, ?, ?, ?)`).run(staff.id, String(title).trim(), String(description || '').trim(), String(category || 'General').trim(), resolvedPriority, dueDate || null, req.user.id, now, now);
+  broadcast('staff:updated', { staffId: staff.id, action: 'kanban_created', taskId: result.lastInsertRowid });
+  res.status(201).json({ id: result.lastInsertRowid });
+});
+
+router.patch('/kanban/:id', authMiddleware, requireRole('admin', 'executive', 'manager'), (req, res) => {
+  const task = db.prepare('SELECT * FROM staff_tasks WHERE id = ?').get(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found.' });
+  const allowedStatuses = ['open', 'in_progress', 'blocked', 'completed'];
+  const status = allowedStatuses.includes(req.body?.status) ? req.body.status : task.status;
+  const priority = ['low', 'medium', 'high', 'urgent'].includes(req.body?.priority) ? req.body.priority : task.priority || 'medium';
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE staff_tasks SET status = ?, priority = ?, title = COALESCE(?, title), description = COALESCE(?, description), category = COALESCE(?, category), due_date = ?, updated_at = ?, completed_at = ? WHERE id = ?`)
+    .run(status, priority, req.body?.title || null, req.body?.description ?? null, req.body?.category || null, req.body?.dueDate ?? task.due_date, now, status === 'completed' ? now : null, req.params.id);
+  broadcast('staff:updated', { staffId: task.staff_id, action: `kanban_${status}`, taskId: Number(req.params.id) });
+  res.json({ ok: true, status });
+});
+
+router.delete('/kanban/:id', authMiddleware, requireRole('admin', 'executive', 'manager'), (req, res) => {
+  const result = db.prepare("DELETE FROM staff_tasks WHERE id = ? AND task_type = 'kanban'").run(req.params.id);
+  if (!result.changes) return res.status(404).json({ error: 'Kanban task not found.' });
+  broadcast('staff:updated', { action: 'kanban_deleted', taskId: Number(req.params.id) });
+  res.json({ ok: true });
+});
+
 router.post('/tasks', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
   const { staffId, title, dueDate } = req.body || {};
   const staff = db.prepare('SELECT id FROM staff WHERE id = ?').get(Number(staffId));

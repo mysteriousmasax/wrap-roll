@@ -5,16 +5,18 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import { api } from '../../api/client';
 import useSettingsStore from '../../store/useSettingsStore';
-import { Save, Store, Receipt, CreditCard, Globe, Shield, Bell, MessageCircle, Plus, Trash2, Brain, Download, Printer } from 'lucide-react';
+import { Save, Store, Receipt, CreditCard, Globe, Shield, Bell, MessageCircle, Star, Plus, Trash2, Brain, Download, Printer } from 'lucide-react';
 import { downloadAsset } from '../../utils/downloadAsset';
 
 const sections = [
   { id: 'general', label: 'General', icon: Store },
   { id: 'tax', label: 'Tax & Currency', icon: Receipt },
   { id: 'payments', label: 'Payments', icon: CreditCard },
+  { id: 'invoice', label: 'Invoices', icon: Receipt },
   { id: 'printer', label: 'Receipt Printer', icon: Printer },
   { id: 'desktop', label: 'Desktop POS', icon: Download },
   { id: 'appearance', label: 'Website Motion', icon: Globe },
+  { id: 'reviews', label: 'Customer Reviews', icon: Star },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'chat', label: 'Chat Auto-Replies', icon: MessageCircle },
   { id: 'security', label: 'Security', icon: Shield },
@@ -57,6 +59,7 @@ export default function SettingsPage() {
   const [retraining, setRetraining] = useState(false);
   const [testingPrinter, setTestingPrinter] = useState(false);
   const [desktopRelease, setDesktopRelease] = useState(null);
+  const [downloadingDesktop, setDownloadingDesktop] = useState(false);
 
   useEffect(() => {
     if (loaded) {
@@ -121,6 +124,23 @@ export default function SettingsPage() {
       setMessage(error.message || 'Unable to print test receipt');
     } finally {
       setTestingPrinter(false);
+    }
+  };
+
+  const downloadDesktopInstaller = async () => {
+    setDownloadingDesktop(true);
+    try {
+      const blob = await api.downloadDesktopInstaller();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'Wrap-Roll-POS-Setup-1.0.0.exe';
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setMessage(error.message || 'Unable to download desktop installer');
+    } finally {
+      setDownloadingDesktop(false);
     }
   };
 
@@ -326,7 +346,7 @@ export default function SettingsPage() {
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Download size={18} /></div>
                 <div><h3 className="font-display font-bold">Offline Desktop POS</h3><p className="mt-1 text-xs text-surface-on-variant">Download the signed Windows installer for a branch till and kitchen display. Windows will ask the operator to approve the installer.</p></div>
               </div>
-              {desktopRelease?.url ? <div className="mt-5 rounded-xl border border-outline-variant bg-surface-container-low p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-bold">Version {desktopRelease.version}</p><p className="mt-1 text-xs text-surface-on-variant">After installation, the first launch asks for the branch code and branch name.</p></div><Button onClick={() => window.open(desktopRelease.url, '_blank')}><Download size={14} /> Download installer</Button></div>{desktopRelease.sha256 && <p className="mt-3 break-all font-mono text-[10px] text-surface-on-variant">SHA-256: {desktopRelease.sha256}</p>}</div> : <div className="mt-5 rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">{desktopRelease?.error || 'Loading release information...'}</div>}
+              {desktopRelease?.url ? <div className="mt-5 rounded-xl border border-outline-variant bg-surface-container-low p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-bold">Version {desktopRelease.version}</p><p className="mt-1 text-xs text-surface-on-variant">After installation, the first launch asks for the branch code and branch name.</p></div><Button onClick={downloadDesktopInstaller} disabled={downloadingDesktop}><Download size={14} /> {downloadingDesktop ? 'Downloading...' : 'Download installer'}</Button></div>{desktopRelease.sha256 && <p className="mt-3 break-all font-mono text-[10px] text-surface-on-variant">SHA-256: {desktopRelease.sha256}</p>}</div> : <div className="mt-5 rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">{desktopRelease?.error || 'Loading release information...'}</div>}
             </Card>
           )}
           {activeSection === 'appearance' && (
@@ -343,6 +363,31 @@ export default function SettingsPage() {
                   <Input label="Duration (ms)" type="number" min="250" max="1500" step="50" value={form.public_animation_duration || '650'} onChange={(e) => update('public_animation_duration', e.target.value)} />
                 </div>
                 <button onClick={() => update('public_animation_replay', form.public_animation_replay === 'true' ? 'false' : 'true')} className="w-full flex items-center justify-between p-3 bg-surface-container-low rounded-xl text-left"><div><p className="font-semibold text-sm">Replay on re-entry</p><p className="text-xs text-surface-on-variant">Animate content each time it enters the viewport.</p></div><div className={'w-10 h-5 rounded-full relative transition-colors ' + (form.public_animation_replay === 'true' ? 'bg-success' : 'bg-outline-variant')}><div className={'w-4 h-4 bg-white rounded-full absolute top-0.5 transition-all ' + (form.public_animation_replay === 'true' ? 'right-0.5' : 'left-0.5')} /></div></button>
+              </div>
+            </Card>
+          )}
+          {activeSection === 'reviews' && (
+            <Card>
+              <h3 className="font-display font-bold mb-1">Customer Review Links</h3>
+              <p className="text-sm text-surface-on-variant mb-4">These links appear after an order is marked completed so customers can rate their meal.</p>
+              <div className="grid grid-cols-1 gap-4">
+                <Input label="WhatsApp link" placeholder="https://wa.me/..." value={form.review_whatsapp_url || ''} onChange={(e) => update('review_whatsapp_url', e.target.value)} />
+                <Input label="Instagram link" placeholder="https://instagram.com/..." value={form.review_instagram_url || ''} onChange={(e) => update('review_instagram_url', e.target.value)} />
+                <Input label="Google review link" placeholder="https://g.page/r/.../review" value={form.review_google_url || ''} onChange={(e) => update('review_google_url', e.target.value)} />
+              </div>
+            </Card>
+          )}
+          {activeSection === 'invoice' && (
+            <Card>
+              <h3 className="font-display font-bold mb-1">Invoice Settings</h3>
+              <p className="text-sm text-surface-on-variant mb-4">Customize the printed fiscal invoice shown to customers.</p>
+              <div className="space-y-4">
+                <Input label="Invoice heading" value={form.invoice_title || ''} onChange={(e) => update('invoice_title', e.target.value)} />
+                <Input label="Invoice footer" value={form.invoice_footer || ''} onChange={(e) => update('invoice_footer', e.target.value)} />
+                <label className="flex items-center gap-3 rounded-xl bg-surface-container-low p-3 text-sm font-semibold">
+                  <input type="checkbox" checked={form.invoice_show_tax !== 'false'} onChange={(e) => update('invoice_show_tax', e.target.checked ? 'true' : 'false')} />
+                  Show tax details on invoices
+                </label>
               </div>
             </Card>
           )}

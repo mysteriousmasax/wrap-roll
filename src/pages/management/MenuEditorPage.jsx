@@ -64,6 +64,8 @@ export default function MenuEditorPage() {
     description: '',
     price: '',
     category: 'wraps',
+    categories: ['wraps'],
+    modifier_ids: [],
     image: '',
     prep_time_minutes: '8',
     popular: false,
@@ -112,12 +114,12 @@ export default function MenuEditorPage() {
     new Set([
       ...DEFAULT_CATEGORIES,
       ...customCategories,
-      ...items.map((i) => i.category).filter(Boolean),
+      ...items.flatMap((i) => i.categories || [i.category]).filter(Boolean),
     ])
   );
 
   const filtered = items.filter((i) => {
-    const matchesCategory = activeCategory === 'all' || i.category === activeCategory;
+    const matchesCategory = activeCategory === 'all' || (i.categories || [i.category]).includes(activeCategory);
     const matchesSearch =
       !search.trim() ||
       `${i.name} ${i.description}`.toLowerCase().includes(search.trim().toLowerCase());
@@ -132,6 +134,8 @@ export default function MenuEditorPage() {
       description: item.description || '',
       price: String(item.price),
       category: item.category || 'wraps',
+      categories: item.categories?.length ? item.categories : [item.category || 'wraps'],
+      modifier_ids: (item.modifiers || []).map((modifier) => modifier.id),
       image: item.image || '',
       prep_time_minutes: String(item.prep_time_minutes ?? 8),
       popular: item.popular,
@@ -147,6 +151,8 @@ export default function MenuEditorPage() {
       description: form.description,
       price: parseFloat(form.price),
       category: form.category,
+      categories: form.categories,
+      modifier_ids: form.modifier_ids,
       image: form.image,
       prep_time_minutes: Number(form.prep_time_minutes || 8),
       popular: form.popular,
@@ -163,6 +169,8 @@ export default function MenuEditorPage() {
       description: form.description,
       price: parseFloat(form.price),
       category: form.category,
+      categories: form.categories,
+      modifier_ids: form.modifier_ids,
       image: form.image,
       prep_time_minutes: Number(form.prep_time_minutes || 8),
       popular: form.popular,
@@ -228,6 +236,8 @@ export default function MenuEditorPage() {
       description: '',
       price: '',
       category: 'wraps',
+      categories: ['wraps'],
+      modifier_ids: [],
       image: '',
       prep_time_minutes: '8',
       popular: false,
@@ -291,17 +301,36 @@ export default function MenuEditorPage() {
             <Plus size={12} /> Add New Category
           </button>
         </div>
-        <select
-          value={form.category}
-          onChange={(e) => setForm({ ...form, category: e.target.value })}
-          className="w-full px-3 py-2 rounded-xl border border-[#ebdccb] bg-white text-xs text-[#24211e] focus:outline-none focus:border-[#ae002a]"
-        >
-          {allCategories.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
+        <div className="grid grid-cols-2 gap-2 rounded-xl border border-[#ebdccb] bg-white p-3">
+          {allCategories.map((category) => (
+            <label key={category} className="flex items-center gap-2 text-xs font-semibold capitalize text-[#554e46]">
+              <input
+                type="checkbox"
+                checked={form.categories.includes(category)}
+                onChange={(event) => setForm((current) => {
+                  const categories = event.target.checked
+                    ? [...new Set([...current.categories, category])]
+                    : current.categories.filter((value) => value !== category);
+                  return categories.length ? { ...current, categories, category: categories[0] } : current;
+                })}
+              />
+              {category}
+            </label>
           ))}
-        </select>
+        </div>
+      </div>
+
+      <div>
+        <label className="block mb-1.5 text-xs font-bold text-[#746e67] uppercase tracking-wider">Customer options for this food</label>
+        <p className="mb-2 text-[10px] text-[#8c8278]">Choose only the extras and ingredients customers may add or remove.</p>
+        <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-[#ebdccb] bg-white p-3">
+          {modifiers.length === 0 ? <p className="text-xs text-[#746e67]">Create modifiers below first.</p> : modifiers.map((modifier) => (
+            <label key={modifier.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-[#fbf6ee]">
+              <span className="flex items-center gap-2"><input type="checkbox" checked={form.modifier_ids.includes(modifier.id)} onChange={(event) => setForm((current) => ({ ...current, modifier_ids: event.target.checked ? [...new Set([...current.modifier_ids, modifier.id])] : current.modifier_ids.filter((id) => id !== modifier.id) }))} /><span>{modifier.type === 'remove' ? 'Remove' : 'Add'} {modifier.name}</span></span>
+              {modifier.type === 'add' && <span className="font-semibold text-[#ae002a]">+{formatCurrency(modifier.price || 0)}</span>}
+            </label>
+          ))}
+        </div>
       </div>
 
       <div className="space-y-1.5">
@@ -464,7 +493,7 @@ export default function MenuEditorPage() {
 
   const activeCount = items.filter((item) => item.active).length;
   const popularCount = items.filter((item) => item.popular).length;
-  const categoryCount = new Set(items.map((item) => item.category)).size;
+  const categoryCount = new Set(items.flatMap((item) => item.categories || [item.category]).filter(Boolean)).size;
   const previewGroups = items.filter((item) => item.active).reduce((groups, item) => {
     (groups[item.category || 'other'] ||= []).push(item);
     return groups;
@@ -861,12 +890,12 @@ export default function MenuEditorPage() {
         }}
         title="Add New Food Item / Meal"
       >
-        <FormFields onSave={saveAdd} saveLabel="Create Food Item" />
+        {FormFields({ onSave: saveAdd, saveLabel: 'Create Food Item' })}
       </Modal>
 
       {/* Edit Item Modal */}
       <Modal isOpen={!!editItem} onClose={() => setEditItem(null)} title="Edit Menu Item">
-        <FormFields onSave={saveEdit} saveLabel="Save Changes" />
+        {FormFields({ onSave: saveEdit, saveLabel: 'Save Changes' })}
       </Modal>
 
       {/* Delete Confirmation Modal */}

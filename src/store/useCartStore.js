@@ -64,6 +64,8 @@ const useCartStore = create((set, get) => ({
     set((state) => ({ items: [...state.items, customItem] }));
   },
 
+  setItems: (items) => set({ items: Array.isArray(items) ? items : [] }),
+
   removeItem: (cartId) => {
     set((state) => ({ items: state.items.filter((i) => i.cartId !== cartId) }));
   },

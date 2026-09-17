@@ -512,7 +512,6 @@ export default function POSPage() {
   const desktopCartRef = useRef(null);
   const floatingOrderRef = useRef(null);
   const [menuItems, setMenuItems] = useState([]);
-  const [modifiers, setModifiers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [offlineOrderCount, setOfflineOrderCount] = useState(0);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
@@ -540,10 +539,9 @@ export default function POSPage() {
   }, []);
 
   useEffect(() => {
-    Promise.all([api.getMenu(), api.getModifiers()])
-      .then(([menu, mods]) => {
+    Promise.all([api.getMenu()])
+      .then(([menu]) => {
         setMenuItems(menu || []);
-        setModifiers(mods || []);
       })
       .catch((err) => {
         console.error('Failed to load menu:', err);
@@ -553,10 +551,9 @@ export default function POSPage() {
 
   useWebSocket((event) => {
     if (event !== 'menu:updated') return;
-    Promise.all([api.getMenu(), api.getModifiers()])
-      .then(([menu, mods]) => {
+    Promise.all([api.getMenu()])
+      .then(([menu]) => {
         setMenuItems(menu || []);
-        setModifiers(mods || []);
       })
       .catch(() => {});
   });
@@ -583,7 +580,7 @@ export default function POSPage() {
   }, [showMobileCart]);
 
   const filteredItems = menuItems.filter((item) => {
-    const matchCategory = activeCategory === 'all' || item.category === activeCategory;
+    const matchCategory = activeCategory === 'all' || (item.categories || [item.category]).includes(activeCategory);
     const matchSearch =
       !searchQuery.trim() ||
       `${item.name} ${item.description || ''}`.toLowerCase().includes(searchQuery.toLowerCase());
@@ -826,7 +823,7 @@ export default function POSPage() {
           <ItemCustomization
         isOpen={showCustomization}
         item={selectedItem}
-        modifiers={modifiers}
+        modifiers={selectedItem?.modifiers || []}
             kitchenLoad={kitchenLoad}
         onClose={() => setShowCustomization(false)}
         onAdd={handleAddToCart}
@@ -834,7 +831,7 @@ export default function POSPage() {
       <OrderTypeSelector
         isOpen={showOrderType}
         onClose={() => setShowOrderType(false)}
-        onComplete={() => navigate('/pos/payment')}
+        onComplete={() => navigate('/pos/payment', { state: { checkoutItems: useCartStore.getState().items } })}
       />
       <CustomItemModal
         isOpen={showCustomItemModal}

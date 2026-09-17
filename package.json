@@ -10,7 +10,7 @@
     "server": "npm run dev --prefix server",
     "build": "node ./node_modules/vite/bin/vite.js build",
     "desktop:dev": "npm run build && electron electron/main.cjs",
-    "desktop:build": "node ./node_modules/electron-builder/cli.js --win nsis",
+    "desktop:build": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& npm run build && node ./node_modules/electron-builder/cli.js --win nsis",
     "start": "node server/index.js",
     "preview": "vite preview",
     "seed": "node server/scripts/seedDatabase.js",
@@ -53,7 +53,8 @@
   },
   "build": {
     "appId": "tz.wrapandroll.pos",
-    "productName": "Wrap & Roll POS",
+    "productName": "Wrap and Roll POS",
+    "executableName": "Wrap-Roll-POS",
     "asar": true,
     "disableDefaultIgnoredFiles": true,
     "icon": "public/wrap-roll-logo.ico",

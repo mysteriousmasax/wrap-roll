@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import PageHeader from '../../components/layout/PageHeader';
 import StatCard from '../../components/ui/StatCard';
 import Card from '../../components/ui/Card';
@@ -23,10 +23,16 @@ export default function ReportsPage() {
   const [exporting, setExporting] = useState(false);
   const [previewReport, setPreviewReport] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const refreshTimerRef = useRef(null);
 
   const loadReport = () => api.getReports(range).then(setReport).finally(() => setLoading(false));
   useEffect(() => { loadReport(); const timer = window.setInterval(loadReport, 30000); return () => window.clearInterval(timer); }, [range]);
-  useWebSocket((event) => { if (['order:created', 'order:updated', 'order:confirmed', 'payment:confirmed', 'business:updated', 'staff:updated', 'inventory:updated'].includes(event)) loadReport(); });
+  useWebSocket((event) => {
+    if (['order:created', 'order:updated', 'order:confirmed', 'payment:confirmed', 'payment:manual_review', 'payment:rejected', 'business:updated', 'staff:updated', 'inventory:updated', 'customer:updated', 'menu:updated', 'table:updated', 'settings:updated'].includes(event)) {
+      window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = window.setTimeout(() => loadReport(), 50);
+    }
+  });
 
   const generateAiReview = async () => {
     setAiLoading(true);

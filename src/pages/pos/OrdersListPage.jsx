@@ -154,6 +154,7 @@ export default function OrdersListPage() {
   const [search, setSearch] = useState('');
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [now, setNow] = useState(Date.now());
+  const [actionError, setActionError] = useState('');
   const currentUser = useAuthStore((state) => state.currentUser);
   const settings = useSettingsStore((state) => state.settings);
   const canDelete = ['admin', 'executive', 'manager'].includes(currentUser?.role);
@@ -177,14 +178,20 @@ export default function OrdersListPage() {
   }), [orders, activeFilter, search]);
   const statusCount = (status) => orders.filter((order) => order.status === status).length;
   const deleteOrder = async (order) => {
-    if (!window.confirm(`Delete order ${order.id}? It will be excluded from reports.`)) return;
-    await api.deleteOrder(order.id);
-    fetchOrders();
+    if (!window.confirm(`Permanently delete order ${order.id}? This cannot be undone.`)) return;
+    setActionError('');
+    try {
+      await api.deleteOrder(order.id);
+      await fetchOrders();
+    } catch (error) {
+      setActionError(error.message || 'Unable to permanently delete the order.');
+    }
   };
 
   return (
     <div className="orders-page p-4 sm:p-6">
       <PageHeader title="All Orders" subtitle="Track every order from the website, FOH, and delivery channel" />
+      {actionError && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800" role="alert">{actionError}</div>}
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4"><div className="orders-summary-card border-l-4 border-primary"><p>All orders</p><strong>{orders.length}</strong><span>Across all channels</span></div><div className="orders-summary-card border-l-4 border-secondary"><p>Pending</p><strong>{statusCount('pending')}</strong><span>Waiting for kitchen</span></div><div className="orders-summary-card border-l-4 border-warning"><p>Preparing</p><strong>{statusCount('preparing')}</strong><span>Currently cooking</span></div><div className="orders-summary-card border-l-4 border-success"><p>Ready</p><strong>{statusCount('ready')}</strong><span>Ready to serve</span></div></div>
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex gap-2 overflow-x-auto">{filters.map((filter) => <button key={filter.id} onClick={() => setActiveFilter(filter.id)} className={`whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold transition-colors ${activeFilter === filter.id ? 'bg-primary text-white' : 'bg-white text-surface-on hover:bg-surface-container-low'}`}>{filter.label}{filter.id !== 'all' && <span className="ml-2 opacity-70">{statusCount(filter.id)}</span>}</button>)}</div><div className="relative w-full lg:w-72"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order, customer, item..." className="input-field pl-9" /></div></div>
       <div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ResponsiveContainer,
@@ -71,6 +71,7 @@ export default function AnalyticsPage() {
   const navigate = useNavigate();
   const currentUser = useAuthStore((state) => state.currentUser);
   const [summaryMessage, setSummaryMessage] = useState('');
+  const refreshTimerRef = useRef(null);
 
   const loadAnalytics = async (showLoader = false) => {
     if (showLoader) setRefreshing(true);
@@ -102,7 +103,10 @@ export default function AnalyticsPage() {
   }, []);
 
   useWebSocket((event) => {
-    if (['order:created', 'order:updated', 'order:confirmed', 'payment:confirmed', 'business:updated', 'staff:updated', 'inventory:updated'].includes(event)) loadAnalytics();
+    if (['order:created', 'order:updated', 'order:deleted', 'order:confirmed', 'payment:confirmed', 'payment:manual_review', 'payment:rejected', 'business:updated', 'staff:updated', 'inventory:updated', 'customer:updated', 'menu:updated', 'table:updated', 'settings:updated'].includes(event)) {
+      window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = window.setTimeout(() => loadAnalytics(), 50);
+    }
   });
 
   if (loading) {

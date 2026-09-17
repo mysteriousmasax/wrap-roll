@@ -26,6 +26,9 @@ const defaults = {
   public_animation_style: 'lift',
   public_animation_duration: '650',
   public_animation_replay: 'true',
+  review_whatsapp_url: '',
+  review_instagram_url: '',
+  review_google_url: '',
 };
 
 const useSettingsStore = create((set, get) => ({

@@ -28,6 +28,7 @@ const pageTitles = {
   '/management/people': 'People & HR',
   '/management/loyalty': 'Loyalty Items',
   '/management/campaigns': 'Birthday & Couples Campaigns',
+  '/management/kanban': 'Team Kanban',
   '/management/settings': 'System Settings',
   '/notifications': 'Notifications',
 };
