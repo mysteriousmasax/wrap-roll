@@ -118,6 +118,7 @@ export const api = {
   updateCustomerLoyalty: (id, data) => request(`/customers/${id}/loyalty`, { method: 'PATCH', body: JSON.stringify(data) }),
   createCustomerInvoice: (id) => request(`/customers/${id}/invoices`, { method: 'POST' }),
   getLoyaltyItems: () => request('/loyalty'),
+  deleteLoyaltyItem: (id) => request(`/loyalty/items/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getCampaignDashboard: () => request('/loyalty/dashboard'),
   dispatchCustomerCampaign: () => request('/loyalty/campaign/dispatch', { method: 'POST' }),
   sendWhatsApp: (data) => request('/customers/whatsapp', { method: 'POST', body: JSON.stringify(data) }),
@@ -146,6 +147,7 @@ export const api = {
   adjustInventory: (id, data) => request(`/inventory/${id}/adjust`, { method: 'POST', body: JSON.stringify(data) }),
   createInventory: (data) => request('/inventory', { method: 'POST', body: JSON.stringify(data) }),
   updateInventory: (id, data) => request(`/inventory/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteInventory: (id) => request(`/inventory/${id}`, { method: 'DELETE' }),
 
   getSettings: () => request('/settings'),
   getPublicSettings: () => request('/settings/public'),

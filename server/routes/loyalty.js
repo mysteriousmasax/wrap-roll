@@ -154,6 +154,14 @@ router.get('/dashboard', authMiddleware, (req, res) => {
   });
 });
 
+router.delete('/items/:id', authMiddleware, (req, res) => {
+  const existing = db.prepare('SELECT * FROM loyalty_items WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Loyalty item not found' });
+
+  db.prepare('DELETE FROM loyalty_items WHERE id = ?').run(req.params.id);
+  res.json({ ok: true, deleted: true, id: Number(req.params.id) });
+});
+
 router.post('/campaign/dispatch', authMiddleware, (req, res) => {
   const customers = db.prepare('SELECT * FROM customers WHERE birthday IS NOT NULL OR anniversary IS NOT NULL OR lower(customer_segment) = ?').all('couples');
   const now = new Date().toISOString();

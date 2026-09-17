@@ -5,7 +5,7 @@ import Button from '../../components/ui/Button';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency } from '../../utils/format';
-import { Gift, Search, Save, Tag, Sparkles } from 'lucide-react';
+import { Gift, Search, Save, Tag, Sparkles, Trash2 } from 'lucide-react';
 
 export default function LoyaltyManagementPage() {
   const [items, setItems] = useState([]);
@@ -65,6 +65,17 @@ export default function LoyaltyManagementPage() {
   const draftValue = (customer, field) => drafts[customer.id]?.[field] ?? customer[field] ?? '';
   const setDraft = (customerId, field, value) => setDrafts((current) => ({ ...current, [customerId]: { ...current[customerId], [field]: value } }));
   const saveDraft = (customer, field) => updateItem(customer.id, field, draftValue(customer, field));
+
+  const deleteLoyaltyItem = async (itemId) => {
+    if (!window.confirm('Delete this loyalty item?')) return;
+    try {
+      await api.deleteLoyaltyItem(itemId);
+      setStatus('Loyalty item deleted.');
+      await loadItems();
+    } catch (error) {
+      setStatus(error.message || 'Unable to delete loyalty item');
+    }
+  };
 
   if (loading) return <div className="p-6 text-sm text-surface-on-variant">Loading loyalty items...</div>;
 
@@ -146,7 +157,10 @@ export default function LoyaltyManagementPage() {
             <div className="mt-4 flex flex-wrap gap-2">
               {customer.loyaltyItems?.length ? customer.loyaltyItems.map((item) => (
                 <div key={item.id} className="rounded-xl border border-outline-variant bg-surface-container-low px-3 py-2 text-[11px]">
-                  <div className="flex items-center gap-2"><Tag size={12} className="text-primary" /><span className="font-semibold">{item.itemName}</span></div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2"><Tag size={12} className="text-primary" /><span className="font-semibold">{item.itemName}</span></div>
+                    <button type="button" onClick={() => deleteLoyaltyItem(item.id)} className="rounded p-1 text-error hover:bg-error/5" aria-label={`Delete loyalty item ${item.itemName}`}><Trash2 size={12} /></button>
+                  </div>
                   <p className="text-surface-on-variant mt-1">{item.itemType} &middot; {item.status}</p>
                   <p className="text-surface-on-variant">{item.itemCode || 'No code'}</p>
                 </div>

@@ -7,7 +7,7 @@ import Input from '../../components/ui/Input';
 import { api } from '../../api/client';
 import { formatCurrency } from '../../utils/format';
 import { downloadAsset } from '../../utils/downloadAsset';
-import { Package, AlertTriangle, CalendarClock, Edit3, Search, Plus, MapPin, Truck, X, Upload, History, SlidersHorizontal, Download } from 'lucide-react';
+import { Package, AlertTriangle, CalendarClock, Edit3, Search, Plus, MapPin, Truck, X, Upload, History, SlidersHorizontal, Download, Trash2 } from 'lucide-react';
 
 const fallbackImage = 'https://images.unsplash.com/photo-1547592180-85f173990554?w=240&h=180&fit=crop';
 const emptyForm = { name: '', quantity: '', unit: 'pcs', threshold: '0', supplier: '', imageUrl: '', category: 'Stock items', sku: '', unitCost: '', expiryDate: '', storageLocation: 'Stock sheet', deliveryDate: '', backFreezerChiller: '0', refrigerator: '0', frontSandwich: '0', frontPizza: '0', frontBurger: '0' };
@@ -105,6 +105,17 @@ export default function InventoryPage({ embedded = false }) {
     load();
   };
 
+  const deleteItem = async (item) => {
+    if (!window.confirm(`Delete ${item.name}? This removes it from inventory tracking.`)) return;
+    try {
+      await api.deleteInventory(item.id);
+      setError('');
+      load();
+    } catch (err) {
+      setError(err.message || 'Unable to delete inventory item.');
+    }
+  };
+
   const updateSheetField = async (item, field, value) => {
     const nextItem = { ...item, [field]: value };
     await api.updateInventory(item.id, { [field]: field === 'deliveryDate' ? value : Number(value) || 0 });
@@ -158,7 +169,7 @@ export default function InventoryPage({ embedded = false }) {
             <div className="mt-4 grid grid-cols-2 gap-3 text-xs"><div><p className="text-surface-on-variant">Stock level</p><p className={'mt-1 text-lg font-bold ' + (isLow ? 'text-error' : '')}>{item.quantity} <span className="text-xs font-normal text-surface-on-variant">{item.unit}</span></p><div className="mt-1 h-1.5 rounded-full bg-surface-container"><div className={'h-1.5 rounded-full ' + (isLow ? 'bg-error' : 'bg-success')} style={{ width: `${stockPercent}%` }} /></div></div><div><p className="text-surface-on-variant">Threshold</p><p className="mt-1 font-semibold">{item.threshold} {item.unit}</p><p className="mt-3 text-surface-on-variant">Unit cost</p><p className="mt-1 font-semibold">{formatCurrency(item.unitCost || 0)}</p></div></div>
             <div className="mt-4 grid grid-cols-2 gap-3 border-t border-outline-variant/60 pt-3 text-xs"><div><p className="text-surface-on-variant">Supplier</p><p className="mt-1 font-semibold">{item.supplier || 'Not assigned'}</p><p className="mt-3 text-surface-on-variant">Location</p><p className="mt-1 inline-flex items-center gap-1 font-semibold"><MapPin size={12} />{item.storageLocation || 'Main store'}</p></div><div><p className="text-surface-on-variant">Expiry</p><p className={'mt-1 font-semibold ' + (isExpiring ? 'text-warning' : '')}>{item.expiryDate || 'No expiry'}</p>{isExpiring && <p className="mt-1 text-warning">{expiryDays < 0 ? 'Expired' : `${expiryDays} days left`}</p>}</div></div>
             <div className="mt-4 grid grid-cols-2 gap-3 border-t border-outline-variant/60 pt-3 text-xs"><div><p className="text-surface-on-variant">Delivery date</p><p className="mt-1 font-semibold">{item.deliveryDate || 'Not recorded'}</p><p className="mt-3 text-surface-on-variant">Delivered quantity</p><p className="mt-1 font-semibold">{item.quantity} {item.unit}</p></div><div><p className="text-surface-on-variant">Storage counts</p><p className="mt-1 leading-5 text-surface-on-variant">Back/freezer/chiller <strong className="text-surface-on">{item.backFreezerChiller}</strong> · Refrigerator <strong className="text-surface-on">{item.refrigerator}</strong></p><p className="leading-5 text-surface-on-variant">Sandwich <strong className="text-surface-on">{item.frontSandwich}</strong> · Pizza <strong className="text-surface-on">{item.frontPizza}</strong> · Burger <strong className="text-surface-on">{item.frontBurger}</strong></p><p className="mt-1 font-bold text-primary">Total: {item.total}</p></div></div>
-            <div className="mt-4 flex justify-end gap-1 border-t border-outline-variant/60 pt-3"><button title="Download inventory image" onClick={() => downloadInventoryImage(item)} disabled={!item.imageUrl} className="rounded-lg p-2 hover:bg-surface-container disabled:opacity-30"><Download size={15} className="text-surface-on-variant" /></button><button title="Adjust stock" onClick={() => openAdjust(item)} className="rounded-lg p-2 hover:bg-surface-container"><SlidersHorizontal size={15} className="text-surface-on-variant" /></button><button title="View inventory history" onClick={() => openAudit(item)} className="rounded-lg p-2 hover:bg-surface-container"><History size={15} className="text-surface-on-variant" /></button><button title="Edit inventory item" onClick={() => openEdit(item)} className="rounded-lg p-2 hover:bg-surface-container"><Edit3 size={15} className="text-surface-on-variant" /></button></div>
+            <div className="mt-4 flex justify-end gap-1 border-t border-outline-variant/60 pt-3"><button title="Download inventory image" onClick={() => downloadInventoryImage(item)} disabled={!item.imageUrl} className="rounded-lg p-2 hover:bg-surface-container disabled:opacity-30"><Download size={15} className="text-surface-on-variant" /></button><button title="Adjust stock" onClick={() => openAdjust(item)} className="rounded-lg p-2 hover:bg-surface-container"><SlidersHorizontal size={15} className="text-surface-on-variant" /></button><button title="View inventory history" onClick={() => openAudit(item)} className="rounded-lg p-2 hover:bg-surface-container"><History size={15} className="text-surface-on-variant" /></button><button title="Edit inventory item" onClick={() => openEdit(item)} className="rounded-lg p-2 hover:bg-surface-container"><Edit3 size={15} className="text-surface-on-variant" /></button><button title="Delete inventory item" onClick={() => deleteItem(item)} className="rounded-lg p-2 text-error hover:bg-error/5"><Trash2 size={15} /></button></div>
           </article>;
         })}
         {!filteredItems.length && <div className="rounded-2xl border border-dashed border-outline-variant p-10 text-center text-sm text-surface-on-variant lg:col-span-2">No inventory items match your filters.</div>}

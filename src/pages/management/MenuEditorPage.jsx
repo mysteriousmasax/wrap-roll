@@ -35,6 +35,7 @@ import {
 
 const DEFAULT_CATEGORIES = ['wraps', 'salads', 'rolls', 'pizzas', 'burgers', 'combos', 'sides', 'coffee', 'cold-drinks', 'soft-drinks'];
 const FALLBACK_MENU_IMAGE = 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=600&h=600&fit=crop';
+const INVENTORY_UNIT_OPTIONS = ['kg', 'g', 'l', 'ml', 'pcs', 'pack', 'box', 'bottle', 'slice', 'piece'];
 
 function makeIngredientRow(ingredient = {}) {
   return {
@@ -317,6 +318,16 @@ export default function MenuEditorPage() {
       active: true,
     });
 
+  const syncIngredientFromInventory = (ingredient, value, index) => {
+    const match = inventoryItems.find((item) => item.name.toLowerCase() === value.trim().toLowerCase());
+    return {
+      ...ingredient,
+      name: value,
+      inventoryId: match ? match.id : ingredient.inventoryId || '',
+      unit: match?.unit || ingredient.unit || 'kg',
+    };
+  };
+
   const handlePhotoChange = async (event) => {
     try {
       const image = await importPhoto(event.target.files?.[0]);
@@ -361,7 +372,12 @@ export default function MenuEditorPage() {
                 <input
                   list="inventory-name-options"
                   value={ingredient.name}
-                  onChange={(e) => setForm((current) => ({ ...current, ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === index ? { ...entry, name: e.target.value } : entry) }))}
+                  onChange={(e) => setForm((current) => ({
+                    ...current,
+                    ingredients: current.ingredients.map((entry, entryIndex) =>
+                      entryIndex === index ? syncIngredientFromInventory(entry, e.target.value, index) : entry
+                    ),
+                  }))}
                   placeholder="Inventory item"
                   className="w-full rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2 py-1.5 text-[11px] text-[#24211e] outline-none focus:border-[#ae002a]"
                 />
@@ -375,6 +391,7 @@ export default function MenuEditorPage() {
                   className="w-full rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2 py-1.5 text-[11px] text-[#24211e] outline-none focus:border-[#ae002a]"
                 />
                 <input
+                  list="ingredient-unit-options"
                   value={ingredient.unit}
                   onChange={(e) => setForm((current) => ({ ...current, ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === index ? { ...entry, unit: e.target.value } : entry) }))}
                   placeholder="kg"
@@ -394,6 +411,11 @@ export default function MenuEditorPage() {
           <datalist id="inventory-name-options">
             {inventoryItems.map((inventoryItem) => (
               <option key={inventoryItem.id} value={inventoryItem.name} />
+            ))}
+          </datalist>
+          <datalist id="ingredient-unit-options">
+            {INVENTORY_UNIT_OPTIONS.map((unit) => (
+              <option key={unit} value={unit} />
             ))}
           </datalist>
         </div>
