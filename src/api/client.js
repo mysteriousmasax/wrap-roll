@@ -1,4 +1,5 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_ENV = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {};
+const API_BASE = API_ENV.VITE_API_BASE_URL || '/api';
 
 export class ApiError extends Error {
   constructor(message, status) {
@@ -44,7 +45,18 @@ export const api = {
   logout: () => request('/auth/logout', { method: 'POST' }),
   updateProfile: (data) => request('/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
 
-  getMenu: (all = false) => request(`/menu${all ? '?all=1' : ''}`),
+  getMenu: (all = false, filters = {}) => {
+    const options = typeof all === 'object' && all !== null ? all : { all, ...filters };
+    const params = new URLSearchParams();
+    if (options.all) params.append('all', '1');
+    if (options.category) params.append('category', String(options.category));
+    if (options.search) params.append('search', String(options.search));
+    if (options.limit) params.append('limit', String(options.limit));
+    if (options.offset) params.append('offset', String(options.offset));
+    if (options.active !== undefined) params.append('active', String(options.active));
+    const qs = params.toString();
+    return request(`/menu${qs ? `?${qs}` : ''}`);
+  },
   getMenuCategories: () => request('/menu/categories'),
   createMenuCategory: (data) => request('/menu/categories', { method: 'POST', body: JSON.stringify(data) }),
   updateMenuCategory: (slug, data) => request(`/menu/categories/${encodeURIComponent(slug)}`, { method: 'PUT', body: JSON.stringify(data) }),

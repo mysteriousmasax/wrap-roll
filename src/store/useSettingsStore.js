@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { api } from '../api/client';
+import { api } from '../api/client.js';
 
 const defaults = {
   restaurant_name: 'Wrap & Roll',
@@ -31,33 +31,57 @@ const defaults = {
   review_google_url: '',
 };
 
-const useSettingsStore = create((set, get) => ({
-  settings: { ...defaults },
-  loaded: false,
+const useSettingsStore = create((set, get) => {
+  let fetchPromise = null;
 
-  fetchSettings: async () => {
-    try {
-      const settings = await api.getSettings();
-      set({ settings: { ...defaults, ...settings }, loaded: true });
-    } catch {
+  return {
+    settings: { ...defaults },
+    loaded: false,
+    loading: false,
+
+    fetchSettings: async () => {
+      if (get().loaded) return get().settings;
+      if (fetchPromise) return fetchPromise;
+
+      set({ loading: true });
+      fetchPromise = (async () => {
+        try {
+          const settings = await api.getSettings();
+          set({ settings: { ...defaults, ...settings }, loaded: true, loading: false });
+          return settings;
+        } catch {
+          try {
+            const publicSettings = await api.getPublicSettings();
+            set({ settings: { ...defaults, ...publicSettings }, loaded: true, loading: false });
+            return publicSettings;
+          } catch {
+            set({ loaded: true, loading: false });
+            return null;
+          }
+        }
+      })();
+
       try {
-        const publicSettings = await api.getPublicSettings();
-        set({ settings: { ...defaults, ...publicSettings }, loaded: true });
-      } catch {
-        set({ loaded: true });
+        return await fetchPromise;
+      } finally {
+        fetchPromise = null;
       }
-    }
-  },
+    },
 
-  saveSettings: async (partial) => {
-    const merged = { ...get().settings, ...partial };
-    const settings = await api.updateSettings(merged);
-    set({ settings: { ...defaults, ...settings } });
-    return settings;
-  },
+    saveSettings: async (partial) => {
+      const merged = { ...get().settings, ...partial };
+      const settings = await api.updateSettings(merged);
+      set({ settings: { ...defaults, ...settings } });
+      return settings;
+    },
 
-  getTaxRate: () => parseFloat(get().settings.tax_rate || '8') / 100,
-  getCurrency: () => get().settings.currency || 'TZS',
-}));
+    getTaxRate: () => {
+      const rawValue = get().settings?.tax_rate ?? '8';
+      const numericValue = Number.parseFloat(String(rawValue));
+      return Number.isFinite(numericValue) && numericValue > 0 ? numericValue / 100 : 0;
+    },
+    getCurrency: () => get().settings.currency || 'TZS',
+  };
+});
 
 export default useSettingsStore;

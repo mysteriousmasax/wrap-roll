@@ -104,9 +104,43 @@ router.delete('/categories/:slug', authMiddleware, requireRole('admin', 'manager
 });
 
 router.get('/', authMiddleware, (req, res) => {
-  const { all } = req.query;
-  const sql = all ? 'SELECT * FROM menu_items ORDER BY category, name' : 'SELECT * FROM menu_items WHERE active = 1 ORDER BY category, name';
-  res.json(db.prepare(sql).all().map(mapMenuItem));
+  const all = req.query.all === '1' || req.query.all === 'true';
+  const category = String(req.query.category || '').trim();
+  const search = String(req.query.search || '').trim();
+  const activeFilter = req.query.active === undefined ? !all : req.query.active !== '0' && req.query.active !== 'false';
+  const limit = Math.min(Number.parseInt(req.query.limit || '0', 10) || 0, 500);
+  const offset = Math.max(Number.parseInt(req.query.offset || '0', 10) || 0, 0);
+
+  const clauses = [];
+  const params = [];
+
+  if (!all && activeFilter) clauses.push('active = 1');
+  if (category) {
+    clauses.push('category = ?');
+    params.push(category);
+  }
+  if (search) {
+    clauses.push('(LOWER(name) LIKE ? OR LOWER(description) LIKE ? OR LOWER(category) LIKE ?)');
+    const needle = `%${search.toLowerCase()}%`;
+    params.push(needle, needle, needle);
+  }
+
+  const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const baseSql = `SELECT * FROM menu_items ${whereSql} ORDER BY category, name`;
+  const total = db.prepare(`SELECT COUNT(*) AS count FROM menu_items ${whereSql}`).get(...params)?.count || 0;
+
+  const paginated = limit > 0 || offset > 0;
+  const rows = paginated
+    ? db.prepare(`${baseSql} LIMIT ? OFFSET ?`).all(...params, limit || 500, offset)
+    : db.prepare(baseSql).all(...params);
+
+  const payload = rows.map(mapMenuItem);
+
+  if (paginated) {
+    return res.json({ items: payload, total, limit: limit || 500, offset });
+  }
+
+  res.json(payload);
 });
 
 router.get('/public', (req, res) => {

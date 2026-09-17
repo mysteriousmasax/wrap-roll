@@ -159,7 +159,8 @@ export default function HomePage() {
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.qty, 0);
   const cartSubtotal = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const cartTax = cartSubtotal * 0.08;
+  const taxRateValue = Number.parseFloat(String(publicSettings?.tax_rate ?? 0));
+  const cartTax = Number.isFinite(taxRateValue) && taxRateValue > 0 ? cartSubtotal * (taxRateValue / 100) : 0;
 
   useEffect(() => {
     if (!activePlacedOrder?.id) return undefined;

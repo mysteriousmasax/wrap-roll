@@ -134,7 +134,10 @@ export default function MenuEditorPage() {
   const loadCategories = async () => {
     try {
       const rows = await api.getMenuCategories();
-      setCustomCategories((rows || []).map((category) => category.slug || category.name));
+      setCustomCategories((rows || []).map((category) => ({
+        name: category.name || category.slug || 'Category',
+        slug: category.slug || category.name || 'category',
+      })));
     } catch (error) {
       setLoadError(error.message || 'Unable to load categories.');
     }
@@ -154,11 +157,26 @@ export default function MenuEditorPage() {
     }
   });
 
+  const normalizedCustomCategories = (customCategories || []).map((category) => {
+    if (typeof category === 'string') return { name: category, slug: category };
+    return { name: category.name || category.slug || 'Category', slug: category.slug || category.name || 'category' };
+  });
+  const categoryDisplayName = (category) => {
+    if (!category) return '';
+    const match = normalizedCustomCategories.find(
+      (entry) =>
+        entry.slug === String(category) ||
+        entry.name.toLowerCase() === String(category).toLowerCase() ||
+        entry.slug.toLowerCase() === String(category).toLowerCase()
+    );
+    return match ? match.name : String(category);
+  };
+
   // Compute all available categories from default, custom, and existing items
   const allCategories = Array.from(
     new Set([
       ...DEFAULT_CATEGORIES,
-      ...customCategories,
+      ...normalizedCustomCategories.map((category) => category.slug),
       ...items.flatMap((i) => i.categories || [i.category]).filter(Boolean),
     ])
   );
@@ -284,12 +302,13 @@ export default function MenuEditorPage() {
   const handleAddNewCategory = async (e) => {
     e.preventDefault();
     if (!newCategoryName.trim()) return;
-    const cleanCat = newCategoryName.trim().toLowerCase().replace(/\s+/g, '-');
+    const cleanName = newCategoryName.trim();
+    const cleanCat = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'category';
     try {
       if (categoryEditSlug) {
-        await api.updateMenuCategory(categoryEditSlug, { name: newCategoryName.trim() });
-      } else if (!customCategories.includes(cleanCat)) {
-        await api.createMenuCategory({ name: newCategoryName.trim() });
+        await api.updateMenuCategory(categoryEditSlug, { name: cleanName });
+      } else if (!normalizedCustomCategories.some((category) => category.name.toLowerCase() === cleanName.toLowerCase() || category.slug === cleanCat)) {
+        await api.createMenuCategory({ name: cleanName });
       }
       await loadCategories();
       await loadMenu();
@@ -960,8 +979,8 @@ export default function MenuEditorPage() {
             <div className="flex flex-wrap gap-2">
               {allCategories.map((cat) => (
                 <div key={cat} className="flex items-center gap-1 rounded-full border border-[#ebdccb] bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[#554e46]">
-                  <span>{cat}</span>
-                  <button type="button" onClick={() => { setCategoryEditSlug(cat); setNewCategoryName(cat); setShowNewCategoryModal(true); }} className="rounded p-0.5 text-[#ae002a] hover:bg-[#faeee2]" title="Edit category">
+                  <span>{categoryDisplayName(cat)}</span>
+                  <button type="button" onClick={() => { setCategoryEditSlug(cat); setNewCategoryName(categoryDisplayName(cat)); setShowNewCategoryModal(true); }} className="rounded p-0.5 text-[#ae002a] hover:bg-[#faeee2]" title="Edit category">
                     <Edit3 size={11} />
                   </button>
                   <button type="button" onClick={async () => { await api.deleteMenuCategory(cat); await loadCategories(); await loadMenu(); }} className="rounded p-0.5 text-[#ae002a] hover:bg-[#ffe5e5]" title="Delete category">

@@ -66,6 +66,10 @@ export async function initDatabase() {
       FOREIGN KEY (modifier_id) REFERENCES modifiers(id) ON DELETE CASCADE
     );
 
+    CREATE INDEX IF NOT EXISTS idx_menu_items_active_category_name ON menu_items(active, category, name);
+    CREATE INDEX IF NOT EXISTS idx_menu_item_categories_category ON menu_item_categories(category, menu_item_id);
+    CREATE INDEX IF NOT EXISTS idx_menu_item_modifiers_menu_item ON menu_item_modifiers(menu_item_id, modifier_id);
+
     CREATE TABLE IF NOT EXISTS tables (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       number INTEGER NOT NULL UNIQUE,

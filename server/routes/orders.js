@@ -101,7 +101,8 @@ function createOrderRecord(
 ) {
   const priced = priceOrderItems(items);
   const subtotal = priced.subtotal;
-  const taxRate = Number(db.prepare("SELECT value FROM settings WHERE key = 'tax_rate'").get()?.value || 8) / 100;
+  const taxRateValue = Number(db.prepare("SELECT value FROM settings WHERE key = 'tax_rate'").get()?.value ?? 8);
+  const taxRate = Number.isFinite(taxRateValue) && taxRateValue > 0 ? taxRateValue / 100 : 0;
   const tax = subtotal * taxRate;
   const total = subtotal + tax;
 
