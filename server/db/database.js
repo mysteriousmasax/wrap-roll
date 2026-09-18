@@ -603,7 +603,7 @@ export async function initDatabase() {
 
 function migrateSchema(db) {
   const inventoryColumns = [
-    ['delivery_date', 'TEXT DEFAULT \''\''],
+    ['delivery_date', "TEXT DEFAULT ''"],
     ['back_freezer_chiller', 'REAL DEFAULT 0'],
     ['refrigerator', 'REAL DEFAULT 0'],
     ['front_sandwich', 'REAL DEFAULT 0'],
