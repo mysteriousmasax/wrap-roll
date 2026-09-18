@@ -8,7 +8,10 @@ import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/d
 const router = Router();
 
 const fallbackMenuImage = 'https://wrapandrolltz.com/uploads/photo_gallery/d706fc0ef56440dd131465fd75aae870.jpg';
-const maxPublicEmbeddedImageLength = 32000;
+// Uploaded menu photos are stored as compressed data URLs. The previous 32 KB cap
+// was too small for typical JPEG menu photos, which caused the public menu to show
+// the generic fallback image even after a real image replacement.
+const maxPublicEmbeddedImageLength = 2 * 1024 * 1024;
 
 function getMenuImage(image, isPublic = false) {
   if (typeof image !== 'string') return fallbackMenuImage;
@@ -18,8 +21,52 @@ function getMenuImage(image, isPublic = false) {
   return fallbackMenuImage;
 }
 
+export function normalizeMenuCategoryValue(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'category';
+}
+
+export function getCategoryMatchValues(slug, name = '') {
+  const values = [];
+  const seen = new Set();
+  const addValue = (value) => {
+    const normalized = String(value ?? '').trim();
+    if (!normalized || seen.has(normalized)) return;
+    values.push(normalized);
+    seen.add(normalized);
+  };
+
+  addValue(slug);
+  addValue(name);
+  addValue(String(name ?? '').toLowerCase());
+  addValue(normalizeMenuCategoryValue(slug));
+  addValue(normalizeMenuCategoryValue(name));
+
+  return values.filter(Boolean);
+}
+
+function syncCategoryAssignments(db, previousCategory, nextCategory) {
+  const previousValues = getCategoryMatchValues(previousCategory, previousCategory);
+  if (!previousValues.length) return;
+  const nextValue = normalizeMenuCategoryValue(nextCategory);
+  const placeholders = previousValues.map(() => '?').join(', ');
+  db.prepare(`UPDATE menu_item_categories SET category = ? WHERE category IN (${placeholders})`).run(nextValue, ...previousValues);
+  db.prepare(`UPDATE menu_items SET category = ? WHERE category IN (${placeholders})`).run(nextValue, ...previousValues);
+}
+
+function deleteCategoryAssignments(db, category) {
+  const values = getCategoryMatchValues(category, category);
+  if (!values.length) return;
+  const placeholders = values.map(() => '?').join(', ');
+  db.prepare(`DELETE FROM menu_item_categories WHERE category IN (${placeholders})`).run(...values);
+  db.prepare(`UPDATE menu_items SET category = '' WHERE category IN (${placeholders})`).run(...values);
+}
+
 function normalizeMenuCategories(categories) {
-  return [...new Set((Array.isArray(categories) ? categories : [categories]).map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))];
+  return [...new Set((Array.isArray(categories) ? categories : [categories]).map((value) => normalizeMenuCategoryValue(value)).filter(Boolean))];
 }
 
 function parseIngredients(value) {
@@ -86,10 +133,9 @@ router.put('/categories/:slug', authMiddleware, requireRole('admin', 'manager'),
   if (!existing) return res.status(404).json({ error: 'Category not found' });
   const name = String(req.body?.name || existing.name).trim();
   if (!name) return res.status(400).json({ error: 'Category name is required' });
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'category';
+  const slug = normalizeMenuCategoryValue(name);
   db.prepare('UPDATE menu_categories SET name = ?, slug = ? WHERE id = ?').run(name, slug, existing.id);
-  db.prepare('UPDATE menu_item_categories SET category = ? WHERE category = ?').run(slug, existing.slug);
-  db.prepare('UPDATE menu_items SET category = ? WHERE category = ?').run(slug, existing.slug);
+  syncCategoryAssignments(db, existing.slug, slug);
   const row = db.prepare('SELECT name, slug, active FROM menu_categories WHERE id = ?').get(existing.id);
   broadcast('menu:updated', { type: 'category', action: 'updated', id: row.slug });
   res.json(row);
@@ -98,9 +144,8 @@ router.put('/categories/:slug', authMiddleware, requireRole('admin', 'manager'),
 router.delete('/categories/:slug', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
   const existing = db.prepare('SELECT * FROM menu_categories WHERE slug = ? OR id = ?').get(req.params.slug, Number(req.params.slug));
   if (!existing) return res.status(404).json({ error: 'Category not found' });
+  deleteCategoryAssignments(db, existing.slug);
   db.prepare('DELETE FROM menu_categories WHERE id = ?').run(existing.id);
-  db.prepare('DELETE FROM menu_item_categories WHERE category = ?').run(existing.slug);
-  db.prepare("UPDATE menu_items SET category = '' WHERE category = ?").run(existing.slug);
   broadcast('menu:updated', { type: 'category', action: 'deleted', id: existing.slug });
   res.json({ ok: true });
 });
