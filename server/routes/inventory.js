@@ -47,7 +47,7 @@ router.get('/', authMiddleware, (req, res) => {
 });
 
 router.post('/', authMiddleware, (req, res) => {
-  ensureInventoryColumn('delivery_date', 'TEXT DEFAULT \''\'');
+  ensureInventoryColumn('delivery_date', "TEXT DEFAULT ''");
   ensureInventoryColumn('back_freezer_chiller', 'REAL DEFAULT 0');
   ensureInventoryColumn('refrigerator', 'REAL DEFAULT 0');
   ensureInventoryColumn('front_sandwich', 'REAL DEFAULT 0');
@@ -89,7 +89,7 @@ router.post('/', authMiddleware, (req, res) => {
 });
 
 router.put('/:id', authMiddleware, (req, res) => {
-  ensureInventoryColumn('delivery_date', 'TEXT DEFAULT \''\'');
+  ensureInventoryColumn('delivery_date', "TEXT DEFAULT ''");
   ensureInventoryColumn('back_freezer_chiller', 'REAL DEFAULT 0');
   ensureInventoryColumn('refrigerator', 'REAL DEFAULT 0');
   ensureInventoryColumn('front_sandwich', 'REAL DEFAULT 0');
