@@ -6,6 +6,11 @@ import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/d
 
 const router = Router();
 
+function ensureInventoryColumn(name, definition) {
+  const existing = new Set(db.prepare('PRAGMA table_info(inventory)').all().map((column) => column.name));
+  if (!existing.has(name)) db.exec(`ALTER TABLE inventory ADD COLUMN ${name} ${definition}`);
+}
+
 function mapInventory(row) {
   return {
     id: row.id,
@@ -42,6 +47,12 @@ router.get('/', authMiddleware, (req, res) => {
 });
 
 router.post('/', authMiddleware, (req, res) => {
+  ensureInventoryColumn('delivery_date', 'TEXT DEFAULT \''\'');
+  ensureInventoryColumn('back_freezer_chiller', 'REAL DEFAULT 0');
+  ensureInventoryColumn('refrigerator', 'REAL DEFAULT 0');
+  ensureInventoryColumn('front_sandwich', 'REAL DEFAULT 0');
+  ensureInventoryColumn('front_pizza', 'REAL DEFAULT 0');
+  ensureInventoryColumn('front_burger', 'REAL DEFAULT 0');
   const { name, quantity, unit, threshold, supplier, imageUrl, category, sku, unitCost, expiryDate, storageLocation, deliveryDate, backFreezerChiller, refrigerator, frontSandwich, frontPizza, frontBurger } = req.body;
   if (!name || quantity == null) return res.status(400).json({ error: 'Name and quantity required' });
   const today = new Date().toISOString().slice(0, 10);
@@ -62,7 +73,7 @@ router.post('/', authMiddleware, (req, res) => {
     return res.status(200).json({ ...item, merged: true });
   }
   const result = db.prepare(
-    'INSERT INTO inventory (name, quantity, unit, threshold, supplier, last_restocked, image_url, category, sku, unit_cost, expiry_date, storage_location, delivery_date, back_freezer_chiller, refrigerator, front_sandwich, front_pizza, front_burger) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO inventory (name, quantity, unit, threshold, supplier, last_restocked, image_url, category, sku, unit_cost, expiry_date, storage_location, delivery_date, back_freezer_chiller, refrigerator, front_sandwich, front_pizza, front_burger) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(normalizedName, Number(quantity), normalizedUnit, threshold ?? 10, supplier || '', today, imageUrl || '', category || 'ingredients', sku || `INV-${Date.now().toString().slice(-6)}`, Number(unitCost) || 0, expiryDate || '', storageLocation || 'Main store', deliveryDate || '', Number(backFreezerChiller) || 0, Number(refrigerator) || 0, Number(frontSandwich) || 0, Number(frontPizza) || 0, Number(frontBurger) || 0);
   const item = mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(result.lastInsertRowid));
   auditInventoryChange(item.id, 'created', req.user, { item: { from: null, to: item.name }, quantity: { from: null, to: item.quantity }, unit: { from: null, to: item.unit } });
@@ -78,6 +89,12 @@ router.post('/', authMiddleware, (req, res) => {
 });
 
 router.put('/:id', authMiddleware, (req, res) => {
+  ensureInventoryColumn('delivery_date', 'TEXT DEFAULT \''\'');
+  ensureInventoryColumn('back_freezer_chiller', 'REAL DEFAULT 0');
+  ensureInventoryColumn('refrigerator', 'REAL DEFAULT 0');
+  ensureInventoryColumn('front_sandwich', 'REAL DEFAULT 0');
+  ensureInventoryColumn('front_pizza', 'REAL DEFAULT 0');
+  ensureInventoryColumn('front_burger', 'REAL DEFAULT 0');
   const existing = db.prepare('SELECT * FROM inventory WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Item not found' });
   const { name, quantity, unit, threshold, supplier, lastRestocked, imageUrl, category, sku, unitCost, expiryDate, storageLocation, deliveryDate, backFreezerChiller, refrigerator, frontSandwich, frontPizza, frontBurger } = req.body;
@@ -138,9 +155,8 @@ router.delete('/:id', authMiddleware, deletionViewer, requireAdilaDeletion, (req
   const existing = db.prepare('SELECT * FROM inventory WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Item not found' });
   recordDeletion({ resourceType: 'inventory', resourceId: existing.id, snapshot: existing, reason: req.body?.reason, user: req.user });
-  const now = new Date().toISOString();
-  db.prepare('UPDATE inventory SET deleted_at = ? WHERE id = ?').run(now, existing.id);
-  recordDeletion({ resourceType: 'inventory', resourceId: existing.id, snapshot: existing, reason: req.body?.reason, user: req.user });
+  db.prepare('DELETE FROM inventory_audit WHERE inventory_id = ?').run(existing.id);
+  db.prepare('DELETE FROM inventory WHERE id = ?').run(existing.id);
   broadcast('inventory:updated', { itemId: existing.id, action: 'deleted' });
   res.json({ ok: true, deleted: true, id: existing.id });
 });

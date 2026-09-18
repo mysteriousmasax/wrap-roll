@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import useAuthStore from '../../store/useAuthStore';
 import BrandLogo from '../brand/BrandLogo';
+import { normalizeUserRole } from '../../utils/roleAccess';
 import {
   LayoutGrid, ShoppingBag, ChefHat, Users, BarChart3, ClipboardList,
   Package, UserCog, Settings, Bell, LogOut, TrendingUp, Calendar, X,
@@ -36,9 +37,10 @@ export default function Sidebar({ isOpen, onClose, compact, onToggleCollapse }) 
   const location = useLocation();
   const navigate = useNavigate();
   const sidebarRef = useRef(null);
+  const currentRole = currentUser ? normalizeUserRole(currentUser.role) : null;
 
   const filteredNav = navItems.filter(
-    (item) => currentUser && item.roles.includes(currentUser.role)
+    (item) => currentRole && item.roles.includes(currentRole)
   );
 
   useEffect(() => {

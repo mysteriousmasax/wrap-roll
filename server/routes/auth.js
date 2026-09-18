@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import db from '../db/database.js';
 import { signToken, authMiddleware, JWT_SECRET } from '../middleware/auth.js';
 import { hashPin, verifyPin } from '../utils/pins.js';
+import { normalizeUserRole } from '../utils/roles.js';
 import { broadcast } from '../ws.js';
 import { restaurantTime } from '../utils/localTime.js';
 
@@ -54,14 +55,17 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   if (!user) return res.status(401).json({ error: 'Invalid username or PIN/password' });
 
-  const latitude = Number(location?.latitude);
-  const longitude = Number(location?.longitude);
-  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-    return res.status(400).json({ error: 'Location access is required before signing in.' });
+  const hasLocation = !!location && location !== null && typeof location === 'object';
+  const latitude = hasLocation ? Number(location.latitude) : null;
+  const longitude = hasLocation ? Number(location.longitude) : null;
+  if (hasLocation && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180)) {
+    return res.status(400).json({ error: 'Location coordinates are invalid.' });
   }
 
   const staff = db.prepare('SELECT id, name, shift, status FROM staff WHERE user_id = ?').get(user.id);
-  if (staff?.status === 'removed') return res.status(403).json({ error: 'This staff account has been removed.' });
+  if (staff?.status === 'removed') {
+    db.prepare("UPDATE staff SET status = 'off-clock', clock_in = NULL WHERE id = ?").run(staff.id);
+  }
   if (staff) {
     const now = new Date();
     const local = restaurantTime(now);
@@ -72,13 +76,19 @@ router.post('/login', loginLimiter, async (req, res) => {
     }
     const activeShift = db.prepare("SELECT id FROM shift_logs WHERE staff_id = ? AND shift_date = ? AND status = 'active'").get(staff.id, shiftDate);
     if (activeShift) {
-      db.prepare('UPDATE shift_logs SET clock_in_latitude = ?, clock_in_longitude = ?, ended_at = NULL, end_time = NULL, hours_worked = 0 WHERE id = ?').run(latitude, longitude, activeShift.id);
+      db.prepare('UPDATE shift_logs SET clock_in_latitude = ?, clock_in_longitude = ?, ended_at = NULL, end_time = NULL, hours_worked = 0 WHERE id = ?').run(
+        Number.isFinite(latitude) ? latitude : null,
+        Number.isFinite(longitude) ? longitude : null,
+        activeShift.id
+      );
     } else {
-      db.prepare('INSERT INTO shift_logs (staff_id, staff_name, shift_date, start_time, status, notes, clock_in_latitude, clock_in_longitude, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(staff.id, staff.name, shiftDate, loginTime, 'active', staff.shift || 'Assigned shift', latitude, longitude, now.toISOString());
+      db.prepare('INSERT INTO shift_logs (staff_id, staff_name, shift_date, start_time, status, notes, clock_in_latitude, clock_in_longitude, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(staff.id, staff.name, shiftDate, loginTime, 'active', staff.shift || 'Assigned shift', Number.isFinite(latitude) ? latitude : null, Number.isFinite(longitude) ? longitude : null, now.toISOString());
     }
   }
 
-  const { pin: _, password: __, ...safeUser } = user;
+  const normalizedRole = normalizeUserRole(user.role);
+  const safeUser = { ...user, role: normalizedRole };
   const token = signToken(safeUser);
   const loginNotification = { type: 'info', title: 'Staff login', message: `${safeUser.name} signed in as ${safeUser.role}.`, audienceRole: 'manager' };
   db.prepare('INSERT INTO notifications (type, title, message, read, created_at, audience_role) VALUES (?, ?, ?, 0, ?, ?)').run(loginNotification.type, loginNotification.title, loginNotification.message, new Date().toISOString(), loginNotification.audienceRole);
@@ -89,7 +99,9 @@ router.post('/login', loginLimiter, async (req, res) => {
 router.get('/me', authMiddleware, (req, res) => {
   const user = db.prepare('SELECT id, name, role, avatar, username, email FROM users WHERE id = ?').get(req.user.id);
   if (!user) return res.status(401).json({ error: 'User not found' });
-  res.json({ user });
+  const normalizedUser = { ...user, role: normalizeUserRole(user.role) };
+  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(normalizedUser.role, user.id);
+  res.json({ user: normalizedUser });
 });
 
 router.post('/logout', authMiddleware, (req, res) => {

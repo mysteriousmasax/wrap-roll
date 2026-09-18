@@ -23,6 +23,7 @@ import {
   Star,
 } from 'lucide-react';
 import { api } from '../../api/client';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency, printFiscalInvoice } from '../../utils/format';
 import BrandLogo from '../../components/brand/BrandLogo';
 import useSettingsStore from '../../store/useSettingsStore';
@@ -33,7 +34,7 @@ import RotatingText from '../../components/ui/RotatingText';
 import DepthText from '../../components/ui/DepthText';
 import { reverseGoogleGeocode } from '../../lib/googleMaps';
 
-const categories = [
+const defaultCategories = [
   { key: 'allMenu', filter: 'all', label: 'All Menu' },
   { key: 'wraps', filter: 'wraps', label: 'Wraps' },
   { key: 'salads', filter: 'salads', label: 'Salads' },
@@ -147,6 +148,8 @@ export default function HomePage() {
   const [trackingNow, setTrackingNow] = useState(Date.now());
   const [publicMenu, setPublicMenu] = useState([]);
   const [publicModifiers, setPublicModifiers] = useState([]);
+  const [menuCategories, setMenuCategories] = useState([]);
+  const [menuLoading, setMenuLoading] = useState(true);
   const [tableContext, setTableContext] = useState(null);
   const [selectedMealItem, setSelectedMealItem] = useState(null);
   const [mealQuantity, setMealQuantity] = useState(1);
@@ -200,30 +203,61 @@ export default function HomePage() {
     printFiscalInvoice(activePlacedOrder, publicSettings);
   }, [activePlacedOrder?.paymentStatus, activePlacedOrder?.id, publicSettings]);
 
-  // Group menu items by category
+  const dynamicCategories = Array.from(new Set([
+    ...defaultCategories.map((entry) => entry.filter),
+    ...menuCategories.map((entry) => String(entry.slug || entry.name || '').trim()).filter(Boolean),
+    ...publicMenu.flatMap((item) => Array.isArray(item.categories) ? item.categories : [item.category]).filter(Boolean),
+  ])).map((filter) => {
+    const match = [...defaultCategories, ...menuCategories.map((entry) => ({ filter: String(entry.slug || entry.name || '').trim(), label: entry.name || entry.slug || 'Menu' }))]
+      .find((category) => category.filter === filter);
+
+    if (!match) {
+      return { key: String(filter), filter, label: String(filter).replace(/[-_]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()) };
+    }
+
+    return { key: match.key || String(filter), filter, label: match.label || String(filter).replace(/[-_]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()) };
+  });
+
+  const categories = [{ key: 'allMenu', filter: 'all', label: 'All Menu' }, ...dynamicCategories.filter((entry) => entry.filter !== 'all')];
+
   const menuByCategory = categories.reduce((acc, cat) => {
-    const items = publicMenu.filter((item) => cat.filter === 'all' || item.category === cat.filter);
+    const items = publicMenu.filter((item) => {
+      const itemCategories = Array.isArray(item.categories) ? item.categories : [item.category].filter(Boolean);
+      return cat.filter === 'all' || itemCategories.includes(cat.filter) || item.category === cat.filter;
+    });
     if (items.length > 0) acc[cat.filter] = { ...cat, items };
     return acc;
   }, {});
 
   useEffect(() => {
-    Promise.all([api.getPublicMenu(), api.getPublicModifiers()])
-      .then(([menu, modifiers]) => {
-        setPublicMenu(menu || []);
-        setPublicModifiers(modifiers || []);
+    let active = true;
+    const refreshMenu = () => Promise.allSettled([api.getPublicMenu(), api.getPublicModifiers(), api.getMenuCategories()])
+      .then(([menuResult, modifiersResult, categoriesResult]) => {
+        if (!active) return;
+        if (menuResult.status === 'fulfilled') setPublicMenu(menuResult.value || []);
+        if (modifiersResult.status === 'fulfilled') setPublicModifiers(modifiersResult.value || []);
+        if (categoriesResult.status === 'fulfilled') setMenuCategories(categoriesResult.value || []);
       })
-      .catch(() => {});
+      .finally(() => {
+        if (active) setMenuLoading(false);
+      });
+
+    refreshMenu();
+    return () => {
+      active = false;
+    };
   }, []);
 
-  useEffect(() => {
-    api
-      .getPublicSettings()
-      .then((settings) =>
-        useSettingsStore.setState((state) => ({ settings: { ...state.settings, ...settings } }))
-      )
+  useWebSocket((event) => {
+    if (event !== 'menu:updated') return;
+    Promise.allSettled([api.getPublicMenu(), api.getPublicModifiers(), api.getMenuCategories()])
+      .then(([menuResult, modifiersResult, categoriesResult]) => {
+        if (menuResult.status === 'fulfilled') setPublicMenu(menuResult.value || []);
+        if (modifiersResult.status === 'fulfilled') setPublicModifiers(modifiersResult.value || []);
+        if (categoriesResult.status === 'fulfilled') setMenuCategories(categoriesResult.value || []);
+      })
       .catch(() => {});
-  }, []);
+  });
 
   useEffect(() => {
     if (!tagId) return undefined;
@@ -643,7 +677,13 @@ export default function HomePage() {
 
         {/* Food Grid */}
         <div className="food-grid grid grid-cols-1 sm:grid-cols-2 tablet:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-          {(menuByCategory[activeCategory]?.items || publicMenu).map((item) => (
+          {menuLoading && Array.from({ length: 8 }, (_, index) => (
+            <div key={`menu-skeleton-${index}`} className="public-menu-card animate-pulse overflow-hidden rounded-3xl border border-[#ebdccb] bg-white">
+              <div className="aspect-[4/3] bg-[#faeee2]" />
+              <div className="space-y-3 p-5"><div className="h-4 w-2/3 rounded bg-[#f3ebde]" /><div className="h-3 w-full rounded bg-[#f3ebde]" /><div className="h-8 rounded-xl bg-[#f3ebde]" /></div>
+            </div>
+          ))}
+          {!menuLoading && (menuByCategory[activeCategory]?.items || publicMenu).map((item) => (
             <article
               key={item.id}
               className="public-menu-card bg-white border border-[#ebdccb] rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between group cursor-pointer"
@@ -952,7 +992,7 @@ export default function HomePage() {
       )}
 
       {/* Floating Cart Button */}
-      {cartCount > 0 && (
+      {cartCount > 0 && !cartOpen && (
         <button
           className="fixed bottom-6 right-6 z-40 px-4 py-3 rounded-full bg-[#ae002a] text-white font-bold shadow-2xl flex items-center gap-2.5 hover:scale-105 transition-transform"
           onClick={() => setCartOpen(true)}

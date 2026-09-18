@@ -144,16 +144,51 @@ export default function MenuEditorPage() {
   };
 
   useEffect(() => {
-    loadMenu();
-    loadModifiers();
-    loadInventory();
-    loadCategories();
+    let active = true;
+
+    const bootstrap = async () => {
+      const [menuResult, modifiersResult, inventoryResult, categoriesResult] = await Promise.allSettled([
+        api.getMenu(true),
+        api.getModifiers(),
+        api.getInventory(),
+        api.getMenuCategories(),
+      ]);
+
+      if (!active) return;
+
+      if (menuResult.status === 'fulfilled') setItems(menuResult.value || []);
+      else setLoadError(menuResult.reason?.message || 'Unable to load menu items.');
+
+      if (modifiersResult.status === 'fulfilled') setModifiers(modifiersResult.value || []);
+      else setLoadError((current) => current || modifiersResult.reason?.message || 'Unable to load modifiers.');
+
+      if (inventoryResult.status === 'fulfilled') setInventoryItems(inventoryResult.value || []);
+      else setLoadError((current) => current || inventoryResult.reason?.message || 'Unable to load inventory items.');
+
+      if (categoriesResult.status === 'fulfilled') {
+        setCustomCategories((categoriesResult.value || []).map((category) => ({
+          name: category.name || category.slug || 'Category',
+          slug: category.slug || category.name || 'category',
+        })));
+      } else {
+        setLoadError((current) => current || categoriesResult.reason?.message || 'Unable to load categories.');
+      }
+
+      setLoading(false);
+    };
+
+    bootstrap();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useWebSocket((event) => {
     if (event === 'menu:updated') {
       loadMenu();
       loadModifiers();
+      loadCategories();
     }
   });
 

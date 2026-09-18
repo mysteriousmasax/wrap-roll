@@ -8,10 +8,12 @@ import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/d
 const router = Router();
 
 const fallbackMenuImage = 'https://wrapandrolltz.com/uploads/photo_gallery/d706fc0ef56440dd131465fd75aae870.jpg';
+const maxPublicEmbeddedImageLength = 32000;
 
-function getMenuImage(image) {
+function getMenuImage(image, isPublic = false) {
   if (typeof image !== 'string') return fallbackMenuImage;
   const value = image.trim();
+  if (isPublic && value.startsWith('data:image/') && value.length > maxPublicEmbeddedImageLength) return fallbackMenuImage;
   if (/^(https?:\/\/|\/|data:image\/(?:png|jpe?g|webp|gif);base64,)/i.test(value)) return value;
   return fallbackMenuImage;
 }
@@ -33,7 +35,7 @@ function parseIngredients(value) {
   return [];
 }
 
-function mapMenuItem(row) {
+function mapMenuItem(row, isPublic = false) {
   const categories = db.prepare('SELECT category FROM menu_item_categories WHERE menu_item_id = ? ORDER BY category').all(row.id).map((entry) => entry.category);
   const modifiers = db.prepare(`
     SELECT m.id, m.name, m.price, m.type
@@ -50,7 +52,7 @@ function mapMenuItem(row) {
     category: row.category,
     categories: categories.length ? categories : [row.category].filter(Boolean),
     modifiers,
-    image: getMenuImage(row.image),
+    image: getMenuImage(row.image, isPublic),
     prep_time_minutes: Number(row.prep_time_minutes ?? 8),
     popular: !!row.popular,
     active: !!row.active,
@@ -98,53 +100,19 @@ router.delete('/categories/:slug', authMiddleware, requireRole('admin', 'manager
   if (!existing) return res.status(404).json({ error: 'Category not found' });
   db.prepare('DELETE FROM menu_categories WHERE id = ?').run(existing.id);
   db.prepare('DELETE FROM menu_item_categories WHERE category = ?').run(existing.slug);
-  db.prepare('UPDATE menu_items SET category = "" WHERE category = ?').run(existing.slug);
+  db.prepare("UPDATE menu_items SET category = '' WHERE category = ?").run(existing.slug);
   broadcast('menu:updated', { type: 'category', action: 'deleted', id: existing.slug });
   res.json({ ok: true });
 });
 
 router.get('/', authMiddleware, (req, res) => {
-  const all = req.query.all === '1' || req.query.all === 'true';
-  const category = String(req.query.category || '').trim();
-  const search = String(req.query.search || '').trim();
-  const activeFilter = req.query.active === undefined ? !all : req.query.active !== '0' && req.query.active !== 'false';
-  const limit = Math.min(Number.parseInt(req.query.limit || '0', 10) || 0, 500);
-  const offset = Math.max(Number.parseInt(req.query.offset || '0', 10) || 0, 0);
-
-  const clauses = [];
-  const params = [];
-
-  if (!all && activeFilter) clauses.push('active = 1');
-  if (category) {
-    clauses.push('category = ?');
-    params.push(category);
-  }
-  if (search) {
-    clauses.push('(LOWER(name) LIKE ? OR LOWER(description) LIKE ? OR LOWER(category) LIKE ?)');
-    const needle = `%${search.toLowerCase()}%`;
-    params.push(needle, needle, needle);
-  }
-
-  const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  const baseSql = `SELECT * FROM menu_items ${whereSql} ORDER BY category, name`;
-  const total = db.prepare(`SELECT COUNT(*) AS count FROM menu_items ${whereSql}`).get(...params)?.count || 0;
-
-  const paginated = limit > 0 || offset > 0;
-  const rows = paginated
-    ? db.prepare(`${baseSql} LIMIT ? OFFSET ?`).all(...params, limit || 500, offset)
-    : db.prepare(baseSql).all(...params);
-
-  const payload = rows.map(mapMenuItem);
-
-  if (paginated) {
-    return res.json({ items: payload, total, limit: limit || 500, offset });
-  }
-
-  res.json(payload);
+  const { all } = req.query;
+  const sql = all ? 'SELECT * FROM menu_items ORDER BY category, name' : 'SELECT * FROM menu_items WHERE active = 1 ORDER BY category, name';
+  res.json(db.prepare(sql).all().map(mapMenuItem));
 });
 
 router.get('/public', (req, res) => {
-  res.json(db.prepare('SELECT * FROM menu_items WHERE active = 1 ORDER BY category, name').all().map(mapMenuItem));
+  res.json(db.prepare('SELECT * FROM menu_items WHERE active = 1 ORDER BY category, name').all().map((row) => mapMenuItem(row, true)));
 });
 
 router.get('/modifiers/public', (req, res) => {
@@ -268,7 +236,9 @@ router.delete('/:id', authMiddleware, deletionViewer, requireAdilaDeletion, (req
   const existing = db.prepare('SELECT * FROM menu_items WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Item not found' });
   recordDeletion({ resourceType: 'menu_item', resourceId: existing.id, snapshot: existing, reason: req.body?.reason, user: req.user });
-  db.prepare('UPDATE menu_items SET active = 0 WHERE id = ?').run(req.params.id);
+  db.prepare('DELETE FROM menu_item_categories WHERE menu_item_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM menu_item_modifiers WHERE menu_item_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM menu_items WHERE id = ?').run(req.params.id);
   broadcast('menu:updated', { type: 'item', action: 'deleted', id: Number(req.params.id) });
   res.json({ ok: true });
 });

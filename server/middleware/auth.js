@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { normalizeUserRole } from '../utils/roles.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -41,8 +42,9 @@ export function authMiddleware(req, res, next) {
 }
 
 export function signToken(user) {
+  const role = normalizeUserRole(user.role);
   return jwt.sign(
-    { id: user.id, name: user.name, role: user.role, avatar: user.avatar },
+    { id: user.id, name: user.name, role, avatar: user.avatar },
     JWT_SECRET,
     { expiresIn: '12h' }
   );
@@ -50,7 +52,8 @@ export function signToken(user) {
 
 export function requireRole(...roles) {
   return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    const userRole = req.user ? normalizeUserRole(req.user.role) : null;
+    if (!userRole || !roles.includes(userRole)) {
       return res.status(403).json({ error: 'Administrator access required' });
     }
     next();

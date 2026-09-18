@@ -26,7 +26,7 @@ import OrderTypeSelector from './OrderTypeSelector';
 import { syncQueuedOrders } from '../../store/useOrderStore';
 import { getQueuedOrderCount } from '../../offline/orderQueue';
 
-const categories = [
+const defaultCategories = [
   { id: 'all', label: 'All Items' },
   { id: 'wraps', label: 'Wraps' },
   { id: 'salads', label: 'Salads' },
@@ -512,6 +512,7 @@ export default function POSPage() {
   const desktopCartRef = useRef(null);
   const floatingOrderRef = useRef(null);
   const [menuItems, setMenuItems] = useState([]);
+  const [menuCategories, setMenuCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [offlineOrderCount, setOfflineOrderCount] = useState(0);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
@@ -538,10 +539,21 @@ export default function POSPage() {
     };
   }, []);
 
+  const categories = [{ id: 'all', label: 'All Items' }, ...Array.from(new Set([
+    ...defaultCategories.filter((category) => category.id !== 'all').map((category) => category.id),
+    ...menuCategories.map((category) => String(category.slug || category.name || '').trim()).filter(Boolean),
+    ...menuItems.flatMap((item) => Array.isArray(item.categories) ? item.categories : [item.category]).filter(Boolean),
+  ])).map((categoryId) => ({
+    id: categoryId,
+    label: (defaultCategories.find((entry) => entry.id === categoryId)?.label)
+      || String(categoryId).replace(/[-_]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()),
+  }))];
+
   useEffect(() => {
-    Promise.all([api.getMenu()])
-      .then(([menu]) => {
+    Promise.all([api.getMenu(), api.getMenuCategories()])
+      .then(([menu, categoriesResult]) => {
         setMenuItems(menu || []);
+        setMenuCategories(categoriesResult || []);
       })
       .catch((err) => {
         console.error('Failed to load menu:', err);
@@ -551,9 +563,10 @@ export default function POSPage() {
 
   useWebSocket((event) => {
     if (event !== 'menu:updated') return;
-    Promise.all([api.getMenu()])
-      .then(([menu]) => {
+    Promise.all([api.getMenu(), api.getMenuCategories()])
+      .then(([menu, categoriesResult]) => {
         setMenuItems(menu || []);
+        setMenuCategories(categoriesResult || []);
       })
       .catch(() => {});
   });

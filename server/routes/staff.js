@@ -216,7 +216,14 @@ router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
 router.delete('/:id', authMiddleware, requireRole('admin'), (req, res) => {
   const staff = db.prepare('SELECT id, user_id FROM staff WHERE id = ?').get(req.params.id);
   if (!staff) return res.status(404).json({ error: 'Staff not found' });
-  db.prepare("UPDATE staff SET status = 'removed', clock_in = NULL WHERE id = ?").run(staff.id);
+  db.prepare('DELETE FROM shift_logs WHERE staff_id = ?').run(staff.id);
+  db.prepare('DELETE FROM staff_tasks WHERE staff_id = ?').run(staff.id);
+  db.prepare('DELETE FROM payroll_records WHERE staff_id = ?').run(staff.id);
+  db.prepare('DELETE FROM staff WHERE id = ?').run(staff.id);
+  if (staff.user_id) {
+    db.prepare('DELETE FROM notifications WHERE audience_user_id = ?').run(staff.user_id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(staff.user_id);
+  }
   broadcast('staff:updated', { staffId: staff.id, action: 'staff_removed' });
   res.json({ ok: true });
 });

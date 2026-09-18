@@ -18,18 +18,29 @@ export default function LoginPage() {
   const attemptLogin = async () => {
     setLoading(true);
     setError('');
-    setLocationStatus('Requesting your location...');
+    setLocationStatus('Checking sign-in access...');
     try {
-      if (!navigator.geolocation) throw new Error('Location access is unavailable in this browser.');
-      const location = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(
-          (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
-          () => reject(new Error('Location access is required before signing in. Please allow location and try again.')),
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-        );
-      });
+      let location = null;
+      if (navigator.geolocation) {
+        setLocationStatus('Requesting your location...');
+        try {
+          location = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(
+              (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
+              () => reject(new Error('Location unavailable')),
+              { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+          });
+        } catch {
+          location = null;
+          setLocationStatus('Location unavailable — continuing without GPS.');
+        }
+      } else {
+        setLocationStatus('Location unavailable — continuing without GPS.');
+      }
+
       setLocationStatus('Signing in...');
-      await login({ username: identifier, password, location });
+      await login({ username: identifier, password, location: location || undefined });
       const role = useAuthStore.getState().currentUser?.role;
       const landingRoutes = {
         kitchen: '/kds',

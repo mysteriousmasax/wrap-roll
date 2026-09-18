@@ -39,7 +39,7 @@ router.get('/overview', authMiddleware, (_req, res) => {
 });
 
 router.get('/expenses', authMiddleware, (_req, res) => {
-  res.json(db.prepare("SELECT * FROM business_expenses WHERE status != 'deleted' ORDER BY expense_date DESC, id DESC LIMIT 100").all());
+  res.json(db.prepare('SELECT * FROM business_expenses ORDER BY expense_date DESC, id DESC LIMIT 100').all());
 });
 
 router.get('/deletion-audit', authMiddleware, deletionViewer, (req, res) => {
@@ -82,7 +82,7 @@ router.delete('/expenses/:id', authMiddleware, deletionViewer, requireAdilaDelet
   const existing = db.prepare('SELECT * FROM business_expenses WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Expense not found.' });
   recordDeletion({ resourceType: 'business_expense', resourceId: existing.id, snapshot: existing, reason: req.body?.reason, user: req.user });
-  db.prepare("UPDATE business_expenses SET status = 'deleted' WHERE id = ?").run(existing.id);
+  db.prepare('DELETE FROM business_expenses WHERE id = ?').run(existing.id);
   broadcast('business:updated', { type: 'expense_deleted' });
   res.json({ ok: true, deleted: true, id: existing.id });
 });

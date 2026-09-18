@@ -66,10 +66,6 @@ export async function initDatabase() {
       FOREIGN KEY (modifier_id) REFERENCES modifiers(id) ON DELETE CASCADE
     );
 
-    CREATE INDEX IF NOT EXISTS idx_menu_items_active_category_name ON menu_items(active, category, name);
-    CREATE INDEX IF NOT EXISTS idx_menu_item_categories_category ON menu_item_categories(category, menu_item_id);
-    CREATE INDEX IF NOT EXISTS idx_menu_item_modifiers_menu_item ON menu_item_modifiers(menu_item_id, modifier_id);
-
     CREATE TABLE IF NOT EXISTS tables (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       number INTEGER NOT NULL UNIQUE,
@@ -499,10 +495,13 @@ export async function initDatabase() {
     ['front_pizza', 'REAL DEFAULT 0'],
     ['front_burger', 'REAL DEFAULT 0'],
   ];
-  const existingInventoryColumns = new Set(db.prepare('PRAGMA table_info(inventory)').all().map((column) => column.name));
-  inventoryColumns.forEach(([name, definition]) => {
-    if (!existingInventoryColumns.has(name)) db.exec(`ALTER TABLE inventory ADD COLUMN ${name} ${definition}`);
-  });
+  const ensureInventoryColumns = (targetDb) => {
+    const existingInventoryColumns = new Set(targetDb.prepare('PRAGMA table_info(inventory)').all().map((column) => column.name));
+    inventoryColumns.forEach(([name, definition]) => {
+      if (!existingInventoryColumns.has(name)) targetDb.exec(`ALTER TABLE inventory ADD COLUMN ${name} ${definition}`);
+    });
+  };
+  ensureInventoryColumns(db);
 
   const stockSheetItems = {
     'Stock items': ['Tuna', 'Cheese Block', 'Cheese Slice', 'Pastrami', 'Smoked Beef', 'Steak', 'Chicken Strips', 'Lemon', 'Sweet Chicken', 'Beef Burger', 'Chicken Burger', 'Chicken Tandoori', 'Mozarella', 'Sausage', 'Beef Pizza', 'Chicken Pizza'],
@@ -603,6 +602,21 @@ export async function initDatabase() {
 }
 
 function migrateSchema(db) {
+  const inventoryColumns = [
+    ['delivery_date', 'TEXT DEFAULT \''\''],
+    ['back_freezer_chiller', 'REAL DEFAULT 0'],
+    ['refrigerator', 'REAL DEFAULT 0'],
+    ['front_sandwich', 'REAL DEFAULT 0'],
+    ['front_pizza', 'REAL DEFAULT 0'],
+    ['front_burger', 'REAL DEFAULT 0'],
+  ];
+  const ensureInventoryColumns = (targetDb) => {
+    const existingInventoryColumns = new Set(targetDb.prepare('PRAGMA table_info(inventory)').all().map((column) => column.name));
+    inventoryColumns.forEach(([name, definition]) => {
+      if (!existingInventoryColumns.has(name)) targetDb.exec(`ALTER TABLE inventory ADD COLUMN ${name} ${definition}`);
+    });
+  };
+  ensureInventoryColumns(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS menu_categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -706,13 +720,19 @@ function migrateSchema(db) {
   if (!faqCols.some((col) => col.name === 'question_sw')) db.exec('ALTER TABLE chat_faqs ADD COLUMN question_sw TEXT');
   if (!faqCols.some((col) => col.name === 'answer_sw')) db.exec('ALTER TABLE chat_faqs ADD COLUMN answer_sw TEXT');
   const inventoryCols = db.prepare('PRAGMA table_info(inventory)').all();
-    if (!inventoryCols.some((col) => col.name === 'deleted_at')) db.exec('ALTER TABLE inventory ADD COLUMN deleted_at TEXT');
+  if (!inventoryCols.some((col) => col.name === 'deleted_at')) db.exec('ALTER TABLE inventory ADD COLUMN deleted_at TEXT');
   if (!inventoryCols.some((col) => col.name === 'image_url')) db.exec('ALTER TABLE inventory ADD COLUMN image_url TEXT');
   if (!inventoryCols.some((col) => col.name === 'category')) db.exec("ALTER TABLE inventory ADD COLUMN category TEXT DEFAULT 'ingredients'");
   if (!inventoryCols.some((col) => col.name === 'sku')) db.exec('ALTER TABLE inventory ADD COLUMN sku TEXT');
   if (!inventoryCols.some((col) => col.name === 'unit_cost')) db.exec('ALTER TABLE inventory ADD COLUMN unit_cost REAL DEFAULT 0');
   if (!inventoryCols.some((col) => col.name === 'expiry_date')) db.exec('ALTER TABLE inventory ADD COLUMN expiry_date TEXT');
   if (!inventoryCols.some((col) => col.name === 'storage_location')) db.exec('ALTER TABLE inventory ADD COLUMN storage_location TEXT');
+  if (!inventoryCols.some((col) => col.name === 'delivery_date')) db.exec("ALTER TABLE inventory ADD COLUMN delivery_date TEXT DEFAULT ''");
+  if (!inventoryCols.some((col) => col.name === 'back_freezer_chiller')) db.exec('ALTER TABLE inventory ADD COLUMN back_freezer_chiller REAL DEFAULT 0');
+  if (!inventoryCols.some((col) => col.name === 'refrigerator')) db.exec('ALTER TABLE inventory ADD COLUMN refrigerator REAL DEFAULT 0');
+  if (!inventoryCols.some((col) => col.name === 'front_sandwich')) db.exec('ALTER TABLE inventory ADD COLUMN front_sandwich REAL DEFAULT 0');
+  if (!inventoryCols.some((col) => col.name === 'front_pizza')) db.exec('ALTER TABLE inventory ADD COLUMN front_pizza REAL DEFAULT 0');
+  if (!inventoryCols.some((col) => col.name === 'front_burger')) db.exec('ALTER TABLE inventory ADD COLUMN front_burger REAL DEFAULT 0');
   const menuCols = db.prepare('PRAGMA table_info(menu_items)').all();
   if (!menuCols.some((col) => col.name === 'prep_time_minutes')) db.exec('ALTER TABLE menu_items ADD COLUMN prep_time_minutes INTEGER DEFAULT 8');
   if (!menuCols.some((col) => col.name === 'ingredients')) db.exec("ALTER TABLE menu_items ADD COLUMN ingredients TEXT DEFAULT '[]'");

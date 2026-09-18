@@ -128,4 +128,23 @@ export function syncMenuCatalog(db) {
   transaction();
 }
 
+export function ensureMenuCatalog(db) {
+  const itemCount = db.prepare('SELECT COUNT(*) AS c FROM menu_items').get().c;
+  if (itemCount === 0) {
+    syncMenuCatalog(db);
+  }
+
+  const activeCount = db.prepare('SELECT COUNT(*) AS c FROM menu_items WHERE active = 1').get().c;
+  if (itemCount > 0 && activeCount === 0) {
+    db.prepare('UPDATE menu_items SET active = 1 WHERE active IS NULL OR active = 0').run();
+  }
+
+  db.prepare(`INSERT OR IGNORE INTO menu_item_categories (menu_item_id, category)
+    SELECT id, category FROM menu_items WHERE category IS NOT NULL AND trim(category) <> ''`).run();
+
+  db.prepare(`INSERT OR IGNORE INTO menu_categories (name, slug, active, created_at)
+    SELECT DISTINCT category, lower(replace(trim(category), ' ', '-')), 1, datetime('now')
+    FROM menu_items WHERE category IS NOT NULL AND trim(category) <> ''`).run();
+}
+
 export default menuCatalog;

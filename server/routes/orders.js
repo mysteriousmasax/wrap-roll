@@ -154,9 +154,9 @@ function createOrderRecord(
     if (customerName?.trim()) {
       const normalizedEmail = String(customerEmail || '').trim().toLowerCase();
       const normalizedName = String(customerName || '').trim().toLowerCase();
-      const contactMatches = db.prepare('SELECT * FROM customers WHERE (? <> "" AND phone = ?) OR (? <> "" AND lower(email) = ?) ORDER BY id DESC')
+      const contactMatches = db.prepare("SELECT * FROM customers WHERE (? <> '' AND phone = ?) OR (? <> '' AND lower(email) = ?) ORDER BY id DESC")
         .all(customerPhone?.trim() || '', customerPhone?.trim() || '', normalizedEmail, normalizedEmail);
-      const nameMatches = db.prepare('SELECT * FROM customers WHERE ? <> "" AND lower(name) = ? ORDER BY id DESC').all(normalizedName, normalizedName);
+      const nameMatches = db.prepare("SELECT * FROM customers WHERE ? <> '' AND lower(name) = ? ORDER BY id DESC").all(normalizedName, normalizedName);
       const existingCustomer = contactMatches[0] || (nameMatches.length === 1 ? nameMatches[0] : null);
       if (existingCustomer) {
         db.prepare(

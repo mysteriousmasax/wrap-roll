@@ -47,8 +47,14 @@ router.get('/public', (req, res) => {
     const storedAccounts = JSON.parse(settings.lipa_namba_accounts || '[]');
     if (!Array.isArray(storedAccounts)) throw new Error('Stored payment accounts are not an array');
     if (storedAccounts.length === 0 && process.env.LIPA_ACCOUNTS_JSON) settings.lipa_namba_accounts = process.env.LIPA_ACCOUNTS_JSON;
+    else settings.lipa_namba_accounts = JSON.stringify(storedAccounts.map(({ qrImage, qr_image, image, ...account }) => account));
   } catch {
-    settings.lipa_namba_accounts = process.env.LIPA_ACCOUNTS_JSON || '[]';
+    try {
+      const configuredAccounts = JSON.parse(process.env.LIPA_ACCOUNTS_JSON || '[]');
+      settings.lipa_namba_accounts = JSON.stringify(Array.isArray(configuredAccounts) ? configuredAccounts.map(({ qrImage, qr_image, image, ...account }) => account) : []);
+    } catch {
+      settings.lipa_namba_accounts = '[]';
+    }
   }
 
   res.json(settings);
