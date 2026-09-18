@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { animate } from 'animejs';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
@@ -40,6 +40,7 @@ export default function DashboardLayout() {
   const [liveNotice, setLiveNotice] = useState(null);
   const supportDrawerRef = useRef(null);
   const location = useLocation();
+  const navigate = useNavigate();
   const title = pageTitles[location.pathname] || 'Wrap & Roll';
   const upsertOrder = useOrderStore((s) => s.upsertOrder);
   const fetchNotifications = useNotificationStore((s) => s.fetchNotifications);

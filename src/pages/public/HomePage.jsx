@@ -441,13 +441,14 @@ export default function HomePage() {
         </button>
 
         <nav className={mobileMenuOpen ? 'public-nav is-open' : 'public-nav'}>
-          <button onClick={() => scrollTo('home')}>{t('home')}</button>
-          <button onClick={() => scrollTo('story')}>{t('about')}</button>
-          <button onClick={() => scrollTo('menu')}>{t('orderOnline')}</button>
-          <button onClick={() => scrollTo('visit')}>{t('reservation')}</button>
-          <button onClick={() => scrollTo('contact')}>{t('contact')}</button>
+          <a href="#home" onClick={() => setMobileMenuOpen(false)}>{t('home')}</a>
+          <a href="#story" onClick={() => setMobileMenuOpen(false)}>{t('about')}</a>
+          <a href="#menu" onClick={() => setMobileMenuOpen(false)}>{t('orderOnline')}</a>
+          <a href="#visit" onClick={() => setMobileMenuOpen(false)}>{t('reservation')}</a>
+          <a href="#contact" onClick={() => setMobileMenuOpen(false)}>{t('contact')}</a>
 
           <button
+            type="button"
             className="header-utility relative flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#faeee2] text-[#ae002a] font-bold text-xs hover:bg-[#f8e0cd] transition-colors"
             onClick={() => setCartOpen(true)}
             aria-label={`${t('cart')} with ${cartCount} items`}
