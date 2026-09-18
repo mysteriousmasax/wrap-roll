@@ -6,6 +6,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import { api, ApiError } from '../../api/client';
+import { normalizeUserRole } from '../../utils/roleAccess';
 import { Search, UserPlus, Phone, Clock, ShieldCheck, BriefcaseBusiness, Plus, Trash2 } from 'lucide-react';
 
 const builtInRoles = [
@@ -14,6 +15,26 @@ const builtInRoles = [
   { name: 'manager', label: 'Manager', baseRole: 'manager' },
   { name: 'executive', label: 'Executive', baseRole: 'executive' },
   { name: 'admin', label: 'Administrator', baseRole: 'admin' },
+];
+
+const PAGE_ACCESS_OPTIONS = [
+  { value: '/pos', label: 'POS Till' },
+  { value: '/pos/tables', label: 'Table Setup' },
+  { value: '/orders', label: 'Orders' },
+  { value: '/management/payments', label: 'Payment Verification' },
+  { value: '/kds', label: 'Kitchen' },
+  { value: '/crm', label: 'CRM & Loyalty' },
+  { value: '/analytics', label: 'Analytics' },
+  { value: '/management/menu', label: 'Menu Editor' },
+  { value: '/management/operations', label: 'Operations' },
+  { value: '/management/reports', label: 'Reports' },
+  { value: '/assistant', label: 'AI Assistant' },
+  { value: '/management/people', label: 'People & HR' },
+  { value: '/management/loyalty', label: 'Loyalty Items' },
+  { value: '/management/campaigns', label: 'Campaigns' },
+  { value: '/management/kanban', label: 'Team Kanban' },
+  { value: '/management/settings', label: 'Settings' },
+  { value: '/notifications', label: 'Notifications' },
 ];
 
 function StaffForm({ form, setForm, editStaff, formError, onSave, label, roleOptions, shiftOptions }) {
@@ -34,6 +55,26 @@ function StaffForm({ form, setForm, editStaff, formError, onSave, label, roleOpt
           {shiftOptions.map((shift) => <option key={shift} value={shift}>{shift}</option>)}
         </select>
       </div>
+      <div>
+        <label className="block text-xs font-semibold text-surface-on-variant uppercase mb-1.5">Page Access</label>
+        <div className="grid grid-cols-2 gap-2 rounded-xl border border-outline-variant bg-surface-container-low p-2">
+          {PAGE_ACCESS_OPTIONS.map((page) => (
+            <label key={page.value} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-surface-on-variant hover:bg-white/40">
+              <input
+                type="checkbox"
+                checked={Array.isArray(form.pageAccess) && form.pageAccess.includes(page.value)}
+                onChange={(event) => {
+                  const nextPages = event.target.checked
+                    ? [...(form.pageAccess || []), page.value]
+                    : (form.pageAccess || []).filter((value) => value !== page.value);
+                  setForm({ ...form, pageAccess: nextPages });
+                }}
+              />
+              <span>{page.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
       <Input label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
       {!editStaff && <Input label="Login Password" type="password" minLength={8} placeholder="At least 8 characters" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />}
       {!editStaff && <p className="text-xs text-surface-on-variant">Give the staff member their username and password privately.</p>}
@@ -48,7 +89,7 @@ export default function StaffListPage({ embedded = false }) {
   const [staffMembers, setStaffMembers] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [editStaff, setEditStaff] = useState(null);
-  const [form, setForm] = useState({ name: '', role: 'foh', shift: 'Morning', phone: '', username: '', email: '', password: '' });
+  const [form, setForm] = useState({ name: '', role: 'foh', shift: 'Morning', phone: '', username: '', email: '', password: '', pageAccess: [] });
   const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -79,7 +120,7 @@ export default function StaffListPage({ embedded = false }) {
     try {
       await api.createStaff(form);
       setShowAdd(false);
-      setForm({ name: '', role: 'foh', shift: 'Morning', phone: '', username: '', email: '', password: '' });
+      setForm({ name: '', role: 'foh', shift: 'Morning', phone: '', username: '', email: '', password: '', pageAccess: [] });
       load();
     } catch (error) {
       setFormError(error instanceof ApiError ? error.message : 'Unable to add staff member. Please try again.');
@@ -100,7 +141,8 @@ export default function StaffListPage({ embedded = false }) {
   };
 
   const openEdit = (staff) => {
-    setForm({ name: staff.name, role: staff.role, shift: staff.shift, phone: staff.phone || '', username: staff.username || staff.name.toLowerCase().replace(/[^a-z0-9]+/g, '.'), email: staff.email || '', password: '' });
+    const normalizedPages = Array.isArray(staff.pageAccess) ? staff.pageAccess : [];
+    setForm({ name: staff.name, role: staff.role, shift: staff.shift, phone: staff.phone || '', username: staff.username || staff.name.toLowerCase().replace(/[^a-z0-9]+/g, '.'), email: staff.email || '', password: '', pageAccess: normalizedPages });
     setFormError('');
     setEditStaff(staff);
   };
@@ -109,16 +151,24 @@ export default function StaffListPage({ embedded = false }) {
     const name = window.prompt('New role name');
     if (!name?.trim()) return;
     const baseRole = window.prompt('Base access: foh, kitchen, manager, executive, or admin', 'foh');
-    if (!builtInRoles.some((role) => role.name === baseRole)) return;
-    const next = [...customRoles, { name: name.trim(), label: name.trim(), baseRole }];
+    const normalizedRole = normalizeUserRole(baseRole || 'foh');
+    const allowedBase = builtInRoles.some((role) => role.name === normalizedRole);
+    if (!allowedBase) {
+      window.alert('Choose a valid base access role: foh, kitchen, manager, executive, or admin.');
+      return;
+    }
+    const nextItem = { name: name.trim().replace(/\s+/g, ' '), label: name.trim().replace(/\s+/g, ' '), baseRole: normalizedRole };
+    const next = [...customRoles.filter((role) => role.name.toLowerCase() !== nextItem.name.toLowerCase()), nextItem];
     await api.updateSettings({ custom_staff_roles: JSON.stringify(next) });
     setCustomRoles(next);
   };
 
   const addShift = async () => {
     const shift = window.prompt('New shift type');
-    if (!shift?.trim() || shiftOptions.includes(shift.trim())) return;
-    const next = [...shiftOptions, shift.trim()];
+    if (!shift?.trim()) return;
+    const normalizedShift = shift.trim().replace(/\s+/g, ' ');
+    if (shiftOptions.some((option) => option.toLowerCase() === normalizedShift.toLowerCase())) return;
+    const next = [...new Set([...shiftOptions, normalizedShift])];
     await api.updateSettings({ shift_types: JSON.stringify(next) });
     setShiftOptions(next);
   };

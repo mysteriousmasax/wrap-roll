@@ -277,8 +277,20 @@ export async function initDatabase() {
       sku TEXT,
       unit_cost REAL DEFAULT 0,
       expiry_date TEXT,
-      storage_location TEXT
-        ,deleted_at TEXT
+      storage_location TEXT,
+      deleted_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS inventory_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS inventory_storage_locations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_identity ON inventory(lower(trim(name)), lower(trim(unit)));
@@ -618,6 +630,16 @@ function migrateSchema(db) {
   };
   ensureInventoryColumns(db);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS inventory_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS inventory_storage_locations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS menu_categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -652,6 +674,8 @@ function migrateSchema(db) {
   if (!userCols.some((col) => col.name === 'username')) db.exec('ALTER TABLE users ADD COLUMN username TEXT');
   if (!userCols.some((col) => col.name === 'email')) db.exec('ALTER TABLE users ADD COLUMN email TEXT');
   if (!userCols.some((col) => col.name === 'password')) db.exec('ALTER TABLE users ADD COLUMN password TEXT');
+  if (!userCols.some((col) => col.name === 'page_access')) db.exec("ALTER TABLE users ADD COLUMN page_access TEXT DEFAULT '[]'");
+  db.prepare("UPDATE users SET page_access = '[]' WHERE page_access IS NULL OR trim(page_access) = ''").run();
   const staffCols = db.prepare('PRAGMA table_info(staff)').all();
   if (!staffCols.some((col) => col.name === 'user_id')) db.exec('ALTER TABLE staff ADD COLUMN user_id INTEGER REFERENCES users(id)');
   const shiftCols = db.prepare('PRAGMA table_info(shift_logs)').all();

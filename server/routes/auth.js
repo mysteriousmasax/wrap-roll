@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import db from '../db/database.js';
 import { signToken, authMiddleware, JWT_SECRET } from '../middleware/auth.js';
 import { hashPin, verifyPin } from '../utils/pins.js';
-import { normalizeUserRole } from '../utils/roles.js';
+import { normalizeUserRole, getRolePageAccess, normalizePageAccess } from '../utils/roles.js';
 import { broadcast } from '../ws.js';
 import { restaurantTime } from '../utils/localTime.js';
 
@@ -88,7 +88,11 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
 
   const normalizedRole = normalizeUserRole(user.role);
-  const safeUser = { ...user, role: normalizedRole };
+  const safeUser = {
+    ...user,
+    role: normalizedRole,
+    pageAccess: normalizePageAccess(user.page_access || user.pageAccess || getRolePageAccess({ role: normalizedRole, pageAccess: [] })),
+  };
   const token = signToken(safeUser);
   const loginNotification = { type: 'info', title: 'Staff login', message: `${safeUser.name} signed in as ${safeUser.role}.`, audienceRole: 'manager' };
   db.prepare('INSERT INTO notifications (type, title, message, read, created_at, audience_role) VALUES (?, ?, ?, 0, ?, ?)').run(loginNotification.type, loginNotification.title, loginNotification.message, new Date().toISOString(), loginNotification.audienceRole);
@@ -97,10 +101,15 @@ router.post('/login', loginLimiter, async (req, res) => {
 });
 
 router.get('/me', authMiddleware, (req, res) => {
-  const user = db.prepare('SELECT id, name, role, avatar, username, email FROM users WHERE id = ?').get(req.user.id);
+  const user = db.prepare('SELECT id, name, role, avatar, username, email, page_access FROM users WHERE id = ?').get(req.user.id);
   if (!user) return res.status(401).json({ error: 'User not found' });
-  const normalizedUser = { ...user, role: normalizeUserRole(user.role) };
-  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(normalizedUser.role, user.id);
+  const normalizedRole = normalizeUserRole(user.role);
+  const normalizedUser = {
+    ...user,
+    role: normalizedRole,
+    pageAccess: normalizePageAccess(user.page_access || getRolePageAccess({ role: normalizedRole, pageAccess: [] })),
+  };
+  db.prepare('UPDATE users SET role = ?, page_access = ? WHERE id = ?').run(normalizedUser.role, JSON.stringify(normalizedUser.pageAccess), user.id);
   res.json({ user: normalizedUser });
 });
 

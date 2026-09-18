@@ -4,6 +4,7 @@ import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { hashPin } from '../utils/pins.js';
 import { broadcast } from '../ws.js';
 import { restaurantTime } from '../utils/localTime.js';
+import { getCustomRoleEntries, getRolePageAccess, normalizeCustomRole, normalizePageAccess, normalizeRoleName } from '../utils/roles.js';
 
 const router = Router();
 
@@ -20,26 +21,26 @@ function mapStaff(row) {
     userId: row.user_id,
     username: row.username,
     email: row.email,
+    pageAccess: normalizePageAccess(row.page_access || []),
   };
 }
 
 function today() { return restaurantTime().date; }
 
 function customRoles() {
-  try {
-    const value = db.prepare("SELECT value FROM settings WHERE key = 'custom_staff_roles'").get()?.value;
-    const roles = JSON.parse(value || '[]');
-    return Array.isArray(roles) ? roles : [];
-  } catch {
-    return [];
-  }
+  const value = db.prepare("SELECT value FROM settings WHERE key = 'custom_staff_roles'").get()?.value;
+  return getCustomRoleEntries(value);
 }
 
 function resolveRole(role) {
   const builtIn = ['admin', 'foh', 'kitchen', 'manager', 'executive'];
-  if (builtIn.includes(role)) return { label: role, baseRole: role };
-  const custom = customRoles().find((item) => item.name === role);
-  return custom ? { label: custom.name, baseRole: custom.baseRole || 'foh' } : { label: 'foh', baseRole: 'foh' };
+  const normalized = normalizeRoleName(role);
+  if (builtIn.includes(normalized)) return { label: normalized, baseRole: normalized };
+  const custom = customRoles().find((item) => item.name.toLowerCase() === String(role ?? '').trim().toLowerCase());
+  if (custom) return { label: custom.name, baseRole: custom.baseRole || 'foh' };
+  const normalizedCustom = normalizeCustomRole({ name: role, baseRole: 'foh' });
+  if (normalizedCustom) return { label: normalizedCustom.name, baseRole: normalizedCustom.baseRole };
+  return { label: 'foh', baseRole: 'foh' };
 }
 
 function activityForStaff(staffId, userId) {
@@ -65,7 +66,7 @@ function mapTrackingStaff(row) {
 }
 
 router.get('/', authMiddleware, (req, res) => {
-  res.json(db.prepare("SELECT staff.*, users.username, users.email FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.status != 'removed' ORDER BY staff.name").all().map(mapStaff));
+  res.json(db.prepare("SELECT staff.*, users.username, users.email, users.page_access FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.status != 'removed' ORDER BY staff.name").all().map(mapStaff));
 });
 
 router.get('/roles', authMiddleware, requireRole('admin'), (_req, res) => {
@@ -167,10 +168,11 @@ router.patch('/tasks/:id', authMiddleware, requireRole('admin', 'manager'), (req
 });
 
 router.post('/', authMiddleware, requireRole('admin'), async (req, res) => {
-  const { name, role, shift, phone, avatar, username, email, password } = req.body;
+  const { name, role, shift, phone, avatar, username, email, password, pageAccess } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   if (!password || String(password).length < 8) return res.status(400).json({ error: 'A password of at least 8 characters is required' });
   const resolvedRole = resolveRole(role);
+  const pagePermissions = normalizePageAccess(pageAccess || getRolePageAccess({ role: resolvedRole.baseRole, pageAccess: [] }));
   const initials = avatar || name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
   const accountName = String(username || name.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, ''));
   const normalizedUsername = accountName.toLowerCase();
@@ -181,7 +183,8 @@ router.post('/', authMiddleware, requireRole('admin'), async (req, res) => {
   if (existingUsername) return res.status(409).json({ error: 'That username or email is already in use' });
   const hashedPassword = await hashPin(password);
   const createRecords = db.transaction(() => {
-    const userResult = db.prepare('INSERT INTO users (name, role, pin, avatar, username, email, password) VALUES (?, ?, ?, ?, ?, ?, ?)').run(name, resolvedRole.baseRole, '', initials, normalizedUsername, normalizedEmail, hashedPassword);
+    const userResult = db.prepare('INSERT INTO users (name, role, pin, avatar, username, email, password, page_access) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(name, resolvedRole.baseRole, '', initials, normalizedUsername, normalizedEmail, hashedPassword, JSON.stringify(pagePermissions));
     const result = db.prepare('INSERT INTO staff (user_id, name, role, shift, status, avatar, phone) VALUES (?, ?, ?, ?, ?, ?, ?)').run(userResult.lastInsertRowid, name, resolvedRole.label, shift || 'Morning', 'off-clock', initials, phone || '');
     return { staffId: result.lastInsertRowid, userId: userResult.lastInsertRowid };
   });
@@ -192,8 +195,11 @@ router.post('/', authMiddleware, requireRole('admin'), async (req, res) => {
 router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
   const existing = db.prepare('SELECT * FROM staff WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Staff not found' });
-  const { name, role, shift, status, clockIn, phone, avatar } = req.body;
+  const { name, role, shift, status, clockIn, phone, avatar, pageAccess } = req.body;
   const resolvedRole = role ? resolveRole(role) : resolveRole(existing.role);
+  const nextPageAccess = pageAccess !== undefined
+    ? normalizePageAccess(pageAccess)
+    : getRolePageAccess({ role: resolvedRole.baseRole, pageAccess: [] });
   db.prepare(
     'UPDATE staff SET name = ?, role = ?, shift = ?, status = ?, clock_in = ?, phone = ?, avatar = ? WHERE id = ?'
   ).run(
@@ -207,10 +213,10 @@ router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
     req.params.id
   );
   if (existing.user_id) {
-    db.prepare('UPDATE users SET name = ?, role = ?, avatar = ? WHERE id = ?')
-      .run(name ?? existing.name, resolvedRole.baseRole, avatar ?? existing.avatar, existing.user_id);
+    db.prepare('UPDATE users SET name = ?, role = ?, avatar = ?, page_access = ? WHERE id = ?')
+      .run(name ?? existing.name, resolvedRole.baseRole, avatar ?? existing.avatar, JSON.stringify(nextPageAccess), existing.user_id);
   }
-  res.json(mapStaff(db.prepare('SELECT staff.*, users.username, users.email FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.id = ?').get(req.params.id)));
+  res.json(mapStaff(db.prepare('SELECT staff.*, users.username, users.email, users.page_access FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.id = ?').get(req.params.id)));
 });
 
 router.delete('/:id', authMiddleware, requireRole('admin'), (req, res) => {

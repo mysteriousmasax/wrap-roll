@@ -30,7 +30,7 @@ import HomePage from './pages/public/HomePage';
 import PrivacyPolicyPage from './pages/public/PrivacyPolicyPage';
 import BranchSetupPage from './pages/desktop/BranchSetupPage';
 import KanbanPage from './pages/management/KanbanPage';
-import { normalizeUserRole } from './utils/roleAccess';
+import { isPageAllowedForUser, getUserPageAccess, normalizeUserRole } from './utils/roleAccess';
 
 const ROUTE_ROLES = {
   '/pos': ['admin', 'foh'],
@@ -70,8 +70,12 @@ function ProtectedRoute({ children }) {
 function RoleRoute({ path, children }) {
   const currentUser = useAuthStore((s) => s.currentUser);
   const normalizedRole = currentUser ? normalizeUserRole(currentUser.role) : null;
-  const roles = ROUTE_ROLES[path];
-  if (roles && normalizedRole && !roles.includes(normalizedRole)) {
+  const allowed = currentUser ? isPageAllowedForUser(currentUser, path) : false;
+  if (currentUser && !allowed) {
+    const fallback = getUserPageAccess(currentUser)[0] || (normalizedRole === 'kitchen' ? '/kds' : '/pos');
+    return <Navigate to={fallback} replace />;
+  }
+  if (!currentUser && normalizedRole && ROUTE_ROLES[path] && !ROUTE_ROLES[path].includes(normalizedRole)) {
     const fallback = normalizedRole === 'kitchen' ? '/kds' : '/pos';
     return <Navigate to={fallback} replace />;
   }

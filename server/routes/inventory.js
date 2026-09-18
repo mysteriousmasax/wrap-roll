@@ -42,6 +42,97 @@ function auditInventoryChange(itemId, action, user, changes) {
   ).run(itemId, action, user?.id ?? null, user?.name || 'System', user?.role || 'system', JSON.stringify(changes), new Date().toISOString());
 }
 
+function getDefaultInventoryOptions() {
+  return {
+    categories: ['Stock items', 'Fresh ingredients', 'Bakery', 'Cold storage', 'Packaging', 'Beverages'],
+    storageLocations: ['Stock sheet', 'Back freezer', 'Fridge', 'Sandwich shelf', 'Pizza shelf', 'Burger shelf'],
+  };
+}
+
+function seedInventoryOptions(table, collection, defaultValues) {
+  defaultValues.forEach((value) => {
+    const name = String(value || '').trim();
+    if (!name) return;
+    try {
+      db.prepare(`INSERT OR IGNORE INTO ${table} (name) VALUES (?)`).run(name);
+    } catch {
+      // ignore seed collisions
+    }
+  });
+  const rows = db.prepare(`SELECT id, name FROM ${table} ORDER BY name`).all();
+  return rows.length ? rows : collection;
+}
+
+router.get('/categories', authMiddleware, (req, res) => {
+  const defaultValues = getDefaultInventoryOptions().categories;
+  const rows = db.prepare('SELECT id, name FROM inventory_categories ORDER BY name').all();
+  if (rows.length === 0) {
+    seedInventoryOptions('inventory_categories', defaultValues, defaultValues);
+    return res.json(db.prepare('SELECT id, name FROM inventory_categories ORDER BY name').all());
+  }
+  res.json(rows);
+});
+
+router.post('/categories', authMiddleware, (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Category name is required' });
+  const row = db.prepare('INSERT INTO inventory_categories (name) VALUES (?)').run(name);
+  const saved = db.prepare('SELECT id, name FROM inventory_categories WHERE id = ?').get(row.lastInsertRowid);
+  res.status(201).json(saved);
+});
+
+router.put('/categories/:id', authMiddleware, (req, res) => {
+  const existing = db.prepare('SELECT * FROM inventory_categories WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Category not found' });
+  const name = String(req.body?.name || existing.name).trim();
+  if (!name) return res.status(400).json({ error: 'Category name is required' });
+  db.prepare('UPDATE inventory_categories SET name = ? WHERE id = ?').run(name, req.params.id);
+  const row = db.prepare('SELECT id, name FROM inventory_categories WHERE id = ?').get(req.params.id);
+  res.json(row);
+});
+
+router.delete('/categories/:id', authMiddleware, (req, res) => {
+  const existing = db.prepare('SELECT * FROM inventory_categories WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Category not found' });
+  db.prepare('DELETE FROM inventory_categories WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+router.get('/storage-locations', authMiddleware, (req, res) => {
+  const defaultValues = getDefaultInventoryOptions().storageLocations;
+  const rows = db.prepare('SELECT id, name FROM inventory_storage_locations ORDER BY name').all();
+  if (rows.length === 0) {
+    seedInventoryOptions('inventory_storage_locations', defaultValues, defaultValues);
+    return res.json(db.prepare('SELECT id, name FROM inventory_storage_locations ORDER BY name').all());
+  }
+  res.json(rows);
+});
+
+router.post('/storage-locations', authMiddleware, (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Storage location name is required' });
+  const row = db.prepare('INSERT INTO inventory_storage_locations (name) VALUES (?)').run(name);
+  const saved = db.prepare('SELECT id, name FROM inventory_storage_locations WHERE id = ?').get(row.lastInsertRowid);
+  res.status(201).json(saved);
+});
+
+router.put('/storage-locations/:id', authMiddleware, (req, res) => {
+  const existing = db.prepare('SELECT * FROM inventory_storage_locations WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Storage location not found' });
+  const name = String(req.body?.name || existing.name).trim();
+  if (!name) return res.status(400).json({ error: 'Storage location name is required' });
+  db.prepare('UPDATE inventory_storage_locations SET name = ? WHERE id = ?').run(name, req.params.id);
+  const row = db.prepare('SELECT id, name FROM inventory_storage_locations WHERE id = ?').get(req.params.id);
+  res.json(row);
+});
+
+router.delete('/storage-locations/:id', authMiddleware, (req, res) => {
+  const existing = db.prepare('SELECT * FROM inventory_storage_locations WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Storage location not found' });
+  db.prepare('DELETE FROM inventory_storage_locations WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
 router.get('/', authMiddleware, (req, res) => {
   res.json(db.prepare('SELECT * FROM inventory WHERE COALESCE(deleted_at, \'\') = \'\' ORDER BY name').all().map(mapInventory));
 });

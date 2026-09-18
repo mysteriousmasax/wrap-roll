@@ -11,7 +11,10 @@ import { Package, AlertTriangle, CalendarClock, Edit3, Search, Plus, MapPin, Tru
 
 const fallbackImage = 'https://images.unsplash.com/photo-1547592180-85f173990554?w=240&h=180&fit=crop';
 const inventoryUnitOptions = ['kg', 'oz', 'litre', 'pieces (half)', 'pieces (full)'];
+const defaultInventoryCategories = ['Stock items', 'Fresh ingredients', 'Bakery', 'Cold storage', 'Packaging', 'Beverages'];
+const defaultStorageLocations = ['Stock sheet', 'Back freezer', 'Fridge', 'Sandwich shelf', 'Pizza shelf', 'Burger shelf'];
 const emptyForm = { name: '', quantity: '', unit: 'kg', threshold: '0', supplier: '', imageUrl: '', category: 'Stock items', sku: '', unitCost: '', expiryDate: '', storageLocation: 'Stock sheet', deliveryDate: '', backFreezerChiller: '0', refrigerator: '0', frontSandwich: '0', frontPizza: '0', frontBurger: '0' };
+const normalizeOptionList = (items, fallback) => (Array.isArray(items) && items.length ? items.map((item) => typeof item === 'string' ? { id: null, name: item } : { id: item.id ?? null, name: item.name || item.value || '' }).filter((item) => item.name) : fallback.map((name) => ({ id: null, name })));
 
 function daysUntil(date) {
   if (!date) return null;
@@ -54,9 +57,27 @@ export default function InventoryPage({ embedded = false }) {
   const [auditRows, setAuditRows] = useState([]);
   const [adjustItem, setAdjustItem] = useState(null);
   const [adjustment, setAdjustment] = useState({ amount: '', reason: 'Stock received' });
+  const [inventoryCategories, setInventoryCategories] = useState(normalizeOptionList(defaultInventoryCategories, defaultInventoryCategories));
+  const [inventoryStorageLocations, setInventoryStorageLocations] = useState(normalizeOptionList(defaultStorageLocations, defaultStorageLocations));
+  const [optionEditor, setOptionEditor] = useState(null);
+  const [optionValue, setOptionValue] = useState('');
+
+  const loadInventoryOptions = async () => {
+    try {
+      const [categoriesData, locationsData] = await Promise.all([
+        api.getInventoryCategories().catch(() => []),
+        api.getInventoryStorageLocations().catch(() => []),
+      ]);
+      setInventoryCategories(normalizeOptionList(categoriesData, defaultInventoryCategories));
+      setInventoryStorageLocations(normalizeOptionList(locationsData, defaultStorageLocations));
+    } catch {
+      setInventoryCategories(normalizeOptionList(defaultInventoryCategories, defaultInventoryCategories));
+      setInventoryStorageLocations(normalizeOptionList(defaultStorageLocations, defaultStorageLocations));
+    }
+  };
 
   const load = () => api.getInventory().then(setItems).catch((err) => setError(err.message || 'Unable to load inventory.')).finally(() => setLoading(false));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); loadInventoryOptions(); }, []);
 
   const lowStock = items.filter((item) => item.quantity <= item.threshold);
   const expiringSoon = items.filter((item) => { const days = daysUntil(item.expiryDate); return days !== null && days <= 7; });
@@ -122,6 +143,46 @@ export default function InventoryPage({ embedded = false }) {
     }
   };
 
+  const openOptionManager = (kind, value = null) => {
+    const options = kind === 'category' ? inventoryCategories : inventoryStorageLocations;
+    const selected = value && typeof value === 'object' ? value : (options.find((entry) => entry.name === value) ?? null);
+    setOptionEditor({ kind, mode: selected ? 'edit' : 'add', id: selected?.id ?? null, name: selected?.name || value || '' });
+    setOptionValue(selected?.name || value || '');
+    if (!selected && !options.length) {
+      setOptionValue(kind === 'category' ? 'Stock items' : 'Stock sheet');
+    }
+  };
+
+  const saveOption = async () => {
+    const trimmed = optionValue.trim();
+    if (!trimmed || !optionEditor) return;
+    try {
+      if (optionEditor.kind === 'category') {
+        if (optionEditor.mode === 'edit' && optionEditor.id) await api.updateInventoryCategory(optionEditor.id, { name: trimmed });
+        else await api.createInventoryCategory({ name: trimmed });
+      } else {
+        if (optionEditor.mode === 'edit' && optionEditor.id) await api.updateInventoryStorageLocation(optionEditor.id, { name: trimmed });
+        else await api.createInventoryStorageLocation({ name: trimmed });
+      }
+      await loadInventoryOptions();
+      setOptionEditor(null);
+      setOptionValue('');
+    } catch (err) {
+      setError(err.message || 'Unable to save inventory option.');
+    }
+  };
+
+  const deleteOption = async (kind, option) => {
+    if (!option || !window.confirm(`Delete ${option.name || option}?`)) return;
+    try {
+      if (kind === 'category') await api.deleteInventoryCategory(option.id ?? option);
+      else await api.deleteInventoryStorageLocation(option.id ?? option);
+      await loadInventoryOptions();
+    } catch (err) {
+      setError(err.message || 'Unable to delete inventory option.');
+    }
+  };
+
   const updateSheetField = async (item, field, value) => {
     const nextItem = { ...item, [field]: value };
     await api.updateInventory(item.id, { [field]: field === 'deliveryDate' ? value : Number(value) || 0 });
@@ -184,6 +245,29 @@ export default function InventoryPage({ embedded = false }) {
       <Modal isOpen={showModal} onClose={closeModal} title={editingItem ? 'Edit Inventory Item' : 'Add Inventory Item'}><div className="space-y-4"><div className="grid grid-cols-2 gap-3"><Input label="Item Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><Input label="SKU" placeholder="INV-001" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} /></div><div className="grid grid-cols-2 gap-3"><Input label="Quantity" type="number" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /><label className="block text-xs font-semibold uppercase tracking-wide text-surface-on-variant">Unit<select className="input-field mt-1 w-full" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>{inventoryUnitOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label></div><div className="grid grid-cols-2 gap-3"><Input label="Low-stock threshold" type="number" value={form.threshold} onChange={(e) => setForm({ ...form, threshold: e.target.value })} /><Input label="Unit cost (TZS)" type="number" value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: e.target.value })} /></div><div className="grid grid-cols-2 gap-3"><Input label="Supplier" value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} /><Input label="Storage location" value={form.storageLocation} onChange={(e) => setForm({ ...form, storageLocation: e.target.value })} /></div><div className="grid grid-cols-2 gap-3"><Input label="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /><Input label="Expiry date" type="date" value={form.expiryDate} onChange={(e) => setForm({ ...form, expiryDate: e.target.value })} /></div><div className="space-y-1.5"><label className="block text-xs font-semibold uppercase tracking-wide text-surface-on-variant">Import photo</label><label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-outline-variant px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5"><Upload size={16} />{form.imageUrl ? 'Replace photo' : 'Choose photo'}<input type="file" accept="image/*" className="sr-only" onChange={handlePhotoChange} /></label></div>{form.imageUrl && <img src={form.imageUrl} alt="Inventory preview" className="h-32 w-full rounded-xl object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}<div className="flex gap-3"><Button variant="secondary" onClick={closeModal} className="flex-1">Cancel</Button><Button onClick={save} className="flex-1">{editingItem ? 'Save Changes' : 'Add Item'}</Button></div></div></Modal>
       <Modal isOpen={adjustItem !== null} onClose={() => setAdjustItem(null)} title={adjustItem ? `Adjust ${adjustItem.name}` : 'Adjust stock'}><div className="space-y-4"><p className="text-sm text-surface-on-variant">Current stock: <strong>{adjustItem?.quantity} {adjustItem?.unit}</strong></p><Input label="Quantity change (+ receive, - remove)" type="number" value={adjustment.amount} onChange={(e) => setAdjustment({ ...adjustment, amount: e.target.value })} placeholder="e.g. 12 or -2" /><label className="block text-xs font-semibold uppercase tracking-wide text-surface-on-variant">Reason<select className="input-field mt-1" value={adjustment.reason} onChange={(e) => setAdjustment({ ...adjustment, reason: e.target.value })}><option>Stock received</option><option>Wastage</option><option>Damaged goods</option><option>Stock count correction</option><option>Transfer</option></select></label><div className="flex gap-3"><Button variant="secondary" onClick={() => setAdjustItem(null)} className="flex-1">Cancel</Button><Button onClick={saveAdjustment} className="flex-1">Record adjustment</Button></div></div></Modal>
       <Modal isOpen={auditItem !== null} onClose={() => setAuditItem(null)} title={auditItem ? `${auditItem.name} history` : 'Inventory history'}><div className="space-y-3">{auditRows.length === 0 && <p className="text-sm text-surface-on-variant">No changes recorded yet.</p>}{auditRows.map((row) => <div key={row.id} className="rounded-xl border border-outline-variant/50 bg-surface-container-low p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold capitalize">{row.action}</p><p className="text-xs text-surface-on-variant">{row.changedByName || row.changed_by_name} · {row.changedByRole || row.changed_by_role || 'staff'}</p></div><time className="text-right text-[10px] text-surface-on-variant">{new Date(row.createdAt || row.created_at).toLocaleString()}</time></div><div className="mt-2 space-y-1">{Object.entries(row.changes || {}).map(([field, change]) => <p key={field} className="text-xs"><span className="font-semibold capitalize">{field.replace(/([A-Z])/g, ' $1')}: </span>{String(change.from ?? 'none')} -&gt; {String(change.to ?? 'none')}</p>)}</div></div>)}</div></Modal>
+      <Modal isOpen={!!optionEditor} onClose={() => setOptionEditor(null)} title={optionEditor?.kind === 'category' ? 'Manage inventory categories' : 'Manage storage locations'}>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            {(optionEditor?.kind === 'category' ? inventoryCategories : inventoryStorageLocations).map((entry) => (
+              <div key={entry.id ?? entry.name} className="flex items-center justify-between gap-2 rounded-xl border border-outline-variant bg-surface-container-low px-3 py-2 text-sm">
+                <span className="font-medium">{entry.name}</span>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => openOptionManager(optionEditor.kind, entry)} className="rounded-lg border border-outline-variant px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-surface-on hover:bg-white">Edit</button>
+                  <button type="button" onClick={() => deleteOption(optionEditor.kind, entry)} className="rounded-lg border border-error/20 bg-error/5 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-error hover:bg-error/10">Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-surface-on-variant">{optionEditor?.kind === 'category' ? 'Category name' : 'Storage location name'}</label>
+            <input className="input-field w-full" value={optionValue} onChange={(e) => setOptionValue(e.target.value)} placeholder={optionEditor?.kind === 'category' ? 'e.g. Bakery' : 'e.g. Fridge'} />
+          </div>
+          <div className="flex gap-3">
+            <Button variant="secondary" onClick={() => { setOptionEditor(null); setOptionValue(''); }} className="flex-1">Cancel</Button>
+            <Button onClick={saveOption} className="flex-1">{optionEditor?.mode === 'edit' ? 'Save' : 'Add'}</Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

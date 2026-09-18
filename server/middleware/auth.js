@@ -43,8 +43,9 @@ export function authMiddleware(req, res, next) {
 
 export function signToken(user) {
   const role = normalizeUserRole(user.role);
+  const pageAccess = Array.isArray(user.pageAccess) ? user.pageAccess : (Array.isArray(user.page_access) ? user.page_access : []);
   return jwt.sign(
-    { id: user.id, name: user.name, role, avatar: user.avatar },
+    { id: user.id, name: user.name, role, avatar: user.avatar, pageAccess },
     JWT_SECRET,
     { expiresIn: '12h' }
   );
