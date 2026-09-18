@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { animate, stagger, splitText } from 'animejs';
 import { useParams } from 'react-router-dom';
 import {
   ArrowRight,
@@ -118,6 +119,8 @@ function OrderTrackingCard({ order, onOpenPayment, now, settings }) {
 
 export default function HomePage() {
   const { tagId } = useParams();
+  const heroHeadingRef = useRef(null);
+  const menuHeadingRef = useRef(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);
@@ -138,6 +141,26 @@ export default function HomePage() {
   const [customerEmail, setCustomerEmail] = useState(
     () => localStorage.getItem('wraproll_customer_email') || ''
   );
+
+  useEffect(() => {
+    const targets = [heroHeadingRef.current, menuHeadingRef.current].filter(Boolean);
+    targets.forEach((element) => {
+      if (!element || element.dataset.animated === 'true') return;
+      const { chars } = splitText(element, { words: false, chars: true, trim: false });
+      animate(chars, {
+        y: [
+          { to: '-2.75rem', ease: 'outExpo', duration: 600 },
+          { to: 0, ease: 'outBounce', duration: 800, delay: 100 }
+        ],
+        rotate: { from: '-1turn', delay: 0 },
+        opacity: [0, 1],
+        delay: stagger(45),
+        ease: 'inOutCirc',
+        duration: 900,
+      });
+      element.dataset.animated = 'true';
+    });
+  }, []);
   const [paymentReference, setPaymentReference] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryCoordinates, setDeliveryCoordinates] = useState({ latitude: null, longitude: null });
@@ -567,7 +590,7 @@ export default function HomePage() {
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#fde8d7] text-[#ae002a] text-xs font-bold uppercase tracking-wider">
             <Sparkles size={14} className="text-[#e6ac29]" /> Fresh, Fast &amp; Delicious
           </div>
-          <h1 className="reference-hero-heading hero-heading-animation text-4xl sm:text-6xl font-bold font-display leading-[1.02] tracking-tight">
+          <h1 ref={heroHeadingRef} className="reference-hero-heading hero-heading-animation text-4xl sm:text-6xl font-bold font-display leading-[1.02] tracking-tight">
             <span className="hero-heading-line">Dine with Delight at</span>{' '}
             <DepthText text="Wrap & Roll" faceColor="#e00000" depthColor="#8f001c" fontWeight="800" className="reference-depth-accent" />
           </h1>
@@ -652,7 +675,7 @@ export default function HomePage() {
       <section className="menu-section py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="menu">
         <div className="text-center max-w-xl mx-auto mb-10 space-y-2">
           <p className="text-xs font-bold uppercase tracking-wider text-[#ae002a]">Online Menu</p>
-          <h2 className="text-3xl sm:text-4xl font-bold font-display text-[#1f1d1b]">Choose Your Favorite Dish</h2>
+          <h2 ref={menuHeadingRef} className="menu-heading-animation text-3xl sm:text-4xl font-bold font-display text-[#1f1d1b]">Choose Your Favorite Dish</h2>
           <p className="text-xs sm:text-sm text-[#746e67]">
             Select an item to customize your order or pick bulk quantities for your group.
           </p>
@@ -691,11 +714,11 @@ export default function HomePage() {
               style={{ animationDelay: `${Math.min(0.45, (item.id % 8) * 0.045)}s` }}
               onClick={() => openMealCustomizer(item)}
             >
-              <div className="relative aspect-[4/3] overflow-hidden bg-[#faeee2]">
+              <div className="relative aspect-[4/5] overflow-hidden bg-[#faeee2]">
                 <img
                   src={item.image}
                   alt={item.name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
                   onError={(e) => {
                     e.currentTarget.src =
                       'https://wrapandrolltz.com/uploads/photo_gallery/d706fc0ef56440dd131465fd75aae870.jpg';

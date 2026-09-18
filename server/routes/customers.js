@@ -6,6 +6,78 @@ import { printReceipt } from '../utils/escposPrinter.js';
 
 const router = Router();
 
+export function normalizePublicCustomerIdentifier(value) {
+  return String(value ?? '').trim();
+}
+
+export function lookupPublicCustomerProfile(targetDb = db, identifier) {
+  const rawValue = normalizePublicCustomerIdentifier(identifier);
+  if (!rawValue) return null;
+
+  const normalizedPhone = rawValue.replace(/\D/g, '');
+  const normalizedEmail = rawValue.toLowerCase();
+  const normalizedNfc = rawValue.toUpperCase();
+
+  const customer = targetDb.prepare(`
+    SELECT * FROM customers
+    WHERE (
+      (? <> '' AND replace(replace(replace(replace(lower(COALESCE(phone, '')), ' ', ''), '+', ''), '-', ''), '(', '') LIKE '%' || ?)
+      OR (? <> '' AND lower(trim(COALESCE(email, ''))) = ?)
+      OR (? <> '' AND upper(trim(COALESCE(nfc_tag_code, ''))) = ?)
+      OR (? <> '' AND lower(trim(name)) = ?)
+    )
+    ORDER BY id DESC
+    LIMIT 1
+  `).get(
+    normalizedPhone,
+    normalizedPhone,
+    normalizedPhone,
+    normalizedEmail,
+    normalizedNfc,
+    normalizedNfc,
+    rawValue.toLowerCase(),
+    rawValue.toLowerCase()
+  );
+
+  if (!customer) return null;
+
+  return {
+    id: customer.id,
+    name: customer.name,
+    phone: customer.phone,
+    email: customer.email,
+    nfcTagCode: customer.nfc_tag_code,
+    rollPoints: Number(customer.roll_points_balance || 0),
+    lifetimeValue: Number(customer.lifetime_value || 0),
+    customerSegment: customer.customer_segment || 'regular',
+    preferredChannel: customer.preferred_channel || 'pos',
+  };
+}
+
+export function deleteCustomerCascade(targetDb = db, customerId) {
+  const target = targetDb.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+  if (!target) return { ok: false, deletedCustomerId: Number(customerId), error: 'Customer not found' };
+
+  const snapshot = { ...target, favoriteItems: (() => {
+    try { return JSON.parse(target.favorite_items || '[]'); } catch { return []; }
+  })() };
+
+  const transaction = targetDb.transaction(() => {
+    targetDb.prepare('DELETE FROM invoices WHERE customer_id = ?').run(customerId);
+    targetDb.prepare('DELETE FROM customer_points_ledger WHERE customer_id = ?').run(customerId);
+    targetDb.prepare('DELETE FROM loyalty_items WHERE customer_id = ?').run(customerId);
+    targetDb.prepare('DELETE FROM customers WHERE id = ?').run(customerId);
+  });
+
+  transaction();
+
+  return {
+    ok: true,
+    deletedCustomerId: Number(customerId),
+    customer: snapshot,
+  };
+}
+
 function normalizeChannel(value) {
   const raw = (value || 'pos').toString().trim().toLowerCase();
   if (!raw) return 'pos';
@@ -150,6 +222,19 @@ router.get('/', authMiddleware, (req, res) => {
   res.json(aggregateCustomerData(customerRows, orderRows, orderItemsByOrder));
 });
 
+router.get('/public/lookup', (req, res) => {
+  const identifier = req.query.identifier || req.query.phone || req.query.nfc || req.query.email || '';
+  const customer = lookupPublicCustomerProfile(db, identifier);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+  res.json(customer);
+});
+
+router.get('/public/:identifier', (req, res) => {
+  const customer = lookupPublicCustomerProfile(db, req.params.identifier);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+  res.json(customer);
+});
+
 router.get('/:id/orders', authMiddleware, (req, res) => {
   const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
@@ -181,12 +266,10 @@ router.post('/', authMiddleware, (req, res) => {
 });
 
 router.delete('/:id', authMiddleware, (req, res) => {
-  const target = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
-  if (!target) return res.status(404).json({ error: 'Customer not found' });
+  const deleted = deleteCustomerCascade(db, req.params.id);
+  if (!deleted.ok) return res.status(404).json({ error: 'Customer not found' });
 
-  const snapshot = { ...target, favoriteItems: JSON.parse(target.favorite_items || '[]') };
-  db.prepare('DELETE FROM customers WHERE id = ?').run(req.params.id);
-  broadcast('customer:deleted', { customerId: Number(req.params.id), customer: snapshot });
+  broadcast('customer:deleted', { customerId: Number(req.params.id), customer: deleted.customer });
   res.json({ ok: true, deletedCustomerId: Number(req.params.id) });
 });
 

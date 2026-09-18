@@ -77,6 +77,17 @@ export default function LoyaltyManagementPage() {
     }
   };
 
+  const deleteCustomer = async (customerId) => {
+    if (!window.confirm('Delete this customer permanently and remove all linked loyalty records?')) return;
+    try {
+      await api.deleteCustomer(customerId);
+      setStatus('Customer deleted permanently.');
+      await loadItems();
+    } catch (error) {
+      setStatus(error.message || 'Unable to delete customer');
+    }
+  };
+
   if (loading) return <div className="p-6 text-sm text-surface-on-variant">Loading loyalty items...</div>;
 
   return (
@@ -111,6 +122,9 @@ export default function LoyaltyManagementPage() {
               <div className="flex flex-wrap gap-2 md:justify-end">
                 <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary">{customer.tier || 'Regular'}</span>
                 <span className="rounded-full bg-success/10 px-2 py-1 text-[10px] font-semibold text-success">{customer.loyaltyItems?.length || 0} item(s)</span>
+                <button type="button" onClick={() => deleteCustomer(customer.id)} className="rounded-full border border-error/70 bg-error/5 px-2 py-1 text-[10px] font-semibold text-error hover:bg-error/10" aria-label={`Delete customer ${customer.name}`}>
+                  Delete customer
+                </button>
               </div>
             </div>
 

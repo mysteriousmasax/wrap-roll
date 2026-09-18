@@ -109,6 +109,8 @@ export const api = {
   updateTable: (id, data) => request(`/tables/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   getCustomers: () => request('/customers'),
+  getPublicCustomerPoints: (identifier) => request(`/customers/public/lookup?identifier=${encodeURIComponent(identifier)}`),
+  deleteCustomer: (id) => request(`/customers/${id}`, { method: 'DELETE' }),
   getCustomerOrders: (id) => request(`/customers/${id}/orders`),
   getCrmIntelligence: () => request('/crm-intelligence/snapshot'),
   generateCrmSwot: () => request('/crm-intelligence/swot', { method: 'POST' }),

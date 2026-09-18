@@ -28,6 +28,7 @@ import PeopleHubPage from './pages/management/PeopleHubPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
 import HomePage from './pages/public/HomePage';
 import PrivacyPolicyPage from './pages/public/PrivacyPolicyPage';
+import CustomerRewardsPage from './pages/public/CustomerRewardsPage';
 import BranchSetupPage from './pages/desktop/BranchSetupPage';
 import KanbanPage from './pages/management/KanbanPage';
 import { isPageAllowedForUser, getUserPageAccess, normalizeUserRole } from './utils/roleAccess';
@@ -113,6 +114,8 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/table/:tagId" element={<HomePage />} />
+      <Route path="/customer-rewards" element={<CustomerRewardsPage />} />
+      <Route path="/rewards" element={<CustomerRewardsPage />} />
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/desktop-setup" element={<BranchSetupPage />} />

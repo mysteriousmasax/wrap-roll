@@ -114,7 +114,7 @@ export async function initDatabase() {
       currency TEXT NOT NULL DEFAULT 'TZS',
       status TEXT NOT NULL DEFAULT 'issued',
       created_at TEXT NOT NULL,
-      FOREIGN KEY (customer_id) REFERENCES customers(id),
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
       FOREIGN KEY (order_id) REFERENCES orders(id)
     );
 
@@ -125,7 +125,7 @@ export async function initDatabase() {
       reason TEXT NOT NULL,
       order_id TEXT,
       created_at TEXT NOT NULL,
-      FOREIGN KEY (customer_id) REFERENCES customers(id)
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS deletion_audit (
@@ -614,6 +614,58 @@ export async function initDatabase() {
 }
 
 function migrateSchema(db) {
+  const foreignKeyList = (tableName) => db.prepare(`PRAGMA foreign_key_list(${tableName})`).all();
+  const ensureCascadeTable = ({ tableName, columnsSql }) => {
+    const tableExists = !!db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`).get(tableName);
+    if (!tableExists) return;
+
+    const relatedKeys = foreignKeyList(tableName);
+    const hasCascadeDelete = relatedKeys.some((constraint) => constraint.table === 'customers' && constraint.on_delete === 'CASCADE');
+    if (hasCascadeDelete) return;
+
+    const backupTable = `${tableName}_legacy_backup`;
+    db.exec(`DROP TABLE IF EXISTS ${backupTable};`);
+    db.exec(`ALTER TABLE ${tableName} RENAME TO ${backupTable};`);
+    db.exec(`CREATE TABLE ${tableName} (${columnsSql});`);
+    db.exec(`INSERT INTO ${tableName} SELECT * FROM ${backupTable};`);
+    db.exec(`DROP TABLE ${backupTable};`);
+  };
+
+  ensureCascadeTable({
+    tableName: 'customer_points_ledger',
+    columnsSql: `
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL,
+      points_delta INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      order_id TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    `,
+  });
+
+  ensureCascadeTable({
+    tableName: 'invoices',
+    columnsSql: `
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_number TEXT NOT NULL UNIQUE,
+      customer_id INTEGER NOT NULL,
+      order_id TEXT NOT NULL,
+      customer_type TEXT NOT NULL DEFAULT 'individual',
+      company_name TEXT,
+      tin TEXT,
+      billing_address TEXT,
+      subtotal REAL NOT NULL,
+      tax REAL NOT NULL,
+      total REAL NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'TZS',
+      status TEXT NOT NULL DEFAULT 'issued',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+      FOREIGN KEY (order_id) REFERENCES orders(id)
+    `,
+  });
+
   const inventoryColumns = [
     ['delivery_date', "TEXT DEFAULT ''"],
     ['back_freezer_chiller', 'REAL DEFAULT 0'],
