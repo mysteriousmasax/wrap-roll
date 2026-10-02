@@ -24,6 +24,9 @@ import businessRoutes from './routes/business.js';
 import crmIntelligenceRoutes from './routes/crmIntelligence.js';
 import printerRoutes from './routes/printer.js';
 import desktopRoutes from './routes/desktop.js';
+import emailMarketingRoutes from './routes/emailMarketing.js';
+import { startPrinterAgent } from './utils/printerAgent.js';
+import { checkPostgresConnection } from './db/postgres.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' || process.env.PORT || process.env.RAILWAY_ENVIRONMENT ? '0.0.0.0' : '127.0.0.1');
@@ -57,6 +60,15 @@ app.get('/api/health', (_req, res) => {
   }
 });
 
+app.get('/api/health/postgres', async (_req, res) => {
+  try {
+    const connected = await checkPostgresConnection();
+    res.status(connected ? 200 : 503).json({ ok: connected, database: 'postgres' });
+  } catch {
+    res.status(503).json({ ok: false, database: 'postgres' });
+  }
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
@@ -75,6 +87,9 @@ app.use('/api/business', businessRoutes);
 app.use('/api/crm-intelligence', crmIntelligenceRoutes);
 app.use('/api/printer', printerRoutes);
 app.use('/api/desktop', desktopRoutes);
+app.use('/api/email-marketing', emailMarketingRoutes);
+
+if (process.env.PRINTER_AGENT_ENABLED === 'true') startPrinterAgent();
 
 app.use(express.static(clientDist, { index: false, setHeaders: (res, filePath) => {
   if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-store');

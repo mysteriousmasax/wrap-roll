@@ -107,6 +107,7 @@ function startServer() {
       NODE_ENV: 'production',
       HOST: '127.0.0.1',
       PORT: String(PORT),
+      PRINTER_AGENT_ENABLED: 'true',
       DB_PATH: databasePath,
       CLIENT_DIST_PATH: clientDistPath,
     },

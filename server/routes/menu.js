@@ -4,22 +4,9 @@ import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { createMenuBookExport } from '../utils/menuBookExport.js';
 import { broadcast } from '../ws.js';
 import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/deletionPolicy.js';
+import { decodeMenuImage, fallbackMenuImage, getMenuImage, getMenuImageHash } from '../utils/menuImages.js';
 
 const router = Router();
-
-const fallbackMenuImage = 'https://wrapandrolltz.com/uploads/photo_gallery/d706fc0ef56440dd131465fd75aae870.jpg';
-// Uploaded menu photos are stored as compressed data URLs. The previous 32 KB cap
-// was too small for typical JPEG menu photos, which caused the public menu to show
-// the generic fallback image even after a real image replacement.
-const maxPublicEmbeddedImageLength = 2 * 1024 * 1024;
-
-function getMenuImage(image, isPublic = false) {
-  if (typeof image !== 'string') return fallbackMenuImage;
-  const value = image.trim();
-  if (isPublic && value.startsWith('data:image/') && value.length > maxPublicEmbeddedImageLength) return fallbackMenuImage;
-  if (/^(https?:\/\/|\/|data:image\/(?:png|jpe?g|webp|gif);base64,)/i.test(value)) return value;
-  return fallbackMenuImage;
-}
 
 export function normalizeMenuCategoryValue(value) {
   return String(value ?? '')
@@ -82,9 +69,9 @@ function parseIngredients(value) {
   return [];
 }
 
-function mapMenuItem(row, isPublic = false) {
-  const categories = db.prepare('SELECT category FROM menu_item_categories WHERE menu_item_id = ? ORDER BY category').all(row.id).map((entry) => entry.category);
-  const modifiers = db.prepare(`
+function mapMenuItem(row, isPublic = false, relations = {}) {
+  const categories = relations.categories || db.prepare('SELECT category FROM menu_item_categories WHERE menu_item_id = ? ORDER BY category').all(row.id).map((entry) => entry.category);
+  const modifiers = relations.modifiers || db.prepare(`
     SELECT m.id, m.name, m.price, m.type
     FROM modifiers m
     JOIN menu_item_modifiers mim ON mim.modifier_id = m.id
@@ -99,13 +86,42 @@ function mapMenuItem(row, isPublic = false) {
     category: row.category,
     categories: categories.length ? categories : [row.category].filter(Boolean),
     modifiers,
-    image: getMenuImage(row.image, isPublic),
+    image: getMenuImage(row.image, row.id, isPublic),
     prep_time_minutes: Number(row.prep_time_minutes ?? 8),
     popular: !!row.popular,
     active: !!row.active,
     ingredients: parseIngredients(row.ingredients),
     cooking_instructions: row.cooking_instructions || '',
   };
+}
+
+function mapMenuItems(rows, isPublic = false) {
+  if (!rows.length) return [];
+  const itemIds = rows.map((row) => row.id);
+  const placeholders = itemIds.map(() => '?').join(', ');
+  const categoriesByItem = new Map();
+  const modifiersByItem = new Map();
+  db.prepare(`SELECT menu_item_id, category FROM menu_item_categories WHERE menu_item_id IN (${placeholders}) ORDER BY category`)
+    .all(...itemIds)
+    .forEach(({ menu_item_id: itemId, category }) => {
+      if (!categoriesByItem.has(itemId)) categoriesByItem.set(itemId, []);
+      categoriesByItem.get(itemId).push(category);
+    });
+  db.prepare(`
+    SELECT mim.menu_item_id, m.id, m.name, m.price, m.type
+    FROM modifiers m
+    JOIN menu_item_modifiers mim ON mim.modifier_id = m.id
+    WHERE mim.menu_item_id IN (${placeholders})
+    ORDER BY mim.menu_item_id, m.type, m.name
+  `).all(...itemIds).forEach(({ menu_item_id: itemId, ...modifier }) => {
+    if (!modifiersByItem.has(itemId)) modifiersByItem.set(itemId, []);
+    modifiersByItem.get(itemId).push(modifier);
+  });
+
+  return rows.map((row) => mapMenuItem(row, isPublic, {
+    categories: categoriesByItem.get(row.id) || [],
+    modifiers: modifiersByItem.get(row.id) || [],
+  }));
 }
 
 router.get('/categories', authMiddleware, (req, res) => {
@@ -153,11 +169,34 @@ router.delete('/categories/:slug', authMiddleware, requireRole('admin', 'manager
 router.get('/', authMiddleware, (req, res) => {
   const { all } = req.query;
   const sql = all ? 'SELECT * FROM menu_items ORDER BY category, name' : 'SELECT * FROM menu_items WHERE active = 1 ORDER BY category, name';
-  res.json(db.prepare(sql).all().map(mapMenuItem));
+  res.json(mapMenuItems(db.prepare(sql).all()));
+});
+
+router.get('/image/:id/:imageHash', (req, res) => {
+  const itemId = Number(req.params.id);
+  if (!Number.isInteger(itemId) || !/^[a-f\d]{20}$/i.test(req.params.imageHash)) return res.status(404).end();
+  const item = db.prepare('SELECT active, image FROM menu_items WHERE id = ?').get(itemId);
+  if (!item) return res.status(404).end();
+  if (!item.active) {
+    let authorized = false;
+    authMiddleware(req, res, () => { authorized = true; });
+    if (!authorized) return;
+  }
+
+  if (getMenuImageHash(item.image || '') !== req.params.imageHash) return res.status(404).end();
+  const image = decodeMenuImage(item.image);
+  if (!image) return res.status(404).end();
+  res.set({
+    'Content-Type': image.contentType,
+    'Content-Length': String(image.data.length),
+    'Cache-Control': item.active ? 'public, max-age=31536000, immutable' : 'private, max-age=31536000, immutable',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.send(image.data);
 });
 
 router.get('/public', (req, res) => {
-  res.json(db.prepare('SELECT * FROM menu_items WHERE active = 1 ORDER BY category, name').all().map((row) => mapMenuItem(row, true)));
+  res.json(mapMenuItems(db.prepare('SELECT * FROM menu_items WHERE active = 1 ORDER BY category, name').all(), true));
 });
 
 router.get('/modifiers/public', (req, res) => {
@@ -172,7 +211,7 @@ router.get('/export', authMiddleware, requireRole('admin', 'manager'), async (re
   const format = String(req.query.format || '').toLowerCase();
   if (!['pdf', 'xlsx', 'docx', 'pptx'].includes(format)) return res.status(400).json({ error: 'Menu book format must be PDF, Excel, Word, or PowerPoint' });
   try {
-    const items = db.prepare('SELECT * FROM menu_items WHERE active = 1 ORDER BY category, name').all().map(mapMenuItem);
+    const items = mapMenuItems(db.prepare('SELECT * FROM menu_items WHERE active = 1 ORDER BY category, name').all());
     const modifiers = db.prepare('SELECT * FROM modifiers ORDER BY type, name').all();
     const result = await createMenuBookExport(format, items, modifiers);
     res.type(result.contentType).set('Content-Disposition', `attachment; filename="wrap-roll-menu-book.${result.extension}"`).send(result.buffer);

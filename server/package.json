@@ -7,7 +7,8 @@
     "start": "node --env-file=../.env index.js",
     "start:production": "NODE_ENV=production node index.js",
     "seed": "node db/seed.js",
-    "seed:business": "node scripts/loadBusinessData.js"
+    "seed:business": "node scripts/loadBusinessData.js",
+    "migrate:postgres": "node scripts/migrateSqliteToPostgres.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -18,7 +19,9 @@
     "express": "^4.21.0",
     "express-rate-limit": "^7.4.0",
     "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^6.9.15",
     "pdfkit": "^0.20.2",
+    "pg": "^8.23.1",
     "pptxgenjs": "^4.0.1",
     "ws": "^8.18.0",
     "xlsx": "^0.18.5"

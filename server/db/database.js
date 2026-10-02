@@ -370,6 +370,60 @@ export async function initDatabase() {
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS printer_pairing_codes (
+      code_hash TEXT PRIMARY KEY,
+      branch_code TEXT NOT NULL,
+      branch_name TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS printer_agents (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      branch_code TEXT NOT NULL,
+      branch_name TEXT NOT NULL,
+      last_seen_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS printer_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id TEXT NOT NULL UNIQUE,
+      branch_code TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      claimed_agent_id TEXT,
+      claimed_at TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      printed_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_printer_jobs_queue ON printer_jobs(branch_code, status, created_at);
+
+    CREATE TABLE IF NOT EXISTS printer_document_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      document_type TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      branch_code TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      claimed_agent_id TEXT,
+      claimed_at TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      printed_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_printer_document_jobs_queue ON printer_document_jobs(branch_code, status, created_at);
+
+    CREATE TABLE IF NOT EXISTS printer_agent_printed_jobs (
+      job_key TEXT PRIMARY KEY,
+      printed_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
@@ -377,6 +431,50 @@ export async function initDatabase() {
       message TEXT NOT NULL,
       read INTEGER DEFAULT 0,
       created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS email_subscribers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      first_name TEXT DEFAULT '',
+      last_name TEXT DEFAULT '',
+      segment TEXT DEFAULT 'regular',
+      source TEXT DEFAULT 'manual',
+      preferred_channel TEXT DEFAULT 'email',
+      customer_id INTEGER,
+      active INTEGER DEFAULT 1,
+      verified INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS email_campaigns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'welcome',
+      segment TEXT NOT NULL DEFAULT 'all',
+      channel TEXT NOT NULL DEFAULT 'email',
+      template TEXT NOT NULL DEFAULT 'standard',
+      offer TEXT DEFAULT '',
+      payload TEXT DEFAULT '{}',
+      body TEXT,
+      status TEXT NOT NULL DEFAULT 'draft',
+      sent_count INTEGER DEFAULT 0,
+      total_target INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS email_campaign_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campaign_id INTEGER NOT NULL,
+      subscriber_id INTEGER,
+      email TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      sent_at TEXT NOT NULL,
+      response TEXT DEFAULT '',
+      FOREIGN KEY (campaign_id) REFERENCES email_campaigns(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS operational_summaries (
@@ -592,6 +690,11 @@ export async function initDatabase() {
     lipa_namba_name: '',
     lipa_namba_provider: '',
     lipa_namba_accounts: '[]',
+    printer_transport: 'serial',
+    printer_baud_rate: '9600',
+    printer_model: 'Romeson KP58ZJ',
+    printer_paper_width_mm: '58',
+    printer_auto_print: 'true',
   };
   const weeklyHours = {
     monday: { closed: false, periods: [{ open: '07:00', close: '23:00' }] },
@@ -898,6 +1001,52 @@ function migrateSchema(db) {
     if (!paymentCols.some((c) => c.name === 'created_at')) db.exec('ALTER TABLE payments ADD COLUMN created_at TEXT');
     if (!paymentCols.some((c) => c.name === 'updated_at')) db.exec('ALTER TABLE payments ADD COLUMN updated_at TEXT');
   }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS email_subscribers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      first_name TEXT DEFAULT '',
+      last_name TEXT DEFAULT '',
+      segment TEXT DEFAULT 'regular',
+      source TEXT DEFAULT 'manual',
+      preferred_channel TEXT DEFAULT 'email',
+      customer_id INTEGER,
+      active INTEGER DEFAULT 1,
+      verified INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS email_campaigns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'welcome',
+      segment TEXT NOT NULL DEFAULT 'all',
+      channel TEXT NOT NULL DEFAULT 'email',
+      template TEXT NOT NULL DEFAULT 'standard',
+      offer TEXT DEFAULT '',
+      payload TEXT DEFAULT '{}',
+      body TEXT,
+      status TEXT NOT NULL DEFAULT 'draft',
+      sent_count INTEGER DEFAULT 0,
+      total_target INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS email_campaign_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campaign_id INTEGER NOT NULL,
+      subscriber_id INTEGER,
+      email TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      sent_at TEXT NOT NULL,
+      response TEXT DEFAULT '',
+      FOREIGN KEY (campaign_id) REFERENCES email_campaigns(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_email_campaigns_status ON email_campaigns(status);
+    CREATE INDEX IF NOT EXISTS idx_email_subscribers_segment ON email_subscribers(segment, active);
+  `);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_orders_ref ON orders(payment_reference);

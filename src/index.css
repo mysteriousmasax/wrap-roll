@@ -2104,55 +2104,58 @@ button, input, select, textarea { max-width: 100%; }
   text-transform: uppercase;
 }
 .reference-delivery-section {
-  background: #fff;
+  background: transparent;
+  padding-top: 0;
 }
 .reference-delivery-card {
+  position: relative;
   max-width: 1120px;
   margin: 0 auto;
   overflow: hidden;
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(41, 27, 21, .12);
+  border-radius: 18px;
+  box-shadow: 0 18px 36px rgba(41, 27, 21, .18);
+  background: #0f0f0f;
 }
-.reference-delivery-card img {
-  display: block;
-  width: 100%;
-  aspect-ratio: 2.4 / 1;
-  object-fit: cover;
+.reference-delivery-visual {
+  min-height: 250px;
+  background-image: linear-gradient(90deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.10)), url('/hero-food.jpg');
+  background-size: cover;
+  background-position: center;
 }
 .reference-delivery-copy {
   display: flex;
-  min-height: 170px;
+  min-height: 110px;
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 8px;
-  padding: 25px;
+  gap: 6px;
+  padding: 18px 20px 22px;
   background: #e00000;
   color: #fff;
   text-align: center;
 }
 .reference-delivery-copy .brand-logo {
-  width: 135px;
+  width: 110px;
   height: auto;
   filter: brightness(0) invert(1);
 }
 .reference-delivery-copy h2 {
   margin: 0;
-  font: 800 22px/1 Arial, sans-serif;
+  font: 800 20px/1 Arial, sans-serif;
 }
 .reference-delivery-copy p {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 11px;
+  line-height: 1.4;
 }
 .reference-delivery-copy button {
-  margin-top: 5px;
+  margin-top: 4px;
   border: 0;
-  border-radius: 3px;
+  border-radius: 999px;
   background: #ffc72c;
   color: #9d150f;
-  padding: 7px 18px;
-  font-size: 11px;
+  padding: 8px 18px;
+  font-size: 10px;
   font-weight: 800;
   cursor: pointer;
 }

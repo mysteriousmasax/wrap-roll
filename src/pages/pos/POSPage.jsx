@@ -246,6 +246,7 @@ function CartPanel({ onCheckout, onOpenCustomModal }) {
                 onClick={() =>
                   addItem({
                     id: `upsell-${upsell.name}`,
+                    isCustom: true,
                     name: upsell.name,
                     price: upsell.price,
                     quantity: 1,
@@ -370,6 +371,7 @@ function CartPanel({ onCheckout, onOpenCustomModal }) {
                 onClick={() =>
                   addItem({
                     id: `upsell-${upsell.name}`,
+                    isCustom: true,
                     name: upsell.name,
                     price: upsell.price,
                     quantity: 1,
@@ -583,7 +585,7 @@ export default function POSPage() {
 
   useEffect(() => {
     const closeOnOutsideClick = (event) => {
-      if (window.innerWidth < 1024 || showMobileCart) return;
+      if (window.innerWidth < 768 || showMobileCart) return;
       if (!desktopCartRef.current?.contains(event.target) && !floatingOrderRef.current?.contains(event.target)) {
         setShowDesktopCart(false);
       }
@@ -636,7 +638,7 @@ export default function POSPage() {
   }
 
   return (
-    <div className="pos-page flex flex-1 min-h-[calc(100vh-3.5rem)] lg:h-[calc(100vh-3.5rem)] overflow-x-hidden lg:overflow-hidden bg-[#faf7f2] pb-24 lg:pb-0">
+    <div className="pos-page flex flex-1 min-h-[calc(100vh-3.5rem)] md:h-[calc(100vh-3.5rem)] overflow-x-hidden md:overflow-hidden bg-[#faf7f2] pb-24 md:pb-0">
       {/* Main Catalog Area */}
       <div className="pos-catalog flex-1 flex flex-col min-w-0">
         {location.state?.offlineQueued && (
@@ -710,7 +712,7 @@ export default function POSPage() {
 
         {/* Product Grid Area */}
         <div className="pos-product-area flex-1 overflow-y-auto p-2 sm:p-3">
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-3">
             {filteredItems.map((item) => (
               <ProductCard key={item.id} item={item} onClick={handleItemClick} />
             ))}
@@ -733,7 +735,7 @@ export default function POSPage() {
       </div>
 
       {/* Dismissible current order panel on desktop */}
-      <div ref={desktopCartRef} className={'pos-cart-panel w-80 xl:w-96 flex-shrink-0 flex-col bg-white border border-[#ebdccb] rounded-2xl shadow-sm my-3 mr-3 overflow-hidden ' + (showDesktopCart ? 'hidden lg:flex' : 'hidden')}>
+      <div ref={desktopCartRef} className={'pos-cart-panel w-72 lg:w-80 xl:w-96 flex-shrink-0 flex-col bg-white border border-[#ebdccb] rounded-2xl shadow-sm my-3 mr-3 overflow-hidden ' + (showDesktopCart ? 'hidden md:flex' : 'hidden')}>
         {/* Cart Header */}
         <div className="p-3.5 border-b border-[#eee4d5] bg-gradient-to-r from-[#fff9f0] to-white flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -761,7 +763,7 @@ export default function POSPage() {
         ref={floatingOrderRef}
         type="button"
         onClick={() => setShowDesktopCart((visible) => !visible)}
-        className="fixed right-0 top-1/2 z-30 hidden -translate-y-1/2 items-center gap-2 rounded-l-2xl bg-[#ae002a] px-3 py-3 text-white shadow-xl transition-transform hover:-translate-x-1 lg:flex"
+        className="fixed right-0 top-1/2 z-30 hidden -translate-y-1/2 items-center gap-2 rounded-l-2xl bg-[#ae002a] px-3 py-3 text-white shadow-xl transition-transform hover:-translate-x-1 md:flex"
         aria-label={showDesktopCart ? 'Hide current order' : `Show current order with ${getItemCount()} items`}
       >
         <ShoppingCart size={18} />
@@ -769,7 +771,7 @@ export default function POSPage() {
       </button>
 
       {/* Mobile Sticky Floating Cart Bar (Always Visible on Mobile) */}
-      <div className="lg:hidden fixed bottom-3 left-3 right-3 z-30 flex items-center gap-2 bg-[#1f1d1b] text-white p-2 rounded-2xl shadow-2xl border border-white/10">
+      <div className="md:hidden fixed bottom-3 left-3 right-3 z-30 flex items-center gap-2 bg-[#1f1d1b] text-white p-2 rounded-2xl shadow-2xl border border-white/10">
         <button
           type="button"
           onClick={() => setShowMobileCart(true)}
@@ -803,7 +805,7 @@ export default function POSPage() {
 
       {/* Mobile Drawer Modal */}
       {showMobileCart && (
-        <div className="lg:hidden fixed inset-0 z-40 flex flex-col justify-end animate-fade-in">
+        <div className="md:hidden fixed inset-0 z-40 flex flex-col justify-end animate-fade-in">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowMobileCart(false)} />
           <div className="relative bg-white rounded-t-3xl max-h-[85vh] flex flex-col shadow-2xl animate-slide-up border-t border-[#ebdccb]">
             <div className="p-4 border-b border-[#eee4d5] flex items-center justify-between">

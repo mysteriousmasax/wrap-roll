@@ -145,20 +145,20 @@ export default function HomePage() {
   useEffect(() => {
     const targets = [heroHeadingRef.current, menuHeadingRef.current].filter(Boolean);
     targets.forEach((element) => {
-      if (!element || element.dataset.animated === 'true') return;
       const { chars } = splitText(element, { words: false, chars: true, trim: false });
       animate(chars, {
         y: [
-          { to: '-2.75rem', ease: 'outExpo', duration: 600 },
-          { to: 0, ease: 'outBounce', duration: 800, delay: 100 }
+          { to: '-0.6rem', ease: 'outExpo', duration: 420 },
+          { to: 0, ease: 'outBounce', duration: 660, delay: 80 },
+          { to: 0, ease: 'linear', duration: 1200 }
         ],
-        rotate: { from: '-1turn', delay: 0 },
-        opacity: [0, 1],
-        delay: stagger(45),
-        ease: 'inOutCirc',
-        duration: 900,
+        rotate: [0, 3, -3, 0],
+        opacity: [1, 1],
+        delay: stagger(28),
+        loop: true,
+        duration: 1500,
+        easing: 'easeInOutSine',
       });
-      element.dataset.animated = 'true';
     });
   }, []);
   const [paymentReference, setPaymentReference] = useState('');
@@ -616,12 +616,12 @@ export default function HomePage() {
 
       </section>
 
-      <section className="reference-delivery-section public-reveal-section px-6 py-14 sm:px-12 sm:py-20" aria-label="Delivery and catering">
+      <section className="reference-delivery-section public-reveal-section px-6 pb-14 pt-0 sm:px-12 sm:pb-20" aria-label="Delivery and catering">
         {activePlacedOrder ? (
           <OrderTrackingCard order={activePlacedOrder} now={trackingNow} settings={publicSettings} onOpenPayment={() => setPaymentModalOpen(true)} />
         ) : (
           <div className="reference-delivery-card">
-            <img src="/hero-food.jpg" alt="Wrap and Roll delivery and catering" />
+            <div className="reference-delivery-visual" aria-hidden="true" />
             <div className="reference-delivery-copy">
               <BrandLogo variant="dark" />
               <h2>DELIVERY &amp; CATERING</h2>

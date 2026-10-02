@@ -29,6 +29,11 @@ const defaults = {
   review_whatsapp_url: '',
   review_instagram_url: '',
   review_google_url: '',
+  printer_transport: 'serial',
+  printer_baud_rate: '9600',
+  printer_model: 'Romeson KP58ZJ',
+  printer_paper_width_mm: '58',
+  printer_auto_print: 'true',
 };
 
 const useSettingsStore = create((set, get) => ({

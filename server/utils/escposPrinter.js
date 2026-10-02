@@ -19,6 +19,29 @@ function line(value = '') {
   return Buffer.concat([text(value), Buffer.from('\n', 'ascii')]);
 }
 
+function wrapText(value, width) {
+  const words = String(value || '').replace(/[\r\n]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return [''];
+  const rows = [];
+  let row = '';
+  for (const word of words) {
+    if (!row) {
+      row = word;
+    } else if (`${row} ${word}`.length <= width) {
+      row += ` ${word}`;
+    } else {
+      rows.push(row);
+      row = word;
+    }
+    while (row.length > width) {
+      rows.push(row.slice(0, width));
+      row = row.slice(width);
+    }
+  }
+  if (row) rows.push(row);
+  return rows;
+}
+
 function money(value, currency = 'TZS') {
   return `${currency} ${Number(value || 0).toLocaleString('en-TZ')}`;
 }
@@ -27,39 +50,42 @@ export function buildReceipt(order, settings = {}) {
   const currency = setting(settings, 'currency', 'TZS');
   const restaurant = setting(settings, 'restaurant_name', 'Wrap & Roll');
   const branch = setting(settings, 'branch_location', '');
+  const paperWidthMm = Number(setting(settings, 'printer_paper_width_mm', '58')) >= 80 ? 80 : 58;
+  const columns = paperWidthMm === 80 ? 48 : 32;
+  const receiptLine = (value = '') => wrapText(value, columns).map(line);
   const customer = order.customer || {};
   const chunks = [
     Buffer.from([ESC, 0x40]),
     Buffer.from([ESC, 0x61, 0x01, ESC, 0x45, 0x01]),
-    line(restaurant),
-    line(branch),
-    line(`TEL: ${setting(settings, 'phone')}`),
-    line(`TIN: ${setting(settings, 'tax_id', 'Not configured')}`),
+    ...receiptLine(restaurant),
+    ...receiptLine(branch),
+    ...receiptLine(`TEL: ${setting(settings, 'phone')}`),
+    ...receiptLine(`TIN: ${setting(settings, 'tax_id', 'Not configured')}`),
     Buffer.from([ESC, 0x45, 0x00, ESC, 0x61, 0x00]),
-    line(`CUSTOMER: ${customer.name || order.customerName || order.customer_name || 'Walk-in customer'}`),
-    line(`CUSTOMER TIN: ${customer.tin || customer.customerTin || ''}`),
-    line(`MOBILE: ${customer.phone || order.customerPhone || order.customer_phone || ''}`),
-    line(`Order: ${order.id || order.order_number || ''}`),
-    line(`Invoice: ${order.invoiceNumber || order.invoice_number || ''}`),
-    line(new Date().toLocaleString('en-TZ')),
-    line(`Type: ${order.type || order.orderType || ''}`),
-    line('--------------------------------'),
+    ...receiptLine(`CUSTOMER: ${customer.name || order.customerName || order.customer_name || 'Walk-in customer'}`),
+    ...receiptLine(`CUSTOMER TIN: ${customer.tin || customer.customerTin || ''}`),
+    ...receiptLine(`MOBILE: ${customer.phone || order.customerPhone || order.customer_phone || ''}`),
+    ...receiptLine(`Order: ${order.id || order.order_number || ''}`),
+    ...receiptLine(`Invoice: ${order.invoiceNumber || order.invoice_number || ''}`),
+    ...receiptLine(new Date().toLocaleString('en-TZ')),
+    ...receiptLine(`Type: ${order.type || order.orderType || ''}`),
+    ...receiptLine('-'.repeat(columns)),
   ];
 
   for (const item of order.items || []) {
-    chunks.push(line(`${item.qty || 0}x ${item.name || ''}`));
-    chunks.push(line(`  ${money(Number(item.price || 0) * Number(item.qty || 0), currency)}`));
+    chunks.push(...receiptLine(`${item.qty || 0}x ${item.name || ''}`));
+    chunks.push(...receiptLine(`  ${money(Number(item.price || 0) * Number(item.qty || 0), currency)}`));
   }
 
   chunks.push(
-    line('--------------------------------'),
-    line(`Subtotal: ${money(order.subtotal, currency)}`),
-    line(`Tax: ${money(order.tax, currency)}`),
+    ...receiptLine('-'.repeat(columns)),
+    ...receiptLine(`Subtotal: ${money(order.subtotal, currency)}`),
+    ...receiptLine(`Tax: ${money(order.tax, currency)}`),
     Buffer.from([ESC, 0x45, 0x01]),
-    line(`TOTAL: ${money(order.total, currency)}`),
+    ...receiptLine(`TOTAL: ${money(order.total, currency)}`),
     Buffer.from([ESC, 0x45, 0x00]),
-    line(`Payment: ${order.paymentMethod || order.method || ''}`),
-    line('Thank you for dining with us.'),
+    ...receiptLine(`Payment: ${order.paymentMethod || order.method || ''}`),
+    ...receiptLine('Thank you for dining with us.'),
     Buffer.from('\n\n\n', 'ascii'),
     Buffer.from([GS, 0x56, 0x00]),
   );
@@ -98,4 +124,16 @@ export async function printReceipt(order, settings = {}) {
   const baudRate = setting(settings, 'printer_baud_rate', process.env.PRINTER_BAUD_RATE || '9600');
   await writeWindowsSerial(buffer, port, baudRate);
   return { transport: 'serial', port, baudRate: Number(baudRate) };
+}
+
+export async function discoverWindowsSerialPorts() {
+  if (process.platform !== 'win32') return [];
+  const command = [
+    '$devices = Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match "\\(COM\\d+\\)" } | ForEach-Object { if ($_.Name -match "(COM\\d+)") { [PSCustomObject]@{ port = $matches[1]; name = $_.Name } } }',
+    'ConvertTo-Json -InputObject @($devices) -Compress',
+  ].join('; ');
+  const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true, timeout: 10000 });
+  if (!stdout.trim()) return [];
+  const parsed = JSON.parse(stdout);
+  return (Array.isArray(parsed) ? parsed : [parsed]).filter((device) => device.port && device.name);
 }

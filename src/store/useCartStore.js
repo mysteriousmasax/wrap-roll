@@ -52,6 +52,7 @@ const useCartStore = create((set, get) => ({
     const numPrice = Math.max(0, parseFloat(price) || 0);
     const customItem = {
       id: `custom-${Date.now()}`,
+      isCustom: true,
       name: name.trim() || 'Special Custom Meal',
       price: numPrice,
       quantity: qty,

@@ -178,8 +178,16 @@ export default function CRMPage() {
     setInvoiceLoading(true);
     try {
       const invoice = await api.createCustomerInvoice(selectedCustomer.id);
-      if (invoice.printStatus !== 'printed') printInvoice(invoice, printWindow);
-      setStatus(`Invoice ${invoice.invoiceNumber} created.`);
+      if (invoice.printStatus === 'queued') {
+        printWindow.close();
+        setStatus(`Invoice ${invoice.invoiceNumber} queued for the paired Bluetooth printer.`);
+      } else if (invoice.printStatus === 'printed') {
+        printWindow.close();
+        setStatus(`Invoice ${invoice.invoiceNumber} sent to the printer.`);
+      } else {
+        printInvoice(invoice, printWindow);
+        setStatus(`Invoice ${invoice.invoiceNumber} created. Choose a printer in the print dialog.`);
+      }
       await loadCustomers();
     } catch (error) {
       printWindow.close();

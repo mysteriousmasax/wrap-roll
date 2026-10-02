@@ -322,10 +322,21 @@ router.post('/:id/invoices', authMiddleware, async (req, res) => {
   let printStatus = 'failed';
   try {
     const settings = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((row) => [row.key, row.value]));
-    await printReceipt({ ...order, items, invoiceNumber, customer: mapCustomer(customer) }, settings);
+    const invoice = { ...order, items, invoiceNumber, customer: mapCustomer(customer) };
+    await printReceipt(invoice, settings);
     printStatus = 'printed';
   } catch (error) {
     console.warn('Invoice printer unavailable:', error.message);
+    const settings = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((row) => [row.key, row.value]));
+    const branchCode = settings.branch_code || 'MAIN';
+    const pairedAgent = db.prepare('SELECT id FROM printer_agents WHERE branch_code = ? LIMIT 1').get(branchCode);
+    if (process.platform !== 'win32' && pairedAgent) {
+      const invoice = { ...order, items, invoiceNumber, customer: mapCustomer(customer) };
+      db.prepare(`INSERT INTO printer_document_jobs (document_type, document_id, payload, branch_code, created_at)
+        VALUES ('invoice', ?, ?, ?, ?)`)
+        .run(invoiceNumber, JSON.stringify(invoice), branchCode, new Date().toISOString());
+      printStatus = 'queued';
+    }
   }
   res.status(201).json({ invoiceNumber, customer: mapCustomer(customer), order, items, createdAt: now, printStatus });
 });

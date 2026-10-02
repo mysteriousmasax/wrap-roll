@@ -22,6 +22,7 @@ import AiAssistantPage from './pages/management/AiAssistantPage';
 import SettingsPage from './pages/management/SettingsPage';
 import LoyaltyManagementPage from './pages/management/LoyaltyManagementPage';
 import CampaignDashboardPage from './pages/management/CampaignDashboardPage';
+import EmailMarketingPage from './pages/management/EmailMarketingPage';
 import OperationsHubPage from './pages/management/OperationsHubPage';
 import PaymentVerificationPage from './pages/management/PaymentVerificationPage';
 import PeopleHubPage from './pages/management/PeopleHubPage';
@@ -51,6 +52,7 @@ const ROUTE_ROLES = {
   '/management/people': ['admin'],
   '/management/loyalty': ['admin', 'manager'],
   '/management/campaigns': ['admin', 'manager', 'executive'],
+  '/management/email-marketing': ['admin', 'manager', 'executive'],
   '/management/kanban': ['admin', 'manager', 'executive'],
   '/management/settings': ['admin'],
   '/notifications': ['admin', 'manager', 'foh'],
@@ -144,6 +146,7 @@ function AppRoutes() {
         <Route path="/management/people" element={<RoleRoute path="/management/people"><PeopleHubPage /></RoleRoute>} />
         <Route path="/management/loyalty" element={<RoleRoute path="/management/loyalty"><LoyaltyManagementPage /></RoleRoute>} />
         <Route path="/management/campaigns" element={<RoleRoute path="/management/campaigns"><CampaignDashboardPage /></RoleRoute>} />
+        <Route path="/management/email-marketing" element={<RoleRoute path="/management/email-marketing"><EmailMarketingPage /></RoleRoute>} />
         <Route path="/management/kanban" element={<RoleRoute path="/management/kanban"><KanbanPage /></RoleRoute>} />
         <Route path="/management/settings" element={<RoleRoute path="/management/settings"><SettingsPage /></RoleRoute>} />
         <Route path="/notifications" element={<RoleRoute path="/notifications"><NotificationsPage /></RoleRoute>} />

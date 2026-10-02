@@ -77,7 +77,6 @@ export default function DriftWall({
   };
 
   const handleWheel = (event) => {
-    event.preventDefault();
     setHovered(true);
     shiftTracks(event.deltaY);
   };

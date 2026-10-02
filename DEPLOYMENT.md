@@ -61,6 +61,18 @@ The FOH window opens at `/pos` and the kitchen window opens at `/kds`. Sign in o
 For local automatic startup, create shortcuts to `start-pos.ps1` and `launch-displays.ps1` in the POS Windows startup folder. Keep the service window running during operations. The launchers keep the local database at `%LOCALAPPDATA%\WrapRollPOS\wraproll.db`.
 
 ## Database persistence
+## Thermal receipt printing
+
+The hosted POS cannot access a printer attached to a branch computer. Install the updated Windows desktop POS on the till connected to the printer; its local print agent pairs outbound to the hosted POS and prints staff POS orders from the branch's Bluetooth/COM printer. Keep the desktop POS running while phone or browser orders need to print.
+
+1. Pair the Romeson KP58ZJ in Windows Bluetooth settings and confirm Windows created an outgoing COM port.
+2. In hosted System Settings > Receipt Printer, generate a one-time pairing code.
+3. In the Windows desktop POS, open local System Settings > Receipt Printer, scan ports, select the outgoing printer COM port if it was not uniquely detected, and enter the pairing code.
+4. Save settings and use Test Print from the Windows till.
+
+The KP58ZJ profile defaults to 58 mm paper, 32 columns, and 9600 baud. The 5V/2A rating is a power requirement, not a software setting. Bluetooth device names do not always identify printer models, so Windows COM auto-selection is automatic only when a single printer candidate is unambiguous; otherwise select the outgoing port manually. ESC/POS does not reliably report installed roll width, so width is configured from the selected printer profile rather than physically sensed. Staff orders created on the local desktop database print locally while offline; cloud-created staff POS orders queue in Railway and print after the till reconnects. Jobs older than 24 hours are marked failed rather than printed unexpectedly.
+
+## Database persistence
 
 The app stores orders, payments, customers, staff activity, notifications, and settings in SQLite. A new container or hosting instance has a new filesystem, so deploying the image alone cannot preserve live data.
 

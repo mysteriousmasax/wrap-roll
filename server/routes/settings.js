@@ -61,7 +61,7 @@ router.get('/public', (req, res) => {
 });
 
 router.get('/', authMiddleware, (req, res) => {
-  const rows = db.prepare('SELECT key, value FROM settings').all();
+  const rows = db.prepare("SELECT key, value FROM settings WHERE key != 'printer_agent_token'").all();
   const settings = {};
   for (const row of rows) settings[row.key] = row.value;
   broadcast('settings:updated', settings);
@@ -76,7 +76,7 @@ router.put('/', authMiddleware, requireRole('admin'), (req, res) => {
     }
   });
   tx();
-  const rows = db.prepare('SELECT key, value FROM settings').all();
+  const rows = db.prepare("SELECT key, value FROM settings WHERE key != 'printer_agent_token'").all();
   const settings = {};
   for (const row of rows) settings[row.key] = row.value;
   res.json(settings);

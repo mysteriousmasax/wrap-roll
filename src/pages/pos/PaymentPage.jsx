@@ -50,6 +50,7 @@ export default function PaymentPage() {
       const order = await createOrder({
         items: items.map((i) => ({
           menuItemId: i.id,
+          isCustom: i.isCustom === true,
           name: i.name,
           qty: i.quantity,
           price: i.price,

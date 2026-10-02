@@ -4,7 +4,7 @@
   height: clamp(560px, 72vh, 820px);
   overflow: hidden;
   cursor: grab;
-  touch-action: none;
+  touch-action: pan-y;
   perspective: var(--dw-perspective);
   perspective-origin: 50% 50%;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 3%, #000 97%, transparent 100%);

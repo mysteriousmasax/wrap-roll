@@ -5,7 +5,7 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import { api } from '../../api/client';
 import useSettingsStore from '../../store/useSettingsStore';
-import { Save, Store, Receipt, CreditCard, Globe, Shield, Bell, MessageCircle, Star, Plus, Trash2, Brain, Download, Printer } from 'lucide-react';
+import { Save, Store, Receipt, CreditCard, Globe, Shield, Bell, MessageCircle, Star, Plus, Trash2, Brain, Download, Printer, RefreshCw, Copy, Link2 } from 'lucide-react';
 import { downloadAsset } from '../../utils/downloadAsset';
 
 const sections = [
@@ -60,10 +60,19 @@ export default function SettingsPage() {
   const [testingPrinter, setTestingPrinter] = useState(false);
   const [desktopRelease, setDesktopRelease] = useState(null);
   const [downloadingDesktop, setDownloadingDesktop] = useState(false);
+  const [printerDevices, setPrinterDevices] = useState([]);
+  const [scanningPrinterDevices, setScanningPrinterDevices] = useState(false);
+  const [printerAgentStatus, setPrinterAgentStatus] = useState(null);
+  const [printerPairingCode, setPrinterPairingCode] = useState(null);
+  const [pairingPrinterAgent, setPairingPrinterAgent] = useState(false);
+  const [printerPairingInput, setPrinterPairingInput] = useState('');
+  const [printerApiUrl, setPrinterApiUrl] = useState('https://wrapandrolltz.com/api');
+  const [isLocalPrinterHost] = useState(() => ['localhost', '127.0.0.1'].includes(window.location.hostname));
 
   useEffect(() => {
     if (loaded) {
       setForm({ ...settings });
+      if (settings.printer_agent_api_url) setPrinterApiUrl(settings.printer_agent_api_url);
       setLipaAccounts(readLipaAccounts(settings.lipa_namba_accounts, settings.lipa_namba_number));
       setWeeklyHours(parseWeeklyHours(settings.weekly_hours));
     }
@@ -81,6 +90,19 @@ export default function SettingsPage() {
     if (activeSection !== 'desktop' || desktopRelease) return;
     api.getDesktopRelease().then(setDesktopRelease).catch(() => setDesktopRelease({ error: 'Desktop installer is not published yet.' }));
   }, [activeSection, desktopRelease]);
+
+  useEffect(() => {
+    if (!loaded || activeSection !== 'printer') return;
+    if (isLocalPrinterHost) {
+      api.getDesktopPrinterAgentStatus().then(setPrinterAgentStatus).catch(() => setPrinterAgentStatus(null));
+      scanPrinterDevices();
+    } else {
+      const refreshAgentStatus = () => api.getPrinterAgentStatus().then(setPrinterAgentStatus).catch(() => setPrinterAgentStatus({ agents: [] }));
+      refreshAgentStatus();
+      const timer = window.setInterval(refreshAgentStatus, 10000);
+      return () => window.clearInterval(timer);
+    }
+  }, [activeSection, isLocalPrinterHost, loaded]);
 
   const update = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -113,6 +135,70 @@ export default function SettingsPage() {
   };
 
   const togglePayment = (key) => update(key, form[key] === 'true' ? 'false' : 'true');
+
+  const scanPrinterDevices = async () => {
+    setScanningPrinterDevices(true);
+    try {
+      const result = await api.getPrinterDevices();
+      const devices = result.devices || [];
+      setPrinterDevices(devices);
+      const namedPrinters = devices.filter((device) => /rom[e]?son|kp\d+|thermal printer/i.test(device.name));
+      const bluetoothPorts = devices.filter((device) => /bluetooth/i.test(device.name));
+      const candidates = namedPrinters.length ? namedPrinters : bluetoothPorts;
+      if (candidates.length === 1 && candidates[0].port !== form.printer_path) {
+        const device = candidates[0];
+        await api.configurePrinterSerial(device.port);
+        update('printer_path', device.port);
+        update('printer_transport', 'serial');
+        setPrinterAgentStatus((previous) => ({ ...previous, printerConfigured: true }));
+        if (/kp58zj/i.test(device.name)) {
+          update('printer_model', 'Romeson KP58ZJ');
+          update('printer_paper_width_mm', '58');
+        }
+        setMessage(`Detected ${device.name} on ${device.port}`);
+      }
+    } catch (error) {
+      setMessage(error.message || 'Could not scan for printers on this computer.');
+    } finally {
+      setScanningPrinterDevices(false);
+    }
+  };
+
+  const selectPrinterDevice = async (port) => {
+    try {
+      const result = await api.configurePrinterSerial(port);
+      update('printer_path', result.port);
+      update('printer_transport', 'serial');
+      setPrinterAgentStatus((previous) => ({ ...previous, printerConfigured: true }));
+      setMessage(`Printer configured on ${result.port}`);
+    } catch (error) {
+      setMessage(error.message || 'Could not configure this printer.');
+    }
+  };
+
+  const createPrinterPairingCode = async () => {
+    try {
+      setPrinterPairingCode(await api.createPrinterPairingCode());
+    } catch (error) {
+      setMessage(error.message || 'Could not create a printer pairing code.');
+    }
+  };
+
+  const enrollPrinterAgent = async (event) => {
+    event.preventDefault();
+    setPairingPrinterAgent(true);
+    setMessage('');
+    try {
+      const status = await api.enrollDesktopPrinterAgent({ apiUrl: printerApiUrl, pairingCode: printerPairingInput });
+      setPrinterPairingInput('');
+      setPrinterAgentStatus((previous) => ({ ...previous, ...status, paired: true }));
+      setMessage(`Printer connected to ${status.branchName}`);
+    } catch (error) {
+      setMessage(error.message || 'Could not pair this till with the online POS.');
+    } finally {
+      setPairingPrinterAgent(false);
+    }
+  };
 
   const testPrinter = async () => {
     setTestingPrinter(true);
@@ -321,23 +407,66 @@ export default function SettingsPage() {
           {activeSection === 'printer' && (
             <Card>
               <div className="flex items-start justify-between gap-4 mb-4">
-                <div><h3 className="font-display font-bold">Receipt Printer</h3><p className="text-xs text-surface-on-variant mt-1">Romeson RBP58 / RBP58B ESC/POS connection</p></div>
-                <Button size="sm" variant="secondary" onClick={testPrinter} disabled={testingPrinter}><Printer size={14} /> {testingPrinter ? 'Testing...' : 'Test Print'}</Button>
+                <div><h3 className="font-display font-bold">Receipt Printer</h3><p className="text-xs text-surface-on-variant mt-1">Romeson KP58ZJ ESC/POS · 58 mm · 5V/2A</p></div>
+                {isLocalPrinterHost && <Button size="sm" variant="secondary" onClick={testPrinter} disabled={testingPrinter}><Printer size={14} /> {testingPrinter ? 'Testing...' : 'Test Print'}</Button>}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-surface-on-variant uppercase mb-1.5">Transport</label>
-                  <select className="input-field" value={form.printer_transport || 'serial'} onChange={(e) => update('printer_transport', e.target.value)}>
-                    <option value="serial">Bluetooth / COM port</option>
-                    <option value="tcp">Network / TCP</option>
+                  <label className="block text-xs font-semibold text-surface-on-variant uppercase mb-1.5">Printer model</label>
+                  <select className="input-field" value={form.printer_model || 'Romeson KP58ZJ'} onChange={(event) => { update('printer_model', event.target.value); update('printer_paper_width_mm', event.target.value === 'ESC/POS 80 mm' ? '80' : '58'); }}>
+                    <option value="Romeson KP58ZJ">Romeson KP58ZJ</option>
+                    <option value="ESC/POS 58 mm">Other ESC/POS · 58 mm</option>
+                    <option value="ESC/POS 80 mm">Other ESC/POS · 80 mm</option>
                   </select>
                 </div>
-                <Input label="Windows COM Port" placeholder="COM7" value={form.printer_path || ''} onChange={(e) => update('printer_path', e.target.value)} />
-                <Input label="Baud Rate" type="number" value={form.printer_baud_rate || '9600'} onChange={(e) => update('printer_baud_rate', e.target.value)} />
-                <Input label="Network Host" placeholder="192.168.1.50" value={form.printer_host || ''} onChange={(e) => update('printer_host', e.target.value)} />
-                <Input label="Network Port" type="number" value={form.printer_port || '9100'} onChange={(e) => update('printer_port', e.target.value)} />
+                <div>
+                  <label className="block text-xs font-semibold text-surface-on-variant uppercase mb-1.5">Paper width profile</label>
+                  <select className="input-field" value={form.printer_paper_width_mm || '58'} onChange={(event) => update('printer_paper_width_mm', event.target.value)}>
+                    <option value="58">58 mm · 32 columns</option>
+                    <option value="80">80 mm · 48 columns</option>
+                  </select>
+                </div>
+                <label className="sm:col-span-2 flex items-center gap-3 rounded-xl bg-surface-container-low p-3 text-sm font-semibold">
+                  <input type="checkbox" checked={form.printer_auto_print !== 'false'} onChange={(event) => update('printer_auto_print', event.target.checked ? 'true' : 'false')} />
+                  Automatically print staff POS orders
+                </label>
               </div>
-              <p className="text-xs text-surface-on-variant mt-4">Pair the printer in Windows first. For Bluetooth SPP, select the outgoing COM port assigned to the Romeson device.</p>
+              {isLocalPrinterHost ? (
+                <div className="mt-5 space-y-4 border-t border-outline-variant pt-4">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="min-w-56 flex-1">
+                      <label className="block text-xs font-semibold text-surface-on-variant uppercase mb-1.5">Detected Bluetooth / COM port</label>
+                      <select className="input-field" value={form.printer_path || ''} onChange={(event) => event.target.value && selectPrinterDevice(event.target.value)}>
+                        <option value="">Select detected port</option>
+                        {printerDevices.map((device) => <option key={device.port} value={device.port}>{device.port} · {device.name}</option>)}
+                        {form.printer_path && !printerDevices.some((device) => device.port === form.printer_path) && <option value={form.printer_path}>{form.printer_path} · saved port</option>}
+                      </select>
+                    </div>
+                    <Button type="button" variant="secondary" onClick={scanPrinterDevices} disabled={scanningPrinterDevices}><RefreshCw size={14} className={scanningPrinterDevices ? 'animate-spin' : ''} /> {scanningPrinterDevices ? 'Scanning...' : 'Scan ports'}</Button>
+                  </div>
+                  <Input label="Baud rate" type="number" value={form.printer_baud_rate || '9600'} onChange={(event) => update('printer_baud_rate', event.target.value)} />
+                  <form onSubmit={enrollPrinterAgent} className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-outline-variant p-4">
+                    <div className="sm:col-span-2"><h4 className="font-display font-bold text-sm">Connect this till to the online POS</h4><p className="mt-1 text-xs text-surface-on-variant">Generate a pairing code in online System Settings, then enter it here. Keep this Windows till running for phone orders to print.</p></div>
+                    <Input label="Online POS API URL" value={printerApiUrl} onChange={(event) => setPrinterApiUrl(event.target.value)} placeholder="https://wrapandrolltz.com/api" />
+                    <Input label="One-time pairing code" value={printerPairingInput} onChange={(event) => setPrinterPairingInput(event.target.value)} placeholder="Paste code from online POS" />
+                    <Button type="submit" className="sm:col-span-2" disabled={pairingPrinterAgent || !printerPairingInput.trim()}><Link2 size={14} /> {pairingPrinterAgent ? 'Connecting...' : 'Pair this till'}</Button>
+                  </form>
+                  <p className="text-xs text-surface-on-variant">Bluetooth SPP must be paired in Windows first. Power supply: 5V/2A. Windows may show more than one Bluetooth COM port; choose the outgoing port assigned to the printer.</p>
+                  {printerAgentStatus && <p className="text-xs font-semibold text-surface-on-variant">{printerAgentStatus.paired ? `Paired with ${printerAgentStatus.branchName || 'online POS'}` : 'Not paired with the online POS'} · {printerAgentStatus.printerConfigured ? `Printer on ${form.printer_path}` : 'No printer port selected'}</p>}
+                </div>
+              ) : (
+                <div className="mt-5 space-y-4 border-t border-outline-variant pt-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div><h4 className="font-display font-bold text-sm">Windows print agent</h4><p className="mt-1 text-xs text-surface-on-variant">Generate a one-time code, then enter it in the Windows till's local printer settings.</p></div>
+                    <Button type="button" variant="secondary" onClick={createPrinterPairingCode}><Link2 size={14} /> Generate pairing code</Button>
+                  </div>
+                  {printerPairingCode && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-outline-variant bg-surface-container-low p-3"><div><p className="text-[10px] font-bold uppercase text-surface-on-variant">Expires {new Date(printerPairingCode.expiresAt).toLocaleTimeString()}</p><p className="mt-1 break-all font-mono text-sm font-bold">{printerPairingCode.code}</p></div><Button type="button" size="sm" variant="secondary" onClick={() => navigator.clipboard.writeText(printerPairingCode.code).then(() => setMessage('Pairing code copied'))}><Copy size={14} /> Copy code</Button></div>}
+                  <div className="space-y-2">
+                    {(printerAgentStatus?.agents || []).map((agent) => <div key={agent.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-outline-variant px-3 py-2 text-xs"><span className="font-semibold">{agent.branchName} · {agent.branchCode}</span><span className={agent.online ? 'font-bold text-success' : 'text-surface-on-variant'}>{agent.online ? 'Online' : 'Offline'} · {agent.queuedJobs} queued · {agent.failedJobs} failed</span></div>)}
+                    {printerAgentStatus && !printerAgentStatus.agents?.length && <p className="rounded-lg bg-surface-container-low p-3 text-xs text-surface-on-variant">No Windows printer till is paired yet.</p>}
+                  </div>
+                </div>
+              )}
             </Card>
           )}
           {activeSection === 'desktop' && (

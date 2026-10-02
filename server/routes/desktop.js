@@ -61,4 +61,48 @@ router.post('/branch-enroll', (req, res) => {
   res.json({ ok: true, branchCode, branchName });
 });
 
+router.post('/printer-agent/enroll', async (req, res) => {
+  if (!isLocalRequest(req)) return res.status(403).json({ error: 'Local desktop setup only.' });
+  const pairingCode = String(req.body?.pairingCode || '').trim();
+  let apiUrl;
+  try {
+    const parsedUrl = new URL(String(req.body?.apiUrl || ''));
+    if (parsedUrl.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(parsedUrl.hostname)) throw new Error('Use a secure HTTPS server URL.');
+    if (parsedUrl.pathname === '/' || parsedUrl.pathname === '') parsedUrl.pathname = '/api';
+    parsedUrl.pathname = parsedUrl.pathname.replace(/\/+$/, '');
+    apiUrl = parsedUrl.toString().replace(/\/+$/, '');
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'Enter a valid POS server URL.' });
+  }
+  if (!pairingCode) return res.status(400).json({ error: 'Enter the pairing code from the online POS.' });
+
+  try {
+    const response = await fetch(`${apiUrl}/printer/agent/enroll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pairingCode }),
+      signal: AbortSignal.timeout(12000),
+    });
+    const enrollment = await response.json().catch(() => ({}));
+    if (!response.ok) return res.status(response.status).json({ error: enrollment.error || 'Printer pairing failed.' });
+
+    const upsert = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+    const save = db.transaction(() => {
+      upsert.run('printer_agent_api_url', apiUrl);
+      upsert.run('printer_agent_token', enrollment.token);
+      upsert.run('printer_agent_id', enrollment.agentId);
+    });
+    save();
+    res.json({ ok: true, branchCode: enrollment.branchCode, branchName: enrollment.branchName });
+  } catch (error) {
+    res.status(502).json({ error: error.message || 'Could not connect to the online POS server.' });
+  }
+});
+
+router.get('/printer-agent/status', (req, res) => {
+  if (!isLocalRequest(req)) return res.status(403).json({ error: 'Local desktop setup only.' });
+  const settings = Object.fromEntries(db.prepare("SELECT key, value FROM settings WHERE key IN ('printer_agent_api_url', 'printer_agent_token', 'printer_path')").all().map(({ key, value }) => [key, value]));
+  res.json({ paired: Boolean(settings.printer_agent_api_url && settings.printer_agent_token), printerConfigured: Boolean(settings.printer_path) });
+});
+
 export default router;

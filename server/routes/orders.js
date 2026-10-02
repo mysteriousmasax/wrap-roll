@@ -55,13 +55,31 @@ function deductRecipeInventory(menuItemId, qty, inventoryUsage = []) {
   }
 }
 
-function priceOrderItems(items) {
+function priceOrderItems(items, { allowCustom = false } = {}) {
   const findMenuItem = db.prepare('SELECT id, name, price, prep_time_minutes, ingredients FROM menu_items WHERE id = ? AND active = 1');
   const findModifier = db.prepare('SELECT name, price, type FROM modifiers WHERE name = ?');
   const pricedItems = items.map((item) => {
-    const menuItem = findMenuItem.get(Number(item.menuItemId));
     const qty = Number(item.qty);
-    if (!menuItem || !Number.isInteger(qty) || qty < 1) throw new Error('Each order item must have a valid menu item and quantity');
+    if (!Number.isInteger(qty) || qty < 1) throw new Error('Each order item must have a valid menu item and quantity');
+
+    if (item.isCustom === true && allowCustom) {
+      const name = String(item.name || '').trim();
+      const price = Number(item.price);
+      if (!name || !Number.isFinite(price) || price <= 0) throw new Error('Each custom order item must have a name and valid price');
+      return {
+        menuItemId: null,
+        name,
+        qty,
+        price,
+        prepTimeMinutes: 8,
+        modifiers: [],
+        specialInstructions: item.specialInstructions || null,
+        ingredients: [],
+      };
+    }
+
+    const menuItem = findMenuItem.get(Number(item.menuItemId));
+    if (!menuItem) throw new Error('Each order item must have a valid menu item and quantity');
     const modifierNames = Array.isArray(item.modifiers) ? item.modifiers.map((modifier) => typeof modifier === 'string' ? modifier : modifier.name) : [];
     const modifiers = modifierNames.map((name) => findModifier.get(name)).filter(Boolean);
     if (modifiers.length !== modifierNames.length) throw new Error('One or more modifiers are unavailable');
@@ -99,7 +117,7 @@ function createOrderRecord(
   },
   staffId = null
 ) {
-  const priced = priceOrderItems(items);
+  const priced = priceOrderItems(items, { allowCustom: Boolean(staffId) });
   const subtotal = priced.subtotal;
   const taxRateValue = Number(db.prepare("SELECT value FROM settings WHERE key = 'tax_rate'").get()?.value ?? 8);
   const taxRate = Number.isFinite(taxRateValue) && taxRateValue > 0 ? taxRateValue / 100 : 0;
@@ -222,6 +240,13 @@ function createOrderRecord(
         JSON.stringify(item.modifiers),
         item.specialInstructions
       );
+    }
+
+    const autoPrint = db.prepare("SELECT value FROM settings WHERE key = 'printer_auto_print'").get()?.value !== 'false';
+    if (staffId && autoPrint) {
+      const branchCode = db.prepare("SELECT value FROM settings WHERE key = 'branch_code'").get()?.value || 'MAIN';
+      db.prepare('INSERT OR IGNORE INTO printer_jobs (order_id, branch_code, created_at) VALUES (?, ?, ?)')
+        .run(id, branchCode, now);
     }
 
     // Create payment tracking record
