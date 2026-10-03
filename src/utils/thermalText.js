@@ -58,15 +58,22 @@ export function buildThermalReceipt(order, settings = {}) {
 export function buildThermalFiscalInvoice(order, settings = {}) {
   const width = profileWidth(settings);
   const currency = settings.currency || 'TZS';
-  const customer = order.customer || {};
+  const customer = typeof order.customer === 'object' ? order.customer : {};
+  const customerType = order.customerType || order.customer_type || customer.customerType || 'individual';
+  const customerName = customerType === 'company'
+    ? order.companyName || order.company_name || customer.companyName || order.customerName || order.customer_name || customer.name
+    : order.customerName || order.customer_name || customer.name || order.customer;
+  const customerTin = order.customerTin || order.customer_tin || customer.tin || '';
   const invoiceNumber = order.invoiceNumber || order.invoice_number || order.orderNumber || order.order_number || order.id || '';
   const lines = [
     settings.invoice_title || 'INVOICE',
     settings.restaurant_name || 'Wrap & Roll',
     settings.branch_location || '',
     settings.phone ? `TEL: ${settings.phone}` : '',
-    `CUSTOMER: ${customer.name || order.customerName || order.customer_name || 'Walk-in customer'}`,
+    `CUSTOMER: ${customerName || 'Walk-in customer'}`,
     customer.phone || order.customerPhone || order.customer_phone ? `MOBILE: ${customer.phone || order.customerPhone || order.customer_phone}` : '',
+    customerTin ? `CUSTOMER TIN: ${customerTin}` : '',
+    order.billingAddress || order.billing_address ? `BILLING: ${order.billingAddress || order.billing_address}` : '',
     `INVOICE: ${invoiceNumber}`,
     `DATE: ${new Date(order.paidAt || order.paid_at || Date.now()).toLocaleString()}`,
     '-'.repeat(width),

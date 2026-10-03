@@ -147,6 +147,7 @@ export const api = {
   sendWhatsApp: (data) => request('/customers/whatsapp', { method: 'POST', body: JSON.stringify(data) }),
   updateEmailSubscriber: (id, data) => request(`/email-marketing/subscribers/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   importEmailSubscribers: (csv) => request('/email-marketing/subscribers/import', { method: 'POST', body: JSON.stringify({ csv }) }),
+  importOrderEmailContacts: () => request('/email-marketing/order-contacts/import', { method: 'POST' }),
   downloadEmailSubscribers: async () => {
     const token = localStorage.getItem('wraproll_token');
     const response = await fetch(`${API_BASE}/email-marketing/subscribers/export`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
@@ -201,6 +202,7 @@ export const api = {
   adjustInventory: (id, data) => request(`/inventory/${id}/adjust`, { method: 'POST', body: JSON.stringify(data) }),
   createInventory: (data) => request('/inventory', { method: 'POST', body: JSON.stringify(data) }),
   updateInventory: (id, data) => request(`/inventory/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  receiveInventoryReceipt: (data) => request('/inventory/receive-receipt', { method: 'POST', body: JSON.stringify(data) }),
   deleteInventory: (id) => request(`/inventory/${id}`, { method: 'DELETE' }),
 
   getSettings: () => request('/settings'),
@@ -259,4 +261,8 @@ export const api = {
   updateBusinessExpense: (id, data) => request(`/business/expenses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteBusinessExpense: (id) => request(`/business/expenses/${id}`, { method: 'DELETE' }),
   updateBusinessExpenseStatus: (id, status) => request(`/business/expenses/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  getOperationalChecklists: (date) => request(`/business/checklists?date=${encodeURIComponent(date)}`),
+  updateOperationalChecklistTask: (date, phase, taskKey, completed) => request(`/business/checklists/${encodeURIComponent(date)}/${encodeURIComponent(phase)}/${encodeURIComponent(taskKey)}`, { method: 'PUT', body: JSON.stringify({ completed }) }),
+  getShiftHandover: (date, shift) => request(`/business/shift-handover?date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}`),
+  saveShiftHandover: (data) => request('/business/shift-handover', { method: 'PUT', body: JSON.stringify(data) }),
 };

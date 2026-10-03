@@ -439,6 +439,37 @@ router.post('/subscribers/import', authMiddleware, requireRole(...adminRoles), (
   res.json({ imported, skipped, total: rows.length });
 });
 
+router.post('/order-contacts/import', authMiddleware, requireRole(...adminRoles), (req, res) => {
+  const orderContacts = db.prepare(`SELECT lower(trim(customer_email)) AS email, MAX(customer_name) AS customer_name
+    FROM orders WHERE customer_email IS NOT NULL AND trim(customer_email) != ''
+    GROUP BY lower(trim(customer_email))`).all();
+  const now = new Date().toISOString();
+  let added = 0;
+  let existing = 0;
+  let suppressed = 0;
+
+  const insert = db.prepare(`INSERT INTO email_subscribers
+    (email, first_name, last_name, segment, source, preferred_channel, active, verified, consent_status, consent_source, created_at, updated_at)
+    VALUES (?, ?, ?, 'regular', 'order_history', 'email', 0, 0, 'pending', 'order_history_import', ?, ?)`);
+
+  for (const contact of orderContacts) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)) continue;
+    if (db.prepare('SELECT email FROM email_suppressions WHERE lower(email) = ?').get(contact.email)) {
+      suppressed += 1;
+      continue;
+    }
+    if (db.prepare('SELECT id FROM email_subscribers WHERE lower(email) = ?').get(contact.email)) {
+      existing += 1;
+      continue;
+    }
+    const nameParts = String(contact.customer_name || '').trim().split(/\s+/).filter(Boolean);
+    insert.run(contact.email, nameParts[0] || '', nameParts.slice(1).join(' '), now, now);
+    added += 1;
+  }
+
+  res.json({ added, existing, suppressed, totalOrderEmails: orderContacts.length });
+});
+
 router.get('/subscribers/export', authMiddleware, requireRole(...adminRoles), (_req, res) => {
   const rows = db.prepare('SELECT email, first_name, last_name, segment, source, preferred_channel, consent_status, consent_at, consent_source, tags FROM email_subscribers ORDER BY created_at DESC').all();
   const columns = ['email', 'first_name', 'last_name', 'segment', 'source', 'preferred_channel', 'consent_status', 'consent_at', 'consent_source', 'tags'];

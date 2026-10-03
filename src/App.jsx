@@ -24,6 +24,7 @@ import LoyaltyManagementPage from './pages/management/LoyaltyManagementPage';
 import CampaignDashboardPage from './pages/management/CampaignDashboardPage';
 import EmailMarketingPage from './pages/management/email/EmailMarketingWorkspace';
 import OperationsHubPage from './pages/management/OperationsHubPage';
+import StaffPlaybookPage from './pages/management/StaffPlaybookPage';
 import PaymentVerificationPage from './pages/management/PaymentVerificationPage';
 import PeopleHubPage from './pages/management/PeopleHubPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
@@ -47,6 +48,7 @@ const ROUTE_ROLES = {
   '/analytics': ['admin', 'executive', 'manager'],
   '/management/menu': ['admin', 'manager'],
   '/management/operations': ['admin', 'manager', 'executive'],
+  '/staff-playbook': ['admin', 'manager', 'executive', 'foh', 'kitchen'],
   '/management/reports': ['admin', 'executive'],
   '/assistant': ['admin', 'executive', 'manager', 'foh', 'kitchen'],
   '/management/people': ['admin'],
@@ -141,6 +143,7 @@ function AppRoutes() {
         <Route path="/analytics" element={<RoleRoute path="/analytics"><AnalyticsPage /></RoleRoute>} />
         <Route path="/management/menu" element={<RoleRoute path="/management/menu"><MenuEditorPage /></RoleRoute>} />
         <Route path="/management/operations" element={<RoleRoute path="/management/operations"><OperationsHubPage /></RoleRoute>} />
+        <Route path="/staff-playbook" element={<RoleRoute path="/staff-playbook"><StaffPlaybookPage /></RoleRoute>} />
         <Route path="/management/reports" element={<RoleRoute path="/management/reports"><ReportsPage /></RoleRoute>} />
         <Route path="/assistant" element={<RoleRoute path="/assistant"><AiAssistantPage /></RoleRoute>} />
         <Route path="/management/people" element={<RoleRoute path="/management/people"><PeopleHubPage /></RoleRoute>} />

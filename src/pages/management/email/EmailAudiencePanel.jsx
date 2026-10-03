@@ -13,6 +13,7 @@ export default function EmailAudiencePanel({ onReport }) {
   const [form, setForm] = useState(initialForm);
   const [suppressionEmail, setSuppressionEmail] = useState('');
   const [loading, setLoading] = useState(false);
+  const [importingOrders, setImportingOrders] = useState(false);
 
   const load = async () => {
     const [subscribers, blocked] = await Promise.all([api.getEmailSubscribers({ ...filters, limit: 25 }), api.getEmailSuppressions()]);
@@ -47,6 +48,16 @@ export default function EmailAudiencePanel({ onReport }) {
       onReport('success', `Imported ${response.imported}; skipped ${response.skipped} without valid email and explicit consent.`);
     } catch (error) { onReport('error', error.message || 'CSV import failed.'); }
     finally { setLoading(false); event.target.value = ''; }
+  };
+
+  const importOrderEmails = async () => {
+    setImportingOrders(true);
+    try {
+      const result = await api.importOrderEmailContacts();
+      await load();
+      onReport('success', `Added ${result.added} order emails as pending consent. ${result.existing} already in the audience; ${result.suppressed} suppressed. No marketing emails were sent.`);
+    } catch (error) { onReport('error', error.message || 'Unable to fetch order emails.'); }
+    finally { setImportingOrders(false); }
   };
 
   const exportCsv = async () => {
@@ -107,7 +118,7 @@ export default function EmailAudiencePanel({ onReport }) {
       <Card className="min-w-0 p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><h2 className="font-display text-base font-bold">Audience</h2><p className="mt-1 text-xs text-surface-on-variant">{result.total} contacts · campaign sends require subscribed consent and no suppression.</p></div>
-          <div className="flex flex-wrap gap-2"><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-outline-variant px-3 py-2 text-xs font-bold"><Upload size={14} /> Import CSV<input type="file" accept=".csv,text/csv" className="sr-only" onChange={importCsv} /></label><Button size="sm" variant="secondary" onClick={exportCsv}><Download size={14} /> Export CSV</Button></div>
+          <div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={importOrderEmails} disabled={importingOrders}><Download size={14} /> {importingOrders ? 'Fetching...' : 'Fetch order emails'}</Button><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-outline-variant px-3 py-2 text-xs font-bold"><Upload size={14} /> Import CSV<input type="file" accept=".csv,text/csv" className="sr-only" onChange={importCsv} /></label><Button size="sm" variant="secondary" onClick={exportCsv}><Download size={14} /> Export CSV</Button></div>
         </div>
         <div className="mt-4 grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_160px_170px]">
           <div className="relative"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" /><input className="input-field w-full pl-9" placeholder="Search name or email" value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} /></div>

@@ -7,7 +7,8 @@ import Input from '../../components/ui/Input';
 import { api } from '../../api/client';
 import { formatCurrency } from '../../utils/format';
 import { downloadAsset } from '../../utils/downloadAsset';
-import { Package, AlertTriangle, CalendarClock, Edit3, Search, Plus, MapPin, Truck, X, Upload, History, SlidersHorizontal, Download, Trash2 } from 'lucide-react';
+import ReceiptIntake from '../../components/ReceiptIntake';
+import { Package, AlertTriangle, CalendarClock, Edit3, Search, Plus, MapPin, Truck, X, Upload, History, SlidersHorizontal, Download, Trash2, ScanLine } from 'lucide-react';
 
 const fallbackImage = 'https://images.unsplash.com/photo-1547592180-85f173990554?w=240&h=180&fit=crop';
 const inventoryUnitOptions = ['kg', 'oz', 'litre', 'pieces (half)', 'pieces (full)'];
@@ -61,6 +62,8 @@ export default function InventoryPage({ embedded = false }) {
   const [inventoryStorageLocations, setInventoryStorageLocations] = useState(normalizeOptionList(defaultStorageLocations, defaultStorageLocations));
   const [optionEditor, setOptionEditor] = useState(null);
   const [optionValue, setOptionValue] = useState('');
+  const [intakeOpen, setIntakeOpen] = useState(false);
+  const [intakeNotice, setIntakeNotice] = useState('');
 
   const loadInventoryOptions = async () => {
     try {
@@ -198,12 +201,17 @@ export default function InventoryPage({ embedded = false }) {
     }
   };
 
+  const scanButton = <Button size="sm" variant="secondary" onClick={() => { setIntakeNotice(''); setIntakeOpen(true); }}><ScanLine size={14} /> Scan / Receive</Button>;
+  const handleIntakeComplete = (notice) => { setIntakeOpen(false); setIntakeNotice(notice); setError(''); load(); };
+
   if (loading) return <div className="p-6 text-sm text-surface-on-variant">Loading inventory...</div>;
 
   return (
     <div className={'inventory-page ' + (embedded ? '' : 'p-4 sm:p-6')}>
-      {!embedded && <PageHeader title="Inventory Management" subtitle="Track stock levels, suppliers, expiry dates, and storage locations" actions={<Button size="sm" onClick={openAdd}><Plus size={14} /> Add Item</Button>} />}
-      {embedded && <div className="mb-4 flex justify-end"><Button size="sm" onClick={openAdd}><Plus size={14} /> Add Item</Button></div>}
+      {!embedded && <PageHeader title="Inventory Management" subtitle="Track stock levels, suppliers, expiry dates, and storage locations" actions={<div className="flex gap-2">{scanButton}<Button size="sm" onClick={openAdd}><Plus size={14} /> Add Item</Button></div>} />}
+      {embedded && <div className="mb-4 flex justify-end gap-2">{scanButton}<Button size="sm" onClick={openAdd}><Plus size={14} /> Add Item</Button></div>}
+
+      {intakeNotice && <div className="mb-4 flex items-center justify-between rounded-xl border border-success/20 bg-success/5 p-3 text-sm text-success"><span>{intakeNotice}</span><button onClick={() => setIntakeNotice('')}><X size={16} /></button></div>}
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="card flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10"><Package size={19} className="text-primary" /></div><div><p className="text-xs text-surface-on-variant">Total items</p><p className="text-xl font-bold">{items.length}</p><p className="text-[10px] text-surface-on-variant">Across all stores</p></div></div>
@@ -268,6 +276,8 @@ export default function InventoryPage({ embedded = false }) {
           </div>
         </div>
       </Modal>
+
+      {intakeOpen && <ReceiptIntake inventory={items} onClose={() => setIntakeOpen(false)} onComplete={handleIntakeComplete} />}
     </div>
   );
 }

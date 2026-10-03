@@ -71,6 +71,12 @@ export function publicEmailUrl(path) {
   return `${base}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
+function ensureBrandLogo(html) {
+  if (!html || html.includes('wrap-roll-logo-lockup-transparent.png')) return html;
+  const logoUrl = publicEmailUrl('/wrap-roll-logo-lockup-transparent.png');
+  return `<div style="max-width:600px;margin:0 auto;font-family:Arial,sans-serif;color:#292522"><div style="padding:20px 12px;text-align:center;border-bottom:1px solid #eadfda"><img src="${logoUrl}" alt="Wrap &amp; Roll" width="190" style="display:block;width:190px;max-width:100%;height:auto;margin:0 auto"></div><div style="padding:20px 12px">${html}</div></div>`;
+}
+
 export async function verifyEmailDelivery() {
   if (isResendConfigured()) return resolveEmailSender();
   const transport = createEmailTransport();
@@ -93,7 +99,7 @@ export async function sendEmail({ to, subject, text, html, headers = {}, transpo
         to: [to],
         subject,
         text,
-        html,
+        html: ensureBrandLogo(html),
         reply_to: sender.replyTo,
         headers,
       }),
@@ -111,7 +117,7 @@ export async function sendEmail({ to, subject, text, html, headers = {}, transpo
     to,
     subject,
     text,
-    html,
+    html: ensureBrandLogo(html),
     headers,
   });
 }

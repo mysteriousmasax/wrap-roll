@@ -15,6 +15,7 @@ test('email schema upgrades an existing database with consent and automation tab
     await ensureDatabase();
     const subscriberColumns = new Set(db.prepare('PRAGMA table_info(email_subscribers)').all().map((column) => column.name));
     const campaignColumns = new Set(db.prepare('PRAGMA table_info(email_campaigns)').all().map((column) => column.name));
+    const orderColumns = new Set(db.prepare('PRAGMA table_info(orders)').all().map((column) => column.name));
     const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name));
 
     assert.ok(subscriberColumns.has('consent_status'));
@@ -26,6 +27,11 @@ test('email schema upgrades an existing database with consent and automation tab
     assert.ok(tables.has('email_automation_enrollments'));
     assert.ok(tables.has('email_automation_events'));
     assert.ok(tables.has('email_webhook_events'));
+    assert.ok(orderColumns.has('customer_type'));
+    assert.ok(orderColumns.has('company_name'));
+    assert.ok(orderColumns.has('customer_tin'));
+    assert.ok(orderColumns.has('billing_address'));
+    assert.ok(tables.has('order_email_outbox'));
     db.close();
   } finally {
     if (previousPath === undefined) delete process.env.DB_PATH;

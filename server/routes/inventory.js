@@ -137,6 +137,75 @@ router.get('/', authMiddleware, (req, res) => {
   res.json(db.prepare('SELECT * FROM inventory WHERE COALESCE(deleted_at, \'\') = \'\' ORDER BY name').all().map(mapInventory));
 });
 
+router.post('/receive-receipt', authMiddleware, (req, res) => {
+  const { items, supplier = '', receiptRef = '', receiptDate = '' } = req.body || {};
+  if (!Array.isArray(items) || items.length === 0 || items.length > 100) return res.status(400).json({ error: 'Add between 1 and 100 reviewed stock lines.' });
+  const normalizedLines = items.map((line) => ({
+    inventoryId: line.inventoryId ? Number(line.inventoryId) : null,
+    name: String(line.name || '').trim(),
+    sku: String(line.sku || '').trim(),
+    unit: String(line.unit || 'pcs').trim(),
+    quantity: Number(line.quantity),
+    unitCost: Number(line.unitCost) || 0,
+  }));
+  if (normalizedLines.some((line) => !line.name || !line.unit || !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitCost) || line.unitCost < 0)) {
+    return res.status(400).json({ error: 'Every stock line needs an item, unit, positive quantity, and non-negative unit cost.' });
+  }
+
+  ensureInventoryColumn('delivery_date', "TEXT DEFAULT ''");
+  ensureInventoryColumn('back_freezer_chiller', 'REAL DEFAULT 0');
+  ensureInventoryColumn('refrigerator', 'REAL DEFAULT 0');
+  ensureInventoryColumn('front_sandwich', 'REAL DEFAULT 0');
+  ensureInventoryColumn('front_pizza', 'REAL DEFAULT 0');
+  ensureInventoryColumn('front_burger', 'REAL DEFAULT 0');
+  const today = String(receiptDate || new Date().toISOString().slice(0, 10));
+  const receiptDescription = `Receipt ${String(receiptRef || 'scanned').trim()} from ${String(supplier || 'supplier').trim()}`;
+  const receivedItems = [];
+
+  try {
+    const receive = db.transaction(() => {
+      for (const line of normalizedLines) {
+        const existing = line.inventoryId
+          ? db.prepare('SELECT * FROM inventory WHERE id = ?').get(line.inventoryId)
+          : line.sku
+            ? db.prepare('SELECT * FROM inventory WHERE lower(trim(sku)) = lower(?) ORDER BY id LIMIT 1').get(line.sku)
+            : db.prepare('SELECT * FROM inventory WHERE lower(trim(name)) = lower(?) AND lower(trim(unit)) = lower(?) ORDER BY id LIMIT 1').get(line.name, line.unit);
+        if (line.inventoryId && !existing) throw new Error(`Inventory item ${line.inventoryId} was not found.`);
+
+        if (existing) {
+          const nextQuantity = Number(existing.quantity || 0) + line.quantity;
+          db.prepare(`UPDATE inventory SET quantity = ?, supplier = ?, unit_cost = ?, last_restocked = ?, delivery_date = ?
+            WHERE id = ?`).run(nextQuantity, supplier || existing.supplier || '', line.unitCost || existing.unit_cost || 0, today, today, existing.id);
+          auditInventoryChange(existing.id, 'updated', req.user, {
+            quantity: { from: existing.quantity, to: nextQuantity },
+            receipt: { from: null, to: receiptDescription },
+          });
+          receivedItems.push(mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(existing.id)));
+        } else {
+          const result = db.prepare(`INSERT INTO inventory
+            (name, quantity, unit, threshold, supplier, last_restocked, category, sku, unit_cost, storage_location, delivery_date)
+            VALUES (?, ?, ?, 0, ?, ?, 'Stock items', ?, ?, 'Stock sheet', ?)`).run(
+            line.name, line.quantity, line.unit, supplier || '', today,
+            line.sku || `INV-${Date.now().toString().slice(-6)}`, line.unitCost, today
+          );
+          auditInventoryChange(result.lastInsertRowid, 'created', req.user, {
+            item: { from: null, to: line.name },
+            quantity: { from: null, to: line.quantity },
+            receipt: { from: null, to: receiptDescription },
+          });
+          receivedItems.push(mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(result.lastInsertRowid)));
+        }
+      }
+    });
+    receive();
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'Receipt stock could not be applied.' });
+  }
+
+  broadcast('inventory:updated', { action: 'receipt_received', items: receivedItems.map((item) => item.id), receiptRef });
+  res.status(201).json({ receiptRef, received: receivedItems });
+});
+
 router.post('/', authMiddleware, (req, res) => {
   ensureInventoryColumn('delivery_date', "TEXT DEFAULT ''");
   ensureInventoryColumn('back_freezer_chiller', 'REAL DEFAULT 0');

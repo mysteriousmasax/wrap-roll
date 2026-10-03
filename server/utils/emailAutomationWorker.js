@@ -2,6 +2,7 @@ import db from '../db/database.js';
 import { campaignQueueReady, processEmailCampaign } from './emailCampaignService.js';
 import { escapeEmailHtml, plainTextToHtml, renderEmailTemplate } from './emailCampaigns.js';
 import { createEmailToken, isEmailDeliveryConfigured, publicEmailUrl, sendEmail } from './emailDelivery.js';
+import { processOrderEmailOutbox } from './orderEmailService.js';
 
 const minute = 60 * 1000;
 let processing = false;
@@ -135,6 +136,7 @@ async function processEmailQueue() {
   try {
     const now = new Date();
     discoverEventEnrollments(now);
+    await processOrderEmailOutbox();
     if (campaignQueueReady()) {
       const staleSendingCutoff = new Date(now.getTime() - 10 * minute).toISOString();
       db.prepare("UPDATE email_campaigns SET status = 'queued' WHERE status = 'sending' AND updated_at < ?").run(staleSendingCutoff);

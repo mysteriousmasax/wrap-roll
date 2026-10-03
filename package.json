@@ -27,6 +27,7 @@
     "@capacitor/core": "^8.5.2",
     "@googlemaps/js-api-loader": "^2.1.1",
     "@imgly/background-removal": "^1.7.0",
+    "@zxing/browser": "^0.2.1",
     "animejs": "^4.5.0",
     "clsx": "^2.1.1",
     "leaflet": "^1.9.4",
@@ -37,6 +38,7 @@
     "react-leaflet": "^4.2.1",
     "react-router-dom": "^6.26.0",
     "recharts": "^2.12.7",
+    "tesseract.js": "^7.0.0",
     "zustand": "^4.5.4"
   },
   "devDependencies": {

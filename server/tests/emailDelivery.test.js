@@ -48,7 +48,10 @@ test('sendEmail submits messages to the Resend API and returns its ID', async ()
     assert.equal(result.provider, 'resend');
     assert.equal(request.url, 'https://api.resend.com/emails');
     assert.equal(request.options.headers.Authorization, 'Bearer re_test_key');
-    assert.deepEqual(JSON.parse(request.options.body), {
+    const payload = JSON.parse(request.options.body);
+    assert.match(payload.html, /wrap-roll-logo-lockup-transparent\.png/);
+    assert.match(payload.html, /<p>Welcome<\/p>/);
+    assert.deepEqual({ ...payload, html: '<p>Welcome</p>' }, {
       from: 'Wrap & Roll <news@example.com>',
       to: ['guest@example.com'],
       subject: 'Hello',

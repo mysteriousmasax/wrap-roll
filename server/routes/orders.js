@@ -6,6 +6,7 @@ import { broadcast } from '../ws.js';
 import { getOrderById, getOrders, nextOrderId, nextPaymentReference } from '../utils/orders.js';
 import { buildOrderConfirmationMessage, getCustomerNotificationChannels } from '../utils/orderNotifications.js';
 import { PAYMENT_STATUSES, ORDER_STATUSES } from '../utils/paymentProviders.js';
+import { enqueueOrderEmail } from '../utils/orderEmailService.js';
 
 const router = Router();
 
@@ -106,6 +107,10 @@ function createOrderRecord(
     customerName,
     customerPhone,
     customerEmail,
+    customerType = 'individual',
+    companyName = '',
+    customerTin = '',
+    billingAddress = '',
     deliveryAddress,
     deliveryLatitude,
     deliveryLongitude,
@@ -117,13 +122,20 @@ function createOrderRecord(
   },
   staffId = null
 ) {
+  const normalizedCustomerType = String(customerType || 'individual').trim().toLowerCase();
+  const normalizedCompanyName = String(companyName || '').trim();
+  const normalizedCustomerTin = String(customerTin || '').trim();
+  if (!['individual', 'company'].includes(normalizedCustomerType)) throw new Error('Customer type must be individual or company');
+  if (normalizedCustomerType === 'company' && (!normalizedCompanyName || !normalizedCustomerTin)) {
+    throw new Error('Company name and TIN are required for company invoices');
+  }
+
   const priced = priceOrderItems(items, { allowCustom: Boolean(staffId) });
   const subtotal = priced.subtotal;
   const taxRateValue = Number(db.prepare("SELECT value FROM settings WHERE key = 'tax_rate'").get()?.value ?? 8);
   const taxRate = Number.isFinite(taxRateValue) && taxRateValue > 0 ? taxRateValue / 100 : 0;
   const tax = subtotal * taxRate;
   const total = subtotal + tax;
-
   if (orderType === 'dine-in') {
     if (!tableNumber) throw new Error('A table number is required for dine-in orders');
     const table = db.prepare('SELECT status FROM tables WHERE number = ?').get(Number(tableNumber));
@@ -144,10 +156,11 @@ function createOrderRecord(
   const insertOrder = db.prepare(`
     INSERT INTO orders (
       id, order_number, order_type, table_number, customer_name, customer_phone, customer_email,
+      customer_type, company_name, customer_tin, billing_address,
       delivery_address, delivery_latitude, delivery_longitude, delivery_scheduled_for,
       subtotal, tax, total, payment_method, payment_status, order_source, payment_reference,
       status, paid_at, created_at, updated_at, staff_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertItem = db.prepare(`
@@ -178,18 +191,22 @@ function createOrderRecord(
       const existingCustomer = contactMatches[0] || (nameMatches.length === 1 ? nameMatches[0] : null);
       if (existingCustomer) {
         db.prepare(
-          'UPDATE customers SET name = ?, email = ?, last_visit = ?, visits = visits + 1, lifetime_value = lifetime_value + ?, favorite_items = ? WHERE id = ?'
+          'UPDATE customers SET name = ?, email = ?, last_visit = ?, visits = visits + 1, lifetime_value = lifetime_value + ?, favorite_items = ?, customer_type = ?, company_name = ?, tin = ?, billing_address = ? WHERE id = ?'
         ).run(
           customerName.trim(),
           customerEmail || '',
           now.slice(0, 10),
           total,
           JSON.stringify(priced.items.map((item) => item.name)),
+          normalizedCustomerType,
+          normalizedCustomerType === 'company' ? normalizedCompanyName : '',
+          normalizedCustomerTin,
+          String(billingAddress || '').trim(),
           existingCustomer.id
         );
       } else {
         db.prepare(
-          'INSERT INTO customers (name, phone, email, favorite_items, lifetime_value, last_visit, visits, customer_segment, preferred_channel) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)'
+          'INSERT INTO customers (name, phone, email, favorite_items, lifetime_value, last_visit, visits, customer_segment, preferred_channel, customer_type, company_name, tin, billing_address) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)'
         ).run(
           customerName.trim(),
           customerPhone || '',
@@ -198,7 +215,11 @@ function createOrderRecord(
           total,
           now.slice(0, 10),
           'first_order',
-          orderSource || 'pos'
+          orderSource || 'pos',
+          normalizedCustomerType,
+          normalizedCustomerType === 'company' ? normalizedCompanyName : '',
+          normalizedCustomerTin,
+          String(billingAddress || '').trim()
         );
       }
     }
@@ -211,6 +232,10 @@ function createOrderRecord(
       customerName || null,
       customerPhone || null,
       customerEmail || null,
+      normalizedCustomerType,
+      normalizedCustomerType === 'company' ? normalizedCompanyName : null,
+      normalizedCustomerTin || null,
+      String(billingAddress || '').trim() || null,
       deliveryAddress || null,
       deliveryLatitude || null,
       deliveryLongitude || null,
@@ -290,6 +315,13 @@ function createOrderRecord(
 
   tx();
   const order = getOrderById(id);
+  if (order?.customerEmail) {
+    try {
+      enqueueOrderEmail(order.id, order.paymentStatus === PAYMENT_STATUSES.PAID ? 'paid_invoice' : 'order_received');
+    } catch (error) {
+      console.error(`Could not queue customer email for order ${order.id}:`, error.message);
+    }
+  }
 
   broadcast('order:created', order);
   if (initialOrderStatus === ORDER_STATUSES.CONFIRMED) {
@@ -338,6 +370,10 @@ router.post('/public', (req, res) => {
     customerName,
     customerPhone,
     customerEmail,
+    customerType,
+    companyName,
+    customerTin,
+    billingAddress,
     deliveryAddress,
     deliveryLatitude,
     deliveryLongitude,
@@ -362,6 +398,10 @@ router.post('/public', (req, res) => {
       customerName,
       customerPhone,
       customerEmail,
+      customerType,
+      companyName,
+      customerTin,
+      billingAddress,
       deliveryAddress,
       deliveryLatitude,
       deliveryLongitude,
@@ -499,6 +539,10 @@ router.patch('/:id/payment-status', authMiddleware, (req, res) => {
     .run(req.params.id, 'payment_status_changed', paymentStatus, req.user.id, now, JSON.stringify({ staffName, notes }));
 
   const order = getOrderById(req.params.id);
+  if (paymentStatus === PAYMENT_STATUSES.PAID && order?.customerEmail) {
+    try { enqueueOrderEmail(order.id, 'paid_invoice'); }
+    catch (error) { console.error(`Could not queue paid invoice for order ${order.id}:`, error.message); }
+  }
   broadcast('order:updated', order);
   if (paymentStatus === PAYMENT_STATUSES.PAID) {
     broadcast('order:confirmed', order);

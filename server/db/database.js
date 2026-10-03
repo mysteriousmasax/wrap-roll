@@ -242,6 +242,33 @@ export async function initDatabase() {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS operational_checklist_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      business_date TEXT NOT NULL,
+      phase TEXT NOT NULL,
+      task_key TEXT NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      completed_by TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL,
+      UNIQUE(business_date, phase, task_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS shift_handover_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      shift_date TEXT NOT NULL,
+      shift TEXT NOT NULL,
+      manager_out TEXT DEFAULT '',
+      manager_in TEXT DEFAULT '',
+      reconciliation_json TEXT NOT NULL DEFAULT '{}',
+      inventory_counts_json TEXT NOT NULL DEFAULT '[]',
+      notes TEXT DEFAULT '',
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(shift_date, shift)
+    );
+
     CREATE TABLE IF NOT EXISTS training_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       staff_name TEXT NOT NULL,
@@ -318,6 +345,10 @@ export async function initDatabase() {
       customer_name TEXT,
       customer_phone TEXT,
       customer_email TEXT,
+      customer_type TEXT NOT NULL DEFAULT 'individual',
+      company_name TEXT,
+      customer_tin TEXT,
+      billing_address TEXT,
       delivery_address TEXT,
       delivery_latitude REAL,
       delivery_longitude REAL,
@@ -336,6 +367,23 @@ export async function initDatabase() {
       staff_id INTEGER,
       FOREIGN KEY (staff_id) REFERENCES users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS order_email_outbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id TEXT NOT NULL,
+      email_type TEXT NOT NULL,
+      recipient_email TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      message_id TEXT,
+      response TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      sent_at TEXT,
+      UNIQUE(order_id, email_type),
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_email_outbox_status ON order_email_outbox(status, updated_at);
 
     CREATE TABLE IF NOT EXISTS order_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1070,6 +1118,10 @@ function migrateSchema(db) {
   if (!orderCols.some((col) => col.name === 'order_number')) db.exec('ALTER TABLE orders ADD COLUMN order_number TEXT');
   if (!orderCols.some((col) => col.name === 'customer_phone')) db.exec('ALTER TABLE orders ADD COLUMN customer_phone TEXT');
   if (!orderCols.some((col) => col.name === 'customer_email')) db.exec('ALTER TABLE orders ADD COLUMN customer_email TEXT');
+  if (!orderCols.some((col) => col.name === 'customer_type')) db.exec("ALTER TABLE orders ADD COLUMN customer_type TEXT NOT NULL DEFAULT 'individual'");
+  if (!orderCols.some((col) => col.name === 'company_name')) db.exec('ALTER TABLE orders ADD COLUMN company_name TEXT');
+  if (!orderCols.some((col) => col.name === 'customer_tin')) db.exec('ALTER TABLE orders ADD COLUMN customer_tin TEXT');
+  if (!orderCols.some((col) => col.name === 'billing_address')) db.exec('ALTER TABLE orders ADD COLUMN billing_address TEXT');
   if (!orderCols.some((col) => col.name === 'delivery_latitude')) db.exec('ALTER TABLE orders ADD COLUMN delivery_latitude REAL');
   if (!orderCols.some((col) => col.name === 'delivery_longitude')) db.exec('ALTER TABLE orders ADD COLUMN delivery_longitude REAL');
   if (!orderCols.some((c) => c.name === 'delivery_scheduled_for')) db.exec('ALTER TABLE orders ADD COLUMN delivery_scheduled_for TEXT');

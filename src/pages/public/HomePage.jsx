@@ -141,6 +141,10 @@ export default function HomePage() {
   const [customerEmail, setCustomerEmail] = useState(
     () => localStorage.getItem('wraproll_customer_email') || ''
   );
+  const [customerType, setCustomerType] = useState('individual');
+  const [companyName, setCompanyName] = useState('');
+  const [customerTin, setCustomerTin] = useState('');
+  const [billingAddress, setBillingAddress] = useState('');
   const [emailMarketingConsent, setEmailMarketingConsent] = useState(false);
 
   useEffect(() => {
@@ -402,6 +406,10 @@ export default function HomePage() {
         customerName,
         customerPhone,
         customerEmail,
+        customerType,
+        companyName,
+        customerTin,
+        billingAddress,
         deliveryAddress: tableContext ? '' : deliveryAddress,
         deliveryLatitude: tableContext ? null : deliveryCoordinates.latitude,
         deliveryLongitude: tableContext ? null : deliveryCoordinates.longitude,
@@ -416,6 +424,10 @@ export default function HomePage() {
       setCartItems([]);
       setCartOpen(false);
       setEmailMarketingConsent(false);
+      setCustomerType('individual');
+      setCompanyName('');
+      setCustomerTin('');
+      setBillingAddress('');
       setOrderStatus('');
       if (subscribeForEmailUpdates) {
         api.subscribeToEmailMarketing({
@@ -978,7 +990,11 @@ export default function HomePage() {
                 <form onSubmit={submitOrder} className="space-y-2.5 pt-2 border-t border-[#eee4d5]">
                   <input required value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Your Full Name" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
                   <input required type="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="Phone Number (e.g., 0712345678)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
-                  <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="Email Address (Optional)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
+                  <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="Email for order receipt and invoice (Optional)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
+                  <label className="block text-[11px] font-semibold text-[#746e67]">Invoice type<select value={customerType} onChange={(event) => setCustomerType(event.target.value)} className="mt-1 w-full rounded-xl border border-[#ebdccb] bg-white px-3.5 py-2.5 text-xs focus:outline-none focus:border-[#ae002a]"><option value="individual">Individual</option><option value="company">Company</option></select></label>
+                  {customerType === 'company' && <input required value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Company name" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />}
+                  <input required={customerType === 'company'} value={customerTin} onChange={(event) => setCustomerTin(event.target.value)} placeholder={customerType === 'company' ? 'Company TIN (Required)' : 'Customer TIN (Optional)'} className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
+                  {customerType === 'company' && <input value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} placeholder="Billing address (Optional)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />}
                   <label className="flex items-start gap-2 px-1 text-[11px] leading-4 text-[#746e67]"><input type="checkbox" checked={emailMarketingConsent} onChange={(event) => setEmailMarketingConsent(event.target.checked)} disabled={!customerEmail.trim()} className="mt-0.5" /><span>Email me restaurant news and offers. I’ll confirm my subscription from my inbox.</span></label>
 
                   <div className="flex gap-2">

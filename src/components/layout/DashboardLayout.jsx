@@ -23,6 +23,7 @@ const pageTitles = {
   '/analytics': 'Analytics Dashboard',
   '/management/menu': 'Menu Editor',
   '/management/operations': 'Operations Hub',
+  '/staff-playbook': 'Staff Playbook',
   '/management/reports': 'Financial Reports',
   '/assistant': 'Gemini Assistant',
   '/management/people': 'People & HR',

@@ -6,9 +6,10 @@ import Badge from '../../components/ui/Badge';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency } from '../../utils/format';
+import ReceiptIntake from '../../components/ReceiptIntake';
 import {
   ArrowDownToLine, Banknote, Check, ClipboardCheck, FilePlus2, Package,
-  Pencil, Receipt, ShieldCheck, Trash2, WalletCards, X
+  Pencil, Receipt, ScanLine, ShieldCheck, Trash2, WalletCards, X
 } from 'lucide-react';
 
 const expenseCategories = ['Food supplies', 'Utilities', 'Rent', 'Repairs', 'Marketing', 'Transport', 'Other'];
@@ -33,6 +34,7 @@ export default function BusinessOperationsPage({ embedded = false }) {
   const [editingExpense, setEditingExpense] = useState(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [intakeOpen, setIntakeOpen] = useState(false);
   const refreshTimerRef = useRef(null);
   const [form, setForm] = useState({ expenseDate: new Date().toISOString().slice(0, 10), category: expenseCategories[0], description: '', supplier: '', amount: '', paymentMethod: 'bank', receiptRef: '' });
 
@@ -94,10 +96,12 @@ export default function BusinessOperationsPage({ embedded = false }) {
 
   const lowStock = inventory.filter((item) => Number(item.quantity) <= Number(item.threshold));
 
+  const scanActions = <div className="flex gap-2"><Button size="sm" variant="secondary" onClick={() => setIntakeOpen(true)}><ScanLine size={15} /> Scan receipt</Button><Button size="sm" onClick={() => setShowForm(!showForm)}><FilePlus2 size={15} /> Record expense</Button></div>;
+
   return (
     <div className={embedded ? '' : 'p-4 sm:p-6'}>
-      {!embedded && <PageHeader title="Business Operations" subtitle="Control the money, people, suppliers, and daily health of the restaurant" actions={<Button size="sm" onClick={() => setShowForm(!showForm)}><FilePlus2 size={15} /> Record expense</Button>} />}
-      {embedded && <div className="mb-4 flex justify-end"><Button size="sm" onClick={() => setShowForm(!showForm)}><FilePlus2 size={15} /> Record expense</Button></div>}
+      {!embedded && <PageHeader title="Business Operations" subtitle="Control the money, people, suppliers, and daily health of the restaurant" actions={scanActions} />}
+      {embedded && <div className="mb-4 flex justify-end">{scanActions}</div>}
 
       {message && <div className="mb-4 rounded-lg border border-outline-variant bg-white px-4 py-3 text-sm font-semibold">{message}</div>}
 
@@ -133,6 +137,7 @@ export default function BusinessOperationsPage({ embedded = false }) {
           <Card><div className="mb-4 flex items-center gap-2"><Package size={18} className="text-primary" /><h2 className="font-display font-bold">Supplier & stock watch</h2></div>{lowStock.map((item) => <div key={item.id} className="mb-3 flex items-center justify-between gap-3 text-sm"><div><p className="font-semibold">{item.name}</p><p className="text-xs text-surface-on-variant">{item.supplier || 'No supplier'}</p></div><span className="rounded-full bg-red-50 px-2 py-1 text-xs font-bold text-red-700">{item.quantity} {item.unit}</span></div>)}{!lowStock.length && <p className="text-sm text-surface-on-variant">Stock levels are healthy.</p>}<a href="/management/inventory" className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-primary">Open live inventory <ArrowDownToLine size={13} /></a></Card>
         </div>
       </div>
+      {intakeOpen && <ReceiptIntake inventory={inventory} onClose={() => setIntakeOpen(false)} onComplete={(notice) => { setIntakeOpen(false); setMessage(notice); loadData().catch(() => {}); }} />}
     </div>
   );
 }

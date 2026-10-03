@@ -20,6 +20,7 @@ const navItems = [
   { path: '/analytics', label: 'Analytics', icon: BarChart3, roles: ['admin', 'executive', 'manager'] },
   { path: '/management/menu', label: 'Menu Editor', icon: Package, roles: ['admin', 'manager'] },
   { path: '/management/operations', label: 'Operations', icon: WalletCards, roles: ['admin', 'manager', 'executive'] },
+  { path: '/staff-playbook', label: 'Staff Playbook', icon: ClipboardList, roles: ['admin', 'manager', 'executive', 'foh', 'kitchen'] },
   { path: '/management/people', label: 'People & HR', icon: UserCog, roles: ['admin'] },
   { path: '/management/loyalty', label: 'Loyalty Items', icon: Gift, roles: ['admin', 'manager'] },
   { path: '/management/campaigns', label: 'Campaigns', icon: Calendar, roles: ['admin', 'manager', 'executive'] },

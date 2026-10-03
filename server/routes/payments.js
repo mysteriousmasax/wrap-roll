@@ -14,6 +14,7 @@ import db from '../db/database.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
 import { getOrderById } from '../utils/orders.js';
+import { enqueueOrderEmail } from '../utils/orderEmailService.js';
 import {
   manualLipaProvider,
   genericWebhookProvider,
@@ -188,6 +189,10 @@ router.post('/webhook', async (req, res) => {
     });
 
     if (result.orderId) {
+      if (result.status === PAYMENT_STATUSES.PAID) {
+        try { enqueueOrderEmail(result.orderId, 'paid_invoice'); }
+        catch (error) { console.error(`Could not queue paid invoice for order ${result.orderId}:`, error.message); }
+      }
       const updatedOrder = getOrderById(result.orderId);
       if (updatedOrder) {
         broadcast('order:updated', updatedOrder);
@@ -227,6 +232,10 @@ router.post('/:paymentReference/verify-manual', authMiddleware, async (req, res)
     });
 
     const updatedOrder = getOrderById(result.orderId);
+    if (result.paymentStatus === PAYMENT_STATUSES.PAID) {
+      try { enqueueOrderEmail(result.orderId, 'paid_invoice'); }
+      catch (error) { console.error(`Could not queue paid invoice for order ${result.orderId}:`, error.message); }
+    }
     if (updatedOrder) {
       broadcast('order:updated', updatedOrder);
       broadcast('order:confirmed', updatedOrder);

@@ -13,6 +13,10 @@ export default function PaymentPage() {
   const [error, setError] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerType, setCustomerType] = useState('individual');
+  const [companyName, setCompanyName] = useState('');
+  const [customerTin, setCustomerTin] = useState('');
+  const [billingAddress, setBillingAddress] = useState('');
   const [selectedMethod, setSelectedMethod] = useState('lipa_namba');
   const [paymentOrder, setPaymentOrder] = useState(null);
   const location = useLocation();
@@ -56,6 +60,10 @@ export default function PaymentPage() {
         customerName: customerName || 'Guest',
         customerPhone,
         customerEmail,
+        customerType,
+        companyName,
+        customerTin,
+        billingAddress,
         deliveryAddress: deliveryAddress || null,
         deliveryLatitude,
         deliveryLongitude,
@@ -168,6 +176,15 @@ export default function PaymentPage() {
                 className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
+            <label className="block text-xs font-semibold text-surface-on-variant">Invoice type
+              <select value={customerType} onChange={(event) => setCustomerType(event.target.value)} className="mt-1 w-full rounded-lg border border-outline-variant px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                <option value="individual">Individual</option>
+                <option value="company">Company</option>
+              </select>
+            </label>
+            {customerType === 'company' && <input required value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Company name" className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />}
+            <input required={customerType === 'company'} value={customerTin} onChange={(event) => setCustomerTin(event.target.value)} placeholder={customerType === 'company' ? 'Company TIN (Required)' : 'Customer TIN (Optional)'} className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+            {customerType === 'company' && <input value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} placeholder="Billing address (Optional)" className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />}
           </div>
         </div>
 
