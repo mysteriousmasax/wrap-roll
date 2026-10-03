@@ -5,6 +5,7 @@ import {
   normalizePageAccess,
   getRolePageAccess,
   normalizeCustomRole,
+  expandImpliedPageAccess,
 } from '../utils/roles.js';
 
 test('normalizeRoleName handles aliases and custom labels consistently', () => {
@@ -24,4 +25,18 @@ test('page access is normalized and preserves explicit route allow-lists', () =>
   assert.deepEqual(normalizePageAccess(['/pos', ' /management/menu ', '/unknown']), ['/pos', '/management/menu']);
   assert.ok(getRolePageAccess({ role: 'admin', pageAccess: [] }).includes('/management/settings'));
   assert.ok(getRolePageAccess({ role: 'foh', pageAccess: ['/orders'] }).includes('/orders'));
+});
+
+test('POS access implies the checkout flow pages', () => {
+  // Regression: staff with a custom page-access list containing /pos (but unable
+  // to contain /pos/payment, which the staff editor never offers) were redirected
+  // away from checkout to the first page of their list (e.g. /management/campaigns).
+  const access = getRolePageAccess({ role: 'admin', pageAccess: ['/management/campaigns', '/pos'] });
+  assert.ok(access.includes('/pos/payment'));
+  assert.ok(access.includes('/pos/success'));
+  assert.equal(access[0], '/management/campaigns');
+
+  assert.deepEqual(expandImpliedPageAccess(['/pos']), ['/pos', '/pos/payment', '/pos/success']);
+  assert.deepEqual(expandImpliedPageAccess(['/orders']), ['/orders']);
+  assert.deepEqual(expandImpliedPageAccess([]), []);
 });

@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import db from '../db/database.js';
 import { signToken, authMiddleware, JWT_SECRET } from '../middleware/auth.js';
 import { hashPin, verifyPin } from '../utils/pins.js';
-import { normalizeUserRole, getRolePageAccess, normalizePageAccess } from '../utils/roles.js';
+import { normalizeUserRole, getRolePageAccess, normalizePageAccess, expandImpliedPageAccess } from '../utils/roles.js';
 import { broadcast } from '../ws.js';
 import { restaurantTime } from '../utils/localTime.js';
 
@@ -91,7 +91,7 @@ router.post('/login', loginLimiter, async (req, res) => {
   const safeUser = {
     ...user,
     role: normalizedRole,
-    pageAccess: normalizePageAccess(user.page_access || user.pageAccess || getRolePageAccess({ role: normalizedRole, pageAccess: [] })),
+    pageAccess: expandImpliedPageAccess(normalizePageAccess(user.page_access || user.pageAccess || getRolePageAccess({ role: normalizedRole, pageAccess: [] }))),
   };
   const token = signToken(safeUser);
   const loginNotification = { type: 'info', title: 'Staff login', message: `${safeUser.name} signed in as ${safeUser.role}.`, audienceRole: 'manager' };
@@ -107,7 +107,7 @@ router.get('/me', authMiddleware, (req, res) => {
   const normalizedUser = {
     ...user,
     role: normalizedRole,
-    pageAccess: normalizePageAccess(user.page_access || getRolePageAccess({ role: normalizedRole, pageAccess: [] })),
+    pageAccess: expandImpliedPageAccess(normalizePageAccess(user.page_access || getRolePageAccess({ role: normalizedRole, pageAccess: [] }))),
   };
   db.prepare('UPDATE users SET role = ?, page_access = ? WHERE id = ?').run(normalizedUser.role, JSON.stringify(normalizedUser.pageAccess), user.id);
   res.json({ user: normalizedUser });

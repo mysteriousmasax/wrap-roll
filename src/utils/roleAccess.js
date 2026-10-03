@@ -27,6 +27,24 @@ export const ROUTE_ACCESS = {
 
 const VALID_PAGE_PATHS = new Set(Object.values(ROUTE_ACCESS).flat());
 
+// Pages that are integral steps of another page's flow. Granting the parent
+// page implicitly grants these so custom page-access lists can never strand
+// a user mid-flow (e.g. POS checkout redirecting away from /pos/payment).
+const IMPLIED_PAGE_ACCESS = {
+  '/pos': ['/pos/payment', '/pos/success'],
+};
+
+export function expandImpliedPageAccess(paths) {
+  const next = Array.isArray(paths) ? [...paths] : [];
+  for (const [parent, implied] of Object.entries(IMPLIED_PAGE_ACCESS)) {
+    if (!next.includes(parent)) continue;
+    for (const path of implied) {
+      if (VALID_PAGE_PATHS.has(path) && !next.includes(path)) next.push(path);
+    }
+  }
+  return next;
+}
+
 export function normalizeUserRole(role) {
   const value = String(role ?? '').trim();
   if (!value) return 'foh';
@@ -87,7 +105,7 @@ export function getRolePageAccess(input = {}) {
   const explicit = normalizePageAccess(candidate.pageAccess ?? candidate.page_access ?? []);
   if (explicit.length > 0) {
     const filtered = explicit.filter((path) => fallback.includes(path));
-    return filtered.length > 0 ? filtered : [...fallback];
+    return filtered.length > 0 ? expandImpliedPageAccess(filtered) : [...fallback];
   }
   return [...fallback];
 }
@@ -97,7 +115,7 @@ export function getUserPageAccess(user = {}) {
   const explicit = normalizePageAccess(user.pageAccess ?? user.page_access ?? []);
   if (explicit.length > 0) {
     const allowed = explicit.filter((path) => (ROUTE_ACCESS[role] || ROUTE_ACCESS.foh).includes(path));
-    if (allowed.length > 0) return allowed;
+    if (allowed.length > 0) return expandImpliedPageAccess(allowed);
   }
   return getRolePageAccess({ role, pageAccess: [] });
 }
