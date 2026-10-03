@@ -1,7 +1,7 @@
 import db from '../db/database.js';
 import { campaignQueueReady, processEmailCampaign } from './emailCampaignService.js';
 import { escapeEmailHtml, plainTextToHtml, renderEmailTemplate } from './emailCampaigns.js';
-import { createEmailToken, isSmtpConfigured, publicEmailUrl, sendEmail } from './emailDelivery.js';
+import { createEmailToken, isEmailDeliveryConfigured, publicEmailUrl, sendEmail } from './emailDelivery.js';
 
 const minute = 60 * 1000;
 let processing = false;
@@ -56,7 +56,7 @@ function discoverEventEnrollments(now) {
 }
 
 async function processAutomationEnrollments(now) {
-  if (!isSmtpConfigured() || !process.env.EMAIL_POSTAL_ADDRESS) return;
+  if (!isEmailDeliveryConfigured() || !process.env.EMAIL_POSTAL_ADDRESS) return;
   const due = db.prepare(`SELECT e.*, s.email, s.first_name, s.last_name, s.consent_status, a.name AS automation_name
     FROM email_automation_enrollments e
     JOIN email_subscribers s ON s.id = e.subscriber_id
@@ -109,7 +109,7 @@ async function processAutomationEnrollments(now) {
     try {
       const result = await sendEmail({ to: enrollment.email, subject, text: renderedText, html: renderedHtml, headers: { 'List-Unsubscribe': `<${unsubscribeUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } });
       db.prepare('UPDATE email_automation_events SET status = ?, message_id = ?, response = ? WHERE id = ?')
-        .run('sent', result.messageId || null, 'Accepted by SMTP relay', event.lastInsertRowid);
+        .run('sent', result.messageId || null, 'Accepted by email provider', event.lastInsertRowid);
       const nextStep = db.prepare('SELECT delay_minutes FROM email_automation_steps WHERE automation_id = ? AND step_order = ?')
         .get(enrollment.automation_id, enrollment.current_step + 1);
       if (nextStep) {

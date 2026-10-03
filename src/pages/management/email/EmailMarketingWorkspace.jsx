@@ -21,6 +21,8 @@ const tabs = [
 ];
 
 function Overview({ overview, campaigns, onNavigate }) {
+  const deliveryReady = Boolean(overview.deliveryConfigured || overview.smtpConfigured);
+  const postalAddressReady = Boolean(overview.postalAddressConfigured);
   const metrics = [
     ['Consented contacts', overview.consentedSubscribers || 0],
     ['Pending consent', overview.pendingConsent || 0],
@@ -35,7 +37,7 @@ function Overview({ overview, campaigns, onNavigate }) {
       <div className="grid gap-5 xl:grid-cols-[1fr_1.2fr]">
         <Card className="p-5">
           <h2 className="font-display text-base font-bold">Deliverability snapshot</h2>
-          <p className="mt-1 text-xs text-surface-on-variant">Lifetime campaign events reported by the connected SMTP relay.</p>
+          <p className="mt-1 text-xs text-surface-on-variant">Lifetime campaign delivery and engagement events.</p>
           <div className="mt-5 grid grid-cols-2 gap-4 text-sm">
             <div><p className="text-xs text-surface-on-variant">Accepted</p><strong>{overview.delivery?.sent || 0}</strong></div>
             <div><p className="text-xs text-surface-on-variant">Opens</p><strong>{overview.delivery?.opened || 0}</strong></div>
@@ -52,7 +54,8 @@ function Overview({ overview, campaigns, onNavigate }) {
           </div>
         </Card>
       </div>
-      {!overview.smtpConfigured && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><strong>Sending is not configured.</strong> Campaigns stay queued until an SMTP relay is configured and verified in Sending setup.</div>}
+      {!deliveryReady && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><strong>Email provider is not configured.</strong> Configure Resend or an SMTP relay in Sending setup before sending campaigns.</div>}
+      {deliveryReady && !postalAddressReady && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><strong>Postal address is required.</strong> Set EMAIL_POSTAL_ADDRESS in Railway before sending marketing campaigns.</div>}
     </div>
   );
 }
@@ -80,8 +83,8 @@ export default function EmailMarketingWorkspace() {
   return (
     <div className="p-4 sm:p-6">
       <PageHeader title="Email Marketing" subtitle="Consent-based campaigns, customer journeys, and delivery health" actions={
-        <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${overview.smtpConfigured ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-800'}`}>
-          {overview.smtpConfigured && overview.postalAddressConfigured ? `Sending ready · ${overview.address || 'sender configured'}` : 'Sending setup needed'}
+        <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${overview.deliveryConfigured || overview.smtpConfigured ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-800'}`}>
+          {(overview.deliveryConfigured || overview.smtpConfigured) && overview.postalAddressConfigured ? `Sending ready · ${overview.address || 'sender configured'}` : (overview.deliveryConfigured || overview.smtpConfigured) ? 'Postal address needed' : 'Sending setup needed'}
         </span>
       } />
       {notice && <div role="status" className={`mb-4 rounded-lg px-3 py-2 text-sm ${notice.type === 'error' ? 'bg-red-50 text-red-800' : 'bg-surface-container-low text-surface-on'}`}>{notice.text}</div>}

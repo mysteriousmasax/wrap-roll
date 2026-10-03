@@ -4,7 +4,7 @@ import { resolveMx, resolveTxt, reverse } from 'node:dns/promises';
 import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { buildCampaignBody, buildCampaignSubject, plainTextToHtml, selectAudience } from '../utils/emailCampaigns.js';
-import { isSmtpConfigured, publicEmailUrl, sendEmail, senderSummary, verifyEmailToken, verifySmtpTransport } from '../utils/emailDelivery.js';
+import { getEmailProvider, isEmailDeliveryConfigured, isResendConfigured, publicEmailUrl, sendEmail, senderSummary, verifyEmailToken, verifyEmailDelivery } from '../utils/emailDelivery.js';
 import { enrollSubscriberForAutomations } from '../utils/emailAutomationWorker.js';
 import { processEmailCampaign, sendCampaignTest } from '../utils/emailCampaignService.js';
 
@@ -171,7 +171,7 @@ router.post('/subscribe', async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
   if (req.body?.marketingConsent !== true) return res.status(400).json({ error: 'Marketing consent is required.' });
-  if (!isSmtpConfigured()) return res.status(503).json({ error: 'Email confirmation is temporarily unavailable.' });
+  if (!isEmailDeliveryConfigured()) return res.status(503).json({ error: 'Email confirmation is temporarily unavailable.' });
 
   const suppression = db.prepare('SELECT email FROM email_suppressions WHERE email = ?').get(email);
   if (suppression) return res.status(202).json({ ok: true, message: 'If this address is eligible, a confirmation email will be sent.' });
@@ -291,7 +291,7 @@ router.get('/overview', authMiddleware, requireRole(...adminRoles), (req, res) =
   seedDefaultTemplates();
   seedDefaultAutomations();
   const subscriberSummary = db.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) AS active, SUM(CASE WHEN consent_status = 'subscribed' AND active = 1 THEN 1 ELSE 0 END) AS consented, SUM(CASE WHEN segment = 'vip' AND active = 1 THEN 1 ELSE 0 END) AS vip, SUM(CASE WHEN consent_status = 'pending' THEN 1 ELSE 0 END) AS pending FROM email_subscribers").get();
-  const campaignSummary = db.prepare('SELECT COUNT(*) AS total, SUM(CASE WHEN status = "sent" THEN 1 ELSE 0 END) AS sent, SUM(CASE WHEN status = "draft" THEN 1 ELSE 0 END) AS drafts FROM email_campaigns').get();
+  const campaignSummary = db.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent, SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) AS drafts FROM email_campaigns").get();
   const lastCampaign = db.prepare('SELECT * FROM email_campaigns ORDER BY created_at DESC LIMIT 1').get();
   const delivery = db.prepare("SELECT COUNT(*) AS sent, SUM(CASE WHEN opened_at IS NOT NULL THEN 1 ELSE 0 END) AS opened, SUM(CASE WHEN clicked_at IS NOT NULL THEN 1 ELSE 0 END) AS clicked, SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed FROM email_campaign_events").get();
   const suppressions = db.prepare('SELECT COUNT(*) AS count FROM email_suppressions').get().count;
@@ -484,7 +484,7 @@ router.get('/deliverability', authMiddleware, requireRole(...adminRoles), async 
   const sender = senderSummary();
   const domain = String(sender.address.split('@')[1] || '').toLowerCase();
   const check = async (task) => { try { return await task(); } catch { return null; } };
-  if (!domain) return res.json({ domain: '', smtpConfigured: sender.smtpConfigured, checks: [] });
+  if (!domain) return res.json({ domain: '', ...senderSummary(), checks: [] });
 
   const [txtRecords, dmarcRecords, mxRecords, dkimRecords, ptrRecords] = await Promise.all([
     check(() => resolveTxt(domain)),
@@ -501,10 +501,10 @@ router.get('/deliverability', authMiddleware, requireRole(...adminRoles), async 
   const ptr = (ptrRecords || []).map((record) => record.toLowerCase());
   res.json({
     domain,
-    smtpConfigured: sender.smtpConfigured,
+    ...senderSummary(),
     sender: { name: sender.name, address: sender.address, replyTo: sender.replyTo },
     checks: [
-      { id: 'smtp', label: 'SMTP relay', status: sender.smtpConfigured ? 'configured' : 'missing', detail: sender.smtpConfigured ? 'Credentials are present; run a test send to verify connectivity.' : 'Configure host, user, and password in Railway.' },
+      { id: 'delivery', label: sender.provider === 'resend' ? 'Resend API' : 'SMTP relay', status: sender.deliveryConfigured ? 'configured' : isResendConfigured() ? 'check' : 'missing', detail: sender.provider === 'resend' ? 'Resend API key and sender address are configured; send a test email to verify delivery.' : sender.smtpConfigured ? 'SMTP credentials are present; send a test email to verify delivery.' : isResendConfigured() ? 'Set EMAIL_FROM_ADDRESS to a sender verified in Resend.' : 'Configure RESEND_API_KEY and EMAIL_FROM_ADDRESS, or add SMTP credentials in Railway.' },
       { id: 'postal', label: 'Postal address', status: process.env.EMAIL_POSTAL_ADDRESS ? 'configured' : 'missing', detail: process.env.EMAIL_POSTAL_ADDRESS || 'A real business postal address is required in marketing footers.' },
       { id: 'spf', label: 'SPF', status: spf ? 'found' : 'missing', record: spf || null, hostname: domain },
       { id: 'dkim', label: 'DKIM', status: dkim ? 'found' : 'missing', record: dkim || null, hostname: process.env.EMAIL_DKIM_SELECTOR ? `${process.env.EMAIL_DKIM_SELECTOR}._domainkey.${domain}` : null, detail: process.env.EMAIL_DKIM_SELECTOR ? undefined : 'Set EMAIL_DKIM_SELECTOR to the selector published by your mail provider.' },
@@ -519,8 +519,8 @@ router.post('/smtp/test', authMiddleware, requireRole(...adminRoles), async (req
   const to = normalizeEmail(req.body?.email);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ error: 'Enter a valid test-recipient email.' });
   try {
-    await verifySmtpTransport();
-    const result = await sendEmail({ to, subject: 'Wrap & Roll SMTP test', text: 'Your Wrap & Roll email sender is configured and can deliver mail.', html: '<p>Your Wrap &amp; Roll email sender is configured and can deliver mail.</p>' });
+    await verifyEmailDelivery();
+    const result = await sendEmail({ to, subject: 'Wrap & Roll email test', text: 'Your Wrap & Roll email sender is configured and can deliver mail.', html: '<p>Your Wrap &amp; Roll email sender is configured and can deliver mail.</p>' });
     res.json({ ok: true, recipient: to, messageId: result.messageId });
   } catch (error) {
     res.status(503).json({ error: error.message || 'SMTP verification or test delivery failed.' });
@@ -631,7 +631,7 @@ router.post('/campaigns/:id/test', authMiddleware, requireRole(...adminRoles), a
 });
 
 router.post('/campaigns/:id/send', authMiddleware, requireRole(...adminRoles), (req, res) => {
-  if (!isSmtpConfigured()) return res.status(503).json({ error: 'SMTP is not configured. No email was sent.' });
+  if (!isEmailDeliveryConfigured()) return res.status(503).json({ error: 'Configure Resend or SMTP before sending. No email was sent.' });
   if (!process.env.EMAIL_POSTAL_ADDRESS) return res.status(503).json({ error: 'Set EMAIL_POSTAL_ADDRESS before sending marketing campaigns.' });
   const campaign = db.prepare('SELECT * FROM email_campaigns WHERE id = ?').get(Number(req.params.id));
   if (!campaign) return res.status(404).json({ error: 'Campaign not found.' });

@@ -11,7 +11,8 @@ Copy `.env.example` to `.env` and set:
 - `PUBLIC_APP_URL`: public origin used to generate NFC table scan links. Set this to `https://wrapandrolltz.com`.
 - `PORT`: the port supplied by the hosting provider, when applicable.
 - `DB_PATH`: the path to `wraproll.db` on persistent storage. For Docker deployments use `/data/wraproll.db` and mount `/data` to a named volume or host directory.
-- `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASS`, and `EMAIL_FROM_ADDRESS`: configure the business sender account for one-to-one CRM emails.
+- `RESEND_API_KEY` and a Resend-verified `EMAIL_FROM_ADDRESS`: configure Resend API delivery for marketing email.
+- `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASS`, and `EMAIL_FROM_ADDRESS`: configure SMTP delivery as a fallback.
 - `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID`: configure the WhatsApp Business Cloud API sender.
 - `INSTAGRAM_ACCESS_TOKEN` (or shared `META_ACCESS_TOKEN`) and `INSTAGRAM_PAGE_ID`: configure Instagram Messaging for the connected professional account.
 - `META_GRAPH_API_VERSION`: optional Graph API version; defaults to `v23.0`.

@@ -1,6 +1,6 @@
 import db from '../db/database.js';
 import { escapeEmailHtml, plainTextToHtml, renderEmailTemplate, selectAudience } from './emailCampaigns.js';
-import { createEmailToken, createEmailTransport, isSmtpConfigured, publicEmailUrl, resolveEmailSender, sendEmail } from './emailDelivery.js';
+import { createEmailToken, createEmailTransport, getEmailProvider, isEmailDeliveryConfigured, publicEmailUrl, resolveEmailSender, sendEmail } from './emailDelivery.js';
 
 function campaignFooter(unsubscribeUrl) {
   return `<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e7e2dc;color:#716a64;font:12px Arial,sans-serif"><p>${escapeEmailHtml(process.env.EMAIL_POSTAL_ADDRESS || 'Wrap & Roll, Dar es Salaam, Tanzania')}</p><p>You received this marketing email because you opted in to updates from Wrap &amp; Roll. <a href="${unsubscribeUrl}">Unsubscribe</a></p></div>`;
@@ -38,7 +38,7 @@ function addTracking(html, eventId, token) {
 }
 
 export async function sendCampaignTest(campaignId, recipient) {
-  if (!isSmtpConfigured()) throw new Error('SMTP is not configured. Configure the sender before testing delivery.');
+  if (!isEmailDeliveryConfigured()) throw new Error('Configure Resend or SMTP before testing delivery.');
   const campaign = db.prepare('SELECT * FROM email_campaigns WHERE id = ?').get(Number(campaignId));
   if (!campaign) throw new Error('Campaign not found.');
   const email = String(recipient || '').trim().toLowerCase();
@@ -56,7 +56,7 @@ export async function sendCampaignTest(campaignId, recipient) {
 }
 
 export async function processEmailCampaign(campaignId) {
-  if (!isSmtpConfigured()) throw new Error('SMTP is not configured.');
+  if (!isEmailDeliveryConfigured()) throw new Error('Configure Resend or SMTP before sending.');
   if (!process.env.EMAIL_POSTAL_ADDRESS) throw new Error('Set EMAIL_POSTAL_ADDRESS before sending marketing campaigns.');
   const campaign = db.prepare('SELECT * FROM email_campaigns WHERE id = ?').get(Number(campaignId));
   if (!campaign || !['queued', 'scheduled', 'sending'].includes(campaign.status)) return null;
@@ -111,7 +111,7 @@ export async function processEmailCampaign(campaignId) {
       });
       sent += 1;
       db.prepare('UPDATE email_campaign_events SET status = ?, message_id = ?, response = ? WHERE id = ?')
-        .run('sent', result.messageId || null, 'Accepted by SMTP relay', event.lastInsertRowid);
+        .run('sent', result.messageId || null, `Accepted by ${getEmailProvider() || 'email provider'}`, event.lastInsertRowid);
     } catch (error) {
       failed += 1;
       const response = String(error.message || 'Delivery failed').slice(0, 500);
@@ -119,7 +119,7 @@ export async function processEmailCampaign(campaignId) {
         .run('failed', response, String(error.code || '').slice(0, 80), event.lastInsertRowid);
       if (['550', '551', '553', '5.1.1'].some((code) => response.includes(code))) {
         db.prepare('INSERT OR IGNORE INTO email_suppressions (email, reason, source, created_at) VALUES (?, ?, ?, ?)')
-          .run(subscriber.email.toLowerCase(), 'hard_bounce', 'smtp', new Date().toISOString());
+          .run(subscriber.email.toLowerCase(), 'hard_bounce', getEmailProvider() || 'email', new Date().toISOString());
       }
     }
   }
@@ -131,10 +131,10 @@ export async function processEmailCampaign(campaignId) {
 }
 
 export function campaignQueueReady() {
-  return isSmtpConfigured() && Boolean(process.env.EMAIL_POSTAL_ADDRESS);
+  return isEmailDeliveryConfigured() && Boolean(process.env.EMAIL_POSTAL_ADDRESS);
 }
 
 export function senderSummary() {
   const sender = resolveEmailSender();
-  return { name: sender.name, address: sender.address, replyTo: sender.replyTo, smtpConfigured: isSmtpConfigured() };
+  return { name: sender.name, address: sender.address, replyTo: sender.replyTo, provider: getEmailProvider(), deliveryConfigured: isEmailDeliveryConfigured() };
 }

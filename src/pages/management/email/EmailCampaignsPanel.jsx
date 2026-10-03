@@ -18,7 +18,7 @@ export default function EmailCampaignsPanel({ campaigns, onReport }) {
 
   useEffect(() => {
     Promise.all([api.getEmailTemplates(), api.getEmailMarketingOverview()])
-      .then(([rows, overview]) => { setTemplates(rows); setSmtpReady(overview.smtpConfigured && overview.postalAddressConfigured); })
+      .then(([rows, overview]) => { setTemplates(rows); setSmtpReady((overview.deliveryConfigured || overview.smtpConfigured) && overview.postalAddressConfigured); })
       .catch((error) => onReport('error', error.message || 'Unable to load campaign setup.'));
   }, []);
 

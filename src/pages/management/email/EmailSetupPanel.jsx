@@ -28,8 +28,8 @@ export default function EmailSetupPanel({ onReport }) {
     setTesting(true);
     try {
       const result = await api.testEmailSmtp(testAddress);
-      onReport('success', `SMTP test accepted for ${result.recipient}. Check that inbox and spam folder.`);
-    } catch (error) { onReport('error', error.message || 'SMTP test failed.'); }
+      onReport('success', `Test email accepted for ${result.recipient}. Check that inbox and spam folder.`);
+    } catch (error) { onReport('error', error.message || 'Test email failed.'); }
     finally { setTesting(false); }
   };
 
@@ -43,8 +43,8 @@ export default function EmailSetupPanel({ onReport }) {
         </div>
       </Card>
       <div className="space-y-5">
-        <Card className="p-5"><h2 className="font-display text-base font-bold">Verify SMTP delivery</h2><p className="mt-1 text-xs text-surface-on-variant">Send one test message using the configured Wrap & Roll sender.</p><form className="mt-4 space-y-3" onSubmit={testSmtp}><label className="block text-xs font-semibold">Test recipient<input required type="email" className="input-field mt-1 w-full" value={testAddress} onChange={(event) => setTestAddress(event.target.value)} placeholder="your inbox@example.com" /></label><Button size="sm" type="submit" disabled={testing || !configuration?.smtpConfigured}><Send size={14} /> {testing ? 'Sending...' : 'Send test email'}</Button></form><p className="mt-3 text-[10px] text-surface-on-variant">A successful SMTP response means the relay accepted the message; it does not guarantee inbox placement.</p></Card>
-        <Card className="p-5"><h2 className="font-display text-base font-bold">Railway sender variables</h2><ul className="mt-3 space-y-2 text-xs text-surface-on-variant"><li><code>EMAIL_SMTP_HOST</code>, <code>EMAIL_SMTP_PORT</code>, <code>EMAIL_SMTP_SECURE</code></li><li><code>EMAIL_SMTP_USER</code>, <code>EMAIL_SMTP_PASS</code></li><li><code>EMAIL_FROM_NAME</code>, <code>EMAIL_FROM_ADDRESS</code>, <code>EMAIL_REPLY_TO</code></li><li><code>EMAIL_POSTAL_ADDRESS</code>, <code>EMAIL_DKIM_SELECTOR</code></li><li><code>PUBLIC_APP_URL</code>, <code>JWT_SECRET</code></li></ul><p className="mt-3 text-[11px] text-surface-on-variant">Set credentials in Railway Variables; never paste secrets into campaign forms. This app uses an SMTP relay for delivery. A self-hosted MTA also needs a static IP, PTR/rDNS, and DNS control.</p></Card>
+        <Card className="p-5"><h2 className="font-display text-base font-bold">Verify email delivery</h2><p className="mt-1 text-xs text-surface-on-variant">Send one test message using the configured Wrap & Roll sender.</p><form className="mt-4 space-y-3" onSubmit={testSmtp}><label className="block text-xs font-semibold">Test recipient<input required type="email" className="input-field mt-1 w-full" value={testAddress} onChange={(event) => setTestAddress(event.target.value)} placeholder="your inbox@example.com" /></label><Button size="sm" type="submit" disabled={testing || !(configuration?.deliveryConfigured || configuration?.smtpConfigured)}><Send size={14} /> {testing ? 'Sending...' : 'Send test email'}</Button></form><p className="mt-3 text-[10px] text-surface-on-variant">A successful provider response means the message was accepted for delivery; it does not guarantee inbox placement.</p></Card>
+        <Card className="p-5"><h2 className="font-display text-base font-bold">Railway sender variables</h2><ul className="mt-3 space-y-2 text-xs text-surface-on-variant"><li><code>RESEND_API_KEY</code> for Resend API delivery</li><li><code>EMAIL_FROM_NAME</code>, <code>EMAIL_FROM_ADDRESS</code>, <code>EMAIL_REPLY_TO</code></li><li><code>EMAIL_SMTP_HOST</code>, <code>EMAIL_SMTP_PORT</code>, <code>EMAIL_SMTP_SECURE</code></li><li><code>EMAIL_SMTP_USER</code>, <code>EMAIL_SMTP_PASS</code></li><li><code>EMAIL_POSTAL_ADDRESS</code>, <code>EMAIL_DKIM_SELECTOR</code></li><li><code>PUBLIC_APP_URL</code>, <code>JWT_SECRET</code></li></ul><p className="mt-3 text-[11px] text-surface-on-variant">Set credentials in Railway Variables; never paste secrets into campaign forms. The sender address must be verified with Resend when using its API.</p></Card>
       </div>
     </div>
   );
