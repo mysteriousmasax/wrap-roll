@@ -5,8 +5,18 @@ export function isSmtpConfigured() {
   return Boolean(process.env.EMAIL_SMTP_HOST && process.env.EMAIL_SMTP_USER && process.env.EMAIL_SMTP_PASS);
 }
 
+function getResendApiKey() {
+  const apiKey = String(process.env.RESEND_API_KEY || '').trim();
+  if (apiKey) return apiKey;
+
+  const host = String(process.env.EMAIL_SMTP_HOST || '').trim().toLowerCase();
+  const username = String(process.env.EMAIL_SMTP_USER || '').trim().toLowerCase();
+  const smtpPassword = String(process.env.EMAIL_SMTP_PASS || '').trim();
+  return host === 'smtp.resend.com' && username === 'resend' && smtpPassword.startsWith('re_') ? smtpPassword : '';
+}
+
 export function isResendConfigured() {
-  return Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM_ADDRESS);
+  return Boolean(getResendApiKey() && process.env.EMAIL_FROM_ADDRESS);
 }
 
 export function getEmailProvider() {
@@ -75,7 +85,7 @@ export async function sendEmail({ to, subject, text, html, headers = {}, transpo
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        Authorization: `Bearer ${getResendApiKey()}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({

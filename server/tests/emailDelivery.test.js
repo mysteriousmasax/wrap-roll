@@ -63,6 +63,34 @@ test('sendEmail submits messages to the Resend API and returns its ID', async ()
   }
 });
 
+test('Resend SMTP credentials use the HTTPS API automatically', async () => {
+  const restore = saveEnvironment(['RESEND_API_KEY', 'EMAIL_SMTP_HOST', 'EMAIL_SMTP_USER', 'EMAIL_SMTP_PASS', 'EMAIL_FROM_ADDRESS']);
+  const originalFetch = globalThis.fetch;
+  let request;
+  try {
+    delete process.env.RESEND_API_KEY;
+    process.env.EMAIL_SMTP_HOST = 'smtp.resend.com';
+    process.env.EMAIL_SMTP_USER = 'resend';
+    process.env.EMAIL_SMTP_PASS = 're_test_key';
+    process.env.EMAIL_FROM_ADDRESS = 'news@example.com';
+    globalThis.fetch = async (url, options) => {
+      request = { url, options };
+      return { ok: true, json: async () => ({ id: 'email-test-456' }) };
+    };
+
+    const result = await sendEmail({ to: 'guest@example.com', subject: 'Hello', text: 'Welcome' });
+
+    assert.equal(isResendConfigured(), true);
+    assert.equal(getEmailProvider(), 'resend');
+    assert.equal(result.messageId, 'email-test-456');
+    assert.equal(request.url, 'https://api.resend.com/emails');
+    assert.equal(request.options.headers.Authorization, 'Bearer re_test_key');
+  } finally {
+    globalThis.fetch = originalFetch;
+    restore();
+  }
+});
+
 test('sendEmail preserves SMTP delivery when Resend is not configured', async () => {
   const restore = saveEnvironment(['RESEND_API_KEY', 'EMAIL_SMTP_HOST', 'EMAIL_SMTP_USER', 'EMAIL_SMTP_PASS']);
   try {
