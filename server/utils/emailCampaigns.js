@@ -13,6 +13,11 @@ export function buildCampaignSubject(type = 'welcome', restaurantName = 'Wrap & 
   return subjects[type] || `${restaurantName} update`;
 }
 
+export const campaignTypes = [
+  'welcome', 'reservation', 'thankyou', 'receipt', 'birthday', 'winback', 'loyalty',
+  'newsletter', 'new_menu', 'holiday', 'event', 'offer', 'review_request',
+];
+
 export function buildCampaignBody(type = 'welcome', options = {}) {
   const {
     firstName = 'friend',
@@ -37,14 +42,51 @@ export function buildCampaignBody(type = 'welcome', options = {}) {
   return `${message}\n\nUnsubscribe anytime from your email preferences. We respect your inbox and only send relevant updates from ${restaurantName}.`;
 }
 
-export function selectAudience(subscribers = [], segment = 'all', channel = 'email') {
+export function selectAudience(subscribers = [], segment = 'all', channel = 'email', suppressions = new Set()) {
   const resolvedSegment = String(segment || 'all').toLowerCase();
   const resolvedChannel = String(channel || 'email').toLowerCase();
+  const suppressedEmails = suppressions instanceof Set
+    ? suppressions
+    : new Set((suppressions || []).map((email) => String(email).trim().toLowerCase()));
 
   return subscribers.filter((subscriber) => {
     if (!subscriber || subscriber.active === 0 || subscriber.active === false) return false;
-    if (resolvedChannel !== 'all' && String(subscriber.channel || 'email').toLowerCase() !== resolvedChannel) return false;
+    const consent = String(subscriber.consent_status || subscriber.consentStatus || '').toLowerCase();
+    if (consent !== 'subscribed') return false;
+    if (subscriber.verified === 0 || subscriber.verified === false) return false;
+    const email = String(subscriber.email || '').trim().toLowerCase();
+    if (!email || suppressedEmails.has(email)) return false;
+    const preferredChannel = String(subscriber.preferred_channel || subscriber.preferredChannel || subscriber.channel || 'email').toLowerCase();
+    if (resolvedChannel !== 'all' && preferredChannel !== resolvedChannel) return false;
     if (resolvedSegment !== 'all' && String(subscriber.segment || 'regular').toLowerCase() !== resolvedSegment) return false;
-    return Boolean(subscriber.email);
+    return true;
   });
+}
+
+export function renderEmailTemplate(value = '', variables = {}) {
+  const values = {
+    first_name: variables.firstName || 'friend',
+    last_name: variables.lastName || '',
+    email: variables.email || '',
+    restaurant_name: variables.restaurantName || 'Wrap & Roll',
+    offer: variables.offer || '',
+    order_id: variables.orderId || '',
+    unsubscribe_url: variables.unsubscribeUrl || '',
+    review_url: variables.reviewUrl || '',
+    reservation_date: variables.reservationDate || '',
+  };
+  return String(value || '').replace(/{{\s*([a-z_]+)\s*}}/gi, (match, key) => (
+    Object.hasOwn(values, key.toLowerCase()) ? String(values[key.toLowerCase()]) : match
+  ));
+}
+
+export function escapeEmailHtml(value = '') {
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[character]));
+}
+
+export function plainTextToHtml(value = '') {
+  const lines = String(value).split(/\r?\n/).map((line) => escapeEmailHtml(line));
+  return `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#24211e">${lines.map((line) => line || '&nbsp;').join('<br>')}</div>`;
 }

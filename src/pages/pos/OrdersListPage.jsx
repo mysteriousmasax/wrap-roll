@@ -47,6 +47,60 @@ function getCountdownText(order, now) {
   return `0:${String(remainingSeconds).padStart(2, '0')}`;
 }
 
+function getCustomerIdentityTokens(order) {
+  const phone = String(order.customerPhone || '').replace(/\D/g, '');
+  const email = String(order.customerEmail || '').trim().toLowerCase();
+  const identities = [];
+  if (phone) identities.push(`phone:${phone}`);
+  if (email) identities.push(`email:${email}`);
+  if (identities.length) return identities;
+
+  const name = String(order.customer || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!name || ['guest', 'guest customer', 'walk-in', 'walk-in customer'].includes(name)) {
+    return [`order:${order.id}`];
+  }
+  return [`name:${name}`];
+}
+
+function groupOrdersByCustomer(orders) {
+  const groups = [];
+  const groupByIdentity = new Map();
+
+  for (const order of orders) {
+    const identities = getCustomerIdentityTokens(order);
+    const matches = [...new Set(identities.map((identity) => groupByIdentity.get(identity)).filter(Boolean))];
+    const group = matches[0] || { key: identities[0], identities: new Set(), orders: [] };
+
+    for (const duplicate of matches.slice(1)) {
+      group.orders.push(...duplicate.orders);
+      for (const identity of duplicate.identities) {
+        group.identities.add(identity);
+        groupByIdentity.set(identity, group);
+      }
+      groups.splice(groups.indexOf(duplicate), 1);
+    }
+
+    group.orders.push(order);
+    for (const identity of identities) {
+      group.identities.add(identity);
+      groupByIdentity.set(identity, group);
+    }
+    if (!matches.length) groups.push(group);
+  }
+
+  return groups.map((group) => {
+    group.orders.sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
+    const contacts = [...new Set(group.orders.flatMap((order) => [order.customerPhone, order.customerEmail]).filter(Boolean))];
+    return {
+      ...group,
+      customerName: group.orders.find((order) => order.customer)?.customer || 'Walk-in customer',
+      contacts,
+      total: group.orders.reduce((sum, order) => sum + Number(order.total || 0), 0),
+      latestOrderAt: new Date(group.orders[0]?.createdAt || 0).getTime(),
+    };
+  }).sort((left, right) => right.latestOrderAt - left.latestOrderAt);
+}
+
 function OrderDetails({ order, onClose }) {
   if (!order) return null;
 
@@ -176,6 +230,7 @@ export default function OrdersListPage() {
     const searchText = `${order.id} ${order.customer || ''} ${order.type || ''} ${(order.items || []).map((item) => item.name).join(' ')}`.toLowerCase();
     return (activeFilter === 'all' || order.status === activeFilter) && searchText.includes(search.toLowerCase());
   }), [orders, activeFilter, search]);
+  const customerGroups = useMemo(() => groupOrdersByCustomer(visibleOrders), [visibleOrders]);
   const statusCount = (status) => orders.filter((order) => order.status === status).length;
   const deleteOrder = async (order) => {
     if (!window.confirm(`Permanently delete order ${order.id}? This cannot be undone.`)) return;
@@ -195,9 +250,20 @@ export default function OrdersListPage() {
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4"><div className="orders-summary-card border-l-4 border-primary"><p>All orders</p><strong>{orders.length}</strong><span>Across all channels</span></div><div className="orders-summary-card border-l-4 border-secondary"><p>Pending</p><strong>{statusCount('pending')}</strong><span>Waiting for kitchen</span></div><div className="orders-summary-card border-l-4 border-warning"><p>Preparing</p><strong>{statusCount('preparing')}</strong><span>Currently cooking</span></div><div className="orders-summary-card border-l-4 border-success"><p>Ready</p><strong>{statusCount('ready')}</strong><span>Ready to serve</span></div></div>
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex gap-2 overflow-x-auto">{filters.map((filter) => <button key={filter.id} onClick={() => setActiveFilter(filter.id)} className={`whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold transition-colors ${activeFilter === filter.id ? 'bg-primary text-white' : 'bg-white text-surface-on hover:bg-surface-container-low'}`}>{filter.label}{filter.id !== 'all' && <span className="ml-2 opacity-70">{statusCount(filter.id)}</span>}</button>)}</div><div className="relative w-full lg:w-72"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order, customer, item..." className="input-field pl-9" /></div></div>
       <div>
-        {loading ? <div className="card p-6 text-sm text-surface-on-variant">Loading orders...</div> : visibleOrders.length === 0 ? <div className="card p-10 text-center"><ShoppingBag size={30} className="mx-auto mb-2 text-outline" /><p className="text-sm font-semibold">No orders found</p><p className="mt-1 text-xs text-surface-on-variant">Try another search or status filter.</p></div> : <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {visibleOrders.map((order) => <OrderCard key={order.id} order={order} now={now} onSelect={setSelectedOrder} onDelete={deleteOrder} canDelete={canDelete} settings={settings} />)}
-        </div>}
+        {loading ? <div className="card p-6 text-sm text-surface-on-variant">Loading orders...</div> : customerGroups.length === 0 ? <div className="card p-10 text-center"><ShoppingBag size={30} className="mx-auto mb-2 text-outline" /><p className="text-sm font-semibold">No orders found</p><p className="mt-1 text-xs text-surface-on-variant">Try another search or status filter.</p></div> : customerGroups.map((group) => (
+          <section key={group.key} className="mb-8 last:mb-0">
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-2 border-b border-outline-variant pb-3">
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-bold text-surface-on">{group.customerName}</h2>
+                {group.contacts.length > 0 && <p className="mt-1 truncate text-xs text-surface-on-variant">{group.contacts.join(' · ')}</p>}
+              </div>
+              <p className="shrink-0 text-xs text-surface-on-variant">{group.orders.length} order{group.orders.length === 1 ? '' : 's'} · {formatCurrency(group.total)}</p>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {group.orders.map((order) => <OrderCard key={order.id} order={order} now={now} onSelect={setSelectedOrder} onDelete={deleteOrder} canDelete={canDelete} settings={settings} />)}
+            </div>
+          </section>
+        ))}
       </div>
       <OrderDetails order={selectedOrder} onClose={() => setSelectedOrder(null)} />
     </div>

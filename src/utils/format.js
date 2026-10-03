@@ -1,5 +1,16 @@
 import useSettingsStore from '../store/useSettingsStore';
 import { api } from '../api/client';
+import { isAndroidCompanion, printOnAndroidPrinter } from '../native/thermalPrinter';
+import { buildThermalCustomerInvoice, buildThermalFiscalInvoice, buildThermalReceipt } from './thermalText';
+
+async function printNativeDocument(text) {
+  try {
+    return await printOnAndroidPrinter(text);
+  } catch (error) {
+    window.alert(error.message || 'Bluetooth printing failed. Check the paired printer in Settings.');
+    return false;
+  }
+}
 
 export const formatCurrency = (amount, currency) => {
   const cur = currency || useSettingsStore.getState().getCurrency() || localStorage.getItem('wraproll_display_currency') || 'TZS';
@@ -17,6 +28,9 @@ export const formatDate = (date) => new Date(date).toLocaleDateString('en-US', {
 export const formatTime = (date) => new Date(date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
 export function printReceipt(order) {
+  if (isAndroidCompanion()) {
+    return printNativeDocument(buildThermalReceipt(order, useSettingsStore.getState().settings || {}));
+  }
   const win = window.open('', '_blank', 'width=400,height=600');
   if (!win) return;
   const items = (order.items || [])
@@ -44,6 +58,7 @@ export function printReceipt(order) {
 }
 
 export async function printThermalReceipt(order) {
+  if (isAndroidCompanion()) return printReceipt(order);
   try {
     await api.printReceipt(order);
     return true;
@@ -54,6 +69,7 @@ export async function printThermalReceipt(order) {
 }
 
 export function printInvoice(invoice, printWindow = null) {
+  if (isAndroidCompanion()) return printNativeDocument(buildThermalCustomerInvoice(invoice));
   const win = printWindow || window.open('', '_blank', 'width=720,height=900');
   if (!win) return;
   const customer = invoice.customer || {};
@@ -63,6 +79,7 @@ export function printInvoice(invoice, printWindow = null) {
 }
 
 export function printFiscalInvoice(order, settings = {}, printWindow = null) {
+  if (isAndroidCompanion()) return printNativeDocument(buildThermalFiscalInvoice(order, settings));
   const win = printWindow || window.open('', '_blank', 'width=420,height=760');
   if (!win) return false;
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));

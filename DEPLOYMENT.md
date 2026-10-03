@@ -11,6 +11,20 @@ Copy `.env.example` to `.env` and set:
 - `PUBLIC_APP_URL`: public origin used to generate NFC table scan links. Set this to `https://wrapandrolltz.com`.
 - `PORT`: the port supplied by the hosting provider, when applicable.
 - `DB_PATH`: the path to `wraproll.db` on persistent storage. For Docker deployments use `/data/wraproll.db` and mount `/data` to a named volume or host directory.
+- `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASS`, and `EMAIL_FROM_ADDRESS`: configure the business sender account for one-to-one CRM emails.
+- `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID`: configure the WhatsApp Business Cloud API sender.
+- `INSTAGRAM_ACCESS_TOKEN` (or shared `META_ACCESS_TOKEN`) and `INSTAGRAM_PAGE_ID`: configure Instagram Messaging for the connected professional account.
+- `META_GRAPH_API_VERSION`: optional Graph API version; defaults to `v23.0`.
+- `EMAIL_REPLY_TO`, `EMAIL_POSTAL_ADDRESS`, and `EMAIL_DKIM_SELECTOR`: set reply handling, the real postal address required in marketing footers, and the DKIM DNS selector.
+- `EMAIL_WEBHOOK_SECRET`: bearer secret for `POST /api/email-marketing/webhooks/events` integration events. `subscriber.created` events must include `marketingConsent: true`; `order.paid` events enroll already-consented customers in post-visit automations.
+
+CRM messages are sent through these provider APIs; missing credentials produce a configuration error rather than a false success. WhatsApp free-form messages are subject to Meta's customer-service window and may require an approved template outside it. Instagram recipients must have messaged the connected account and their Meta-scoped recipient ID must be saved in the customer's loyalty profile; a public Instagram profile URL is not a messaging recipient ID.
+
+## Email Marketing service
+
+The POS includes a self-hosted contact, campaign, template, automation, suppression, and delivery-tracking service at Management > Email Marketing. Campaigns are queued and processed by the server worker. Only active contacts with `consent_status=subscribed` and no suppression are eligible. Subscriber CSV imports must include a `consent` or `marketing_consent` column with an affirmative value; opt-outs are signed, one-click capable, and permanently suppressed until explicit re-consent is recorded.
+
+The app uses an authenticated SMTP relay for outbound mail. It does not run an MTA inside the Railway web container: reliable self-hosted sending additionally requires a static IP, port 25 access, matching PTR/rDNS, domain DNS control, and bounce/complaint handling. Use the Sending setup page to test SMTP and check SPF, DKIM, DMARC, MX, and optional PTR records. Do not send production campaigns until DNS authentication and the real postal address are configured.
 
 For a separately hosted frontend, set `VITE_API_BASE_URL` to the API URL ending in `/api` and `VITE_WS_URL` to the API WebSocket URL ending in `/ws` before building.
 
@@ -73,6 +87,26 @@ The hosted POS cannot access a printer attached to a branch computer. Install th
 The KP58ZJ profile defaults to 58 mm paper, 32 columns, and 9600 baud. The 5V/2A rating is a power requirement, not a software setting. Bluetooth device names do not always identify printer models, so Windows COM auto-selection is automatic only when a single printer candidate is unambiguous; otherwise select the outgoing port manually. ESC/POS does not reliably report installed roll width, so width is configured from the selected printer profile rather than physically sensed. Staff orders created on the local desktop database print locally while offline; cloud-created staff POS orders queue in Railway and print after the till reconnects. Jobs older than 24 hours are marked failed rather than printed unexpectedly.
 
 ## Database persistence
+
+## Android Bluetooth printer companion
+
+The Android companion loads the hosted POS at `https://wrapandrolltz.com` and uses a native Bluetooth Classic SPP plugin to print locally from the phone. Build it on a workstation with Android Studio, Android SDK Platform 36, and JDK 17 installed:
+
+```bash
+npm install
+npm run mobile:android:sync
+npm run mobile:android:open
+```
+
+In Android Studio, build or install the `android` app. On the phone, pair the thermal printer in Android Bluetooth settings, then open System Settings > Receipt Printer, refresh paired devices, and select the printer. Android 12+ asks for the Bluetooth connect permission on first use. The app lists already paired printers; it does not scan or connect to arbitrary nearby devices.
+
+Receipt and invoice actions in the Android app send ESC/POS data over SPP. Browser and Windows desktop printing continue to use their existing paths. To build an APK from the command line after setting up the SDK:
+
+```bash
+npm run mobile:android:build
+```
+
+The `server.url` in `capacitor.config.json` makes this companion load the hosted POS. The Android package needs rebuilding when changing that URL or the native Bluetooth plugin.
 
 The app stores orders, payments, customers, staff activity, notifications, and settings in SQLite. A new container or hosting instance has a new filesystem, so deploying the image alone cannot preserve live data.
 

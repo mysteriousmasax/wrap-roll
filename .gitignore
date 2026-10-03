@@ -32,3 +32,9 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Android local toolchain and generated build output
+android/.gradle/
+android/local.properties
+android/build/
+android/app/build/

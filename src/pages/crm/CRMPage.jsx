@@ -6,6 +6,7 @@ import Button from '../../components/ui/Button';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency, printInvoice } from '../../utils/format';
+import { isAndroidCompanion } from '../../native/thermalPrinter';
 import { Search, Users, Star, AlertTriangle, Crown, TabletSmartphone, Mail, Instagram, Facebook, MessageSquareText, UtensilsCrossed, MapPinned, Gift, CalendarDays, Save, Sparkles, ShieldAlert, Send, Brain, Target, Receipt } from 'lucide-react';
 
 function WhatsAppLogo({ className = 'h-4 w-4' }) {
@@ -14,6 +15,29 @@ function WhatsAppLogo({ className = 'h-4 w-4' }) {
       <path d="M16 2.5C8.56 2.5 2.5 8.56 2.5 16c0 2.23.57 4.43 1.62 6.34L2.5 29.5l7.2-1.58A13.5 13.5 0 1 0 16 2.5Z" fill="#25D366"/>
       <path d="M12.87 9.53c-.51-.98-1.1-.95-1.51-.96h-.84c-.4 0-.96.12-1.47.64-.5.52-1.91 1.86-1.91 4.53 0 2.67 1.96 5.27 2.23 5.64.28.37 3.75 5.95 9.24 8.09 4.46 1.76 5.36 1.41 6.32 1.32.96-.09 3.14-1.28 3.57-2.6.42-1.31.42-2.44.3-2.68-.12-.25-.44-.39-1-.7-.55-.3-3.11-1.52-3.59-1.7-.47-.18-.82-.27-1.16.25-.35.54-1.38 1.7-1.72 2.01-.35.31-.69.32-1.42.11-.74-.21-2.34-1.13-4.18-3.03-1.56-1.61-2.31-3.15-2.57-3.89-.27-.73-.1-1.13.27-1.7.27-.42.73-1.05.97-1.4.25-.35.4-.75.09-1.63-.32-.89-1.31-2.77-1.66-3.56Z" fill="#fff"/>
     </svg>
+  );
+}
+
+function CustomerMessageActions({ customer, onSend, sendingChannel }) {
+  const [message, setMessage] = useState(`Hello ${customer.name?.split(' ')[0] || 'there'}, we would love to serve you again soon.`);
+  const instagramRecipientId = customer.socialLinks?.instagramRecipientId || customer.socialLinks?.instagram_scoped_id;
+
+  return (
+    <div className="customer-message-actions" onClick={(event) => event.stopPropagation()}>
+      <textarea aria-label={`Message to ${customer.name}`} rows={2} maxLength={4096} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Write a message" />
+      <div className="customer-message-buttons">
+        <button type="button" className="whatsapp" disabled={!customer.phone || Boolean(sendingChannel)} onClick={() => onSend(customer, 'whatsapp', message)} title={customer.phone ? 'Send with the Wrap & Roll WhatsApp Business account' : 'Add a phone number to this customer'}>
+          <WhatsAppLogo /> <span>WhatsApp</span>
+        </button>
+        <button type="button" className="email" disabled={!customer.email || Boolean(sendingChannel)} onClick={() => onSend(customer, 'email', message)} title={customer.email ? 'Send from the configured Wrap & Roll email account' : 'Add an email address to this customer'}>
+          <Mail size={15} /> <span>Email</span>
+        </button>
+        <button type="button" className="instagram" disabled={!instagramRecipientId || Boolean(sendingChannel)} onClick={() => onSend(customer, 'instagram', message)} title={instagramRecipientId ? 'Send with the connected Instagram account' : 'Add the Instagram messaging recipient ID to this customer'}>
+          <Instagram size={15} /> <span>Instagram</span>
+        </button>
+      </div>
+      {sendingChannel && <p className="text-[10px] text-surface-on-variant">Sending via {channelMeta[sendingChannel]?.label}...</p>}
+    </div>
   );
 }
 
@@ -42,6 +66,7 @@ export default function CRMPage() {
   const [aiQuestion, setAiQuestion] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(null);
 
   useEffect(() => {
     if (!selectedCustomerId) {
@@ -118,23 +143,6 @@ export default function CRMPage() {
 
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) || customers[0] || null;
 
-  const openWhatsApp = (customer) => {
-    const phoneNumber = (customer?.phone || '255712345678').replace(/\D/g, '');
-    const message = encodeURIComponent(`Hello ${customer?.name || 'Wrap & Roll'}, we would love to serve you again soon.`);
-    const whatsappAppUrl = `whatsapp://send?phone=${phoneNumber}&text=${message}`;
-    const whatsappWebUrl = `https://wa.me/${phoneNumber}?text=${message}`;
-
-    const newWindow = window.open(whatsappAppUrl, '_blank');
-    if (!newWindow) {
-      window.location.href = whatsappWebUrl;
-      return;
-    }
-
-    setTimeout(() => {
-      window.open(whatsappWebUrl, '_blank', 'noopener,noreferrer');
-    }, 500);
-  };
-
   const filtered = customers.filter((customer) => {
     const socialValues = Object.values(customer.socialLinks || {}).join(' ');
     const matchesSearch = `${customer.name} ${customer.phone || ''} ${customer.email || ''} ${socialValues}`.toLowerCase().includes(search.toLowerCase());
@@ -158,6 +166,23 @@ export default function CRMPage() {
     }
   };
 
+  const sendCustomerMessage = async (customer, channel, message) => {
+    if (!message.trim()) {
+      setStatus('Enter a message before sending.');
+      return;
+    }
+    setSendingMessage({ customerId: customer.id, channel });
+    setStatus('');
+    try {
+      await api.sendCustomerMessage(customer.id, { channel, message });
+      setStatus(`${channelMeta[channel].label} message sent to ${customer.name}.`);
+    } catch (error) {
+      setStatus(error.message || `Unable to send via ${channelMeta[channel].label}.`);
+    } finally {
+      setSendingMessage(null);
+    }
+  };
+
   const sendHolidayNotice = async () => {
     try {
       const response = await api.dispatchHolidayNotifications();
@@ -169,16 +194,20 @@ export default function CRMPage() {
 
   const createInvoice = async () => {
     if (!selectedCustomer) return;
-    const printWindow = window.open('', '_blank', 'width=720,height=900');
-    if (!printWindow) {
+    const printOnPhone = isAndroidCompanion();
+    const printWindow = printOnPhone ? null : window.open('', '_blank', 'width=720,height=900');
+    if (!printOnPhone && !printWindow) {
       setStatus('Chrome blocked the print window. Allow pop-ups for this site and try again.');
       return;
     }
-    printWindow.document.write('<p style="font-family:Arial,sans-serif;padding:32px">Preparing invoice...</p>');
+    printWindow?.document.write('<p style="font-family:Arial,sans-serif;padding:32px">Preparing invoice...</p>');
     setInvoiceLoading(true);
     try {
-      const invoice = await api.createCustomerInvoice(selectedCustomer.id);
-      if (invoice.printStatus === 'queued') {
+      const invoice = await api.createCustomerInvoice(selectedCustomer.id, { printLocally: printOnPhone });
+      if (printOnPhone) {
+        const printed = await printInvoice(invoice);
+        setStatus(printed ? `Invoice ${invoice.invoiceNumber} sent to the phone printer.` : `Invoice ${invoice.invoiceNumber} was created, but printing did not complete.`);
+      } else if (invoice.printStatus === 'queued') {
         printWindow.close();
         setStatus(`Invoice ${invoice.invoiceNumber} queued for the paired Bluetooth printer.`);
       } else if (invoice.printStatus === 'printed') {
@@ -190,7 +219,7 @@ export default function CRMPage() {
       }
       await loadCustomers();
     } catch (error) {
-      printWindow.close();
+      printWindow?.close();
       setStatus(error.message || 'Unable to create invoice. A paid order is required.');
     } finally {
       setInvoiceLoading(false);
@@ -235,9 +264,7 @@ export default function CRMPage() {
 
   return (
     <div className="crm-dashboard-shell p-4 sm:p-6">
-      <PageHeader title="CRM & Loyalty" subtitle="Customer relationship management and retention" actions={
-        <Button variant="whatsapp" size="sm" onClick={() => openWhatsApp(customers[0])}><WhatsAppLogo /> WhatsApp</Button>
-      } />
+      <PageHeader title="CRM & Loyalty" subtitle="Customer relationship management and retention" />
 
       {intelligence && <>
         <div className="grid grid-cols-2 gap-3 mb-6 lg:grid-cols-6">
@@ -312,9 +339,10 @@ export default function CRMPage() {
           ))}
         </div>
       </div>
+      {status && <p className="mb-4 rounded-lg bg-surface-container-low px-3 py-2 text-xs text-surface-on" role="status">{status}</p>}
 
-      <div className="grid gap-4 mb-6 xl:grid-cols-12">
-        <div className="grid gap-3 xl:col-span-8">
+      <div className="mb-6">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {filtered.map((customer) => (
             <Card
               key={customer.id}
@@ -364,24 +392,18 @@ export default function CRMPage() {
                 <p className="customer-top-channel">Top channel: <strong>{customer.channel || 'pos'}</strong></p>
               </div>
 
-              <Button
-                variant="whatsapp"
-                size="sm"
-                className="customer-whatsapp-button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  openWhatsApp(customer);
-                }}
-                aria-label={`Open WhatsApp for ${customer.name}`}
-              >
-                <WhatsAppLogo /> WhatsApp
-              </Button>
+              <CustomerMessageActions
+                customer={customer}
+                onSend={sendCustomerMessage}
+                sendingChannel={sendingMessage?.customerId === customer.id ? sendingMessage.channel : null}
+              />
             </Card>
           ))}
         </div>
+      </div>
 
-        {selectedCustomer && (
-          <Card className="p-4 xl:col-span-4">
+      {selectedCustomer && (
+          <Card className="mb-6 p-4">
             <div className="flex items-center gap-2 mb-3"><Gift size={16} className="text-primary" /><h3 className="font-bold text-sm">Loyalty profile</h3></div>
             <div className="space-y-3 text-xs">
               <div className="grid grid-cols-2 gap-2">
@@ -392,8 +414,9 @@ export default function CRMPage() {
               <label className="block"><span className="text-surface-on-variant block mb-1">NFC tag code</span><input value={customerForm.nfcTagCode || ''} onChange={(e) => handleCustomerChange('nfcTagCode', e.target.value)} className="input-field w-full" placeholder="WR-0001-123456" /></label>
               <label className="block"><span className="text-surface-on-variant block mb-1">NFC type</span><select value={customerForm.nfcTagType || 'key_holder'} onChange={(e) => handleCustomerChange('nfcTagType', e.target.value)} className="input-field w-full"><option value="key_holder">Key Holder</option><option value="engraved_card">Engraved Card</option><option value="phone_holder">Phone Holder</option><option value="premium_kit">Premium Kit</option></select></label>
               <label className="block"><span className="text-surface-on-variant block mb-1">Preferred channel</span><select value={customerForm.preferredChannel || 'pos'} onChange={(e) => handleCustomerChange('preferredChannel', e.target.value)} className="input-field w-full"><option value="pos">In-person</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">Email</option><option value="instagram">Instagram</option><option value="facebook">Facebook</option></select></label>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 {['whatsapp', 'instagram', 'facebook'].map((network) => <label key={network} className="block"><span className="text-surface-on-variant mb-1 block capitalize">{network} link</span><input value={customerForm.socialLinks?.[network] || ''} onChange={(e) => handleCustomerChange('socialLinks', { ...customerForm.socialLinks, [network]: e.target.value })} className="input-field w-full" placeholder={`https://${network}.com/...`} /></label>)}
+                <label className="block"><span className="text-surface-on-variant mb-1 block">Instagram messaging recipient ID</span><input value={customerForm.socialLinks?.instagramRecipientId || ''} onChange={(e) => handleCustomerChange('socialLinks', { ...customerForm.socialLinks, instagramRecipientId: e.target.value })} className="input-field w-full" placeholder="Meta-scoped recipient ID" /></label>
               </div>
               <label className="block"><span className="text-surface-on-variant block mb-1">Customer type</span><select value={customerForm.customerType || 'individual'} onChange={(e) => handleCustomerChange('customerType', e.target.value)} className="input-field w-full"><option value="individual">Normal customer</option><option value="company">Company customer</option></select></label>
               {customerForm.customerType === 'company' && <><label className="block"><span className="text-surface-on-variant block mb-1">Company name</span><input value={customerForm.companyName || ''} onChange={(e) => handleCustomerChange('companyName', e.target.value)} className="input-field w-full" /></label><label className="block"><span className="text-surface-on-variant block mb-1">TIN</span><input value={customerForm.tin || ''} onChange={(e) => handleCustomerChange('tin', e.target.value)} className="input-field w-full" /></label><label className="block"><span className="text-surface-on-variant block mb-1">Billing address</span><input value={customerForm.billingAddress || ''} onChange={(e) => handleCustomerChange('billingAddress', e.target.value)} className="input-field w-full" /></label></>}
@@ -403,7 +426,6 @@ export default function CRMPage() {
                 <Button variant="secondary" size="sm" onClick={createInvoice} disabled={invoiceLoading}><Receipt size={14} /> {invoiceLoading ? 'Creating...' : 'Create Invoice'}</Button>
                 <Button variant="secondary" size="sm" onClick={sendHolidayNotice}><Sparkles size={14} /> Notify</Button>
               </div>
-              {status && <p className="text-[11px] text-primary">{status}</p>}
             </div>
             <div className="mt-5 border-t border-outline-variant pt-4">
               <div className="mb-3 flex items-center justify-between gap-2"><h3 className="font-bold text-sm">Order history</h3><span className="text-[10px] text-surface-on-variant">{customerOrders.length} total</span></div>
@@ -412,8 +434,7 @@ export default function CRMPage() {
               </div>
             </div>
           </Card>
-        )}
-      </div>
+      )}
 
       <Card className="p-4">
         <div className="flex items-center gap-2 mb-3"><CalendarDays size={16} className="text-primary" /><h3 className="font-bold text-sm">World holiday feed</h3></div>

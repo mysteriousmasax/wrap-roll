@@ -27,6 +27,7 @@ import desktopRoutes from './routes/desktop.js';
 import emailMarketingRoutes from './routes/emailMarketing.js';
 import { startPrinterAgent } from './utils/printerAgent.js';
 import { checkPostgresConnection } from './db/postgres.js';
+import { startEmailMarketingWorker } from './utils/emailAutomationWorker.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' || process.env.PORT || process.env.RAILWAY_ENVIRONMENT ? '0.0.0.0' : '127.0.0.1');
@@ -50,6 +51,7 @@ const server = createServer(app);
 app.set('trust proxy', 1);
 app.use(cors({ origin: (origin, callback) => callback(null, isAllowedOrigin(origin)), credentials: true }));
 app.use(express.json({ limit: '8mb' }));
+app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
 app.get('/api/health', (_req, res) => {
   try {
@@ -90,6 +92,7 @@ app.use('/api/desktop', desktopRoutes);
 app.use('/api/email-marketing', emailMarketingRoutes);
 
 if (process.env.PRINTER_AGENT_ENABLED === 'true') startPrinterAgent();
+startEmailMarketingWorker();
 
 app.use(express.static(clientDist, { index: false, setHeaders: (res, filePath) => {
   if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-store');

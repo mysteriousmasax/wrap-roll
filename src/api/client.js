@@ -124,18 +124,50 @@ export const api = {
   askCrmAssistant: (question) => request('/crm-intelligence/ask', { method: 'POST', body: JSON.stringify({ question }) }),
   requestCrmAction: (type, payload) => request('/crm-intelligence/actions', { method: 'POST', body: JSON.stringify({ type, payload }) }),
   updateCustomerLoyalty: (id, data) => request(`/customers/${id}/loyalty`, { method: 'PATCH', body: JSON.stringify(data) }),
-  createCustomerInvoice: (id) => request(`/customers/${id}/invoices`, { method: 'POST' }),
+  createCustomerInvoice: (id, options = {}) => request(`/customers/${id}/invoices`, { method: 'POST', body: JSON.stringify(options) }),
   getLoyaltyItems: () => request('/loyalty'),
   deleteLoyaltyItem: (id) => request(`/loyalty/items/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getCampaignDashboard: () => request('/loyalty/dashboard'),
   dispatchCustomerCampaign: () => request('/loyalty/campaign/dispatch', { method: 'POST' }),
   getEmailMarketingOverview: () => request('/email-marketing/overview'),
-  getEmailSubscribers: () => request('/email-marketing/subscribers'),
+  subscribeToEmailMarketing: (data) => request('/email-marketing/subscribe', { method: 'POST', body: JSON.stringify(data) }),
+  getEmailSubscribers: (options = {}) => {
+    const query = new URLSearchParams(Object.entries(options).filter(([, value]) => value !== undefined && value !== ''));
+    return request(`/email-marketing/subscribers${query.size ? `?${query}` : ''}`);
+  },
   createEmailSubscriber: (data) => request('/email-marketing/subscribers', { method: 'POST', body: JSON.stringify(data) }),
   getEmailCampaigns: () => request('/email-marketing/campaigns'),
   createEmailCampaign: (data) => request('/email-marketing/campaigns', { method: 'POST', body: JSON.stringify(data) }),
   sendEmailCampaign: (id) => request(`/email-marketing/campaigns/${encodeURIComponent(id)}/send`, { method: 'POST' }),
+  testEmailCampaign: (id, email) => request(`/email-marketing/campaigns/${encodeURIComponent(id)}/test`, { method: 'POST', body: JSON.stringify({ email }) }),
+  updateEmailCampaign: (id, data) => request(`/email-marketing/campaigns/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteEmailCampaign: (id) => request(`/email-marketing/campaigns/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getEmailCampaignEvents: (id) => request(`/email-marketing/campaigns/${encodeURIComponent(id)}/events`),
+  sendCustomerMessage: (id, data) => request(`/customers/${encodeURIComponent(id)}/message`, { method: 'POST', body: JSON.stringify(data) }),
   sendWhatsApp: (data) => request('/customers/whatsapp', { method: 'POST', body: JSON.stringify(data) }),
+  updateEmailSubscriber: (id, data) => request(`/email-marketing/subscribers/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  importEmailSubscribers: (csv) => request('/email-marketing/subscribers/import', { method: 'POST', body: JSON.stringify({ csv }) }),
+  downloadEmailSubscribers: async () => {
+    const token = localStorage.getItem('wraproll_token');
+    const response = await fetch(`${API_BASE}/email-marketing/subscribers/export`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!response.ok) throw new ApiError('Unable to export subscriber list.', response.status);
+    return response.blob();
+  },
+  getEmailSuppressions: () => request('/email-marketing/suppressions'),
+  addEmailSuppression: (data) => request('/email-marketing/suppressions', { method: 'POST', body: JSON.stringify(data) }),
+  releaseEmailSuppression: (email) => request(`/email-marketing/suppressions/${encodeURIComponent(email)}`, { method: 'DELETE', body: JSON.stringify({ consentConfirmed: true }) }),
+  getEmailSmtpStatus: () => request('/email-marketing/smtp/status'),
+  getEmailDeliverability: () => request('/email-marketing/deliverability'),
+  testEmailSmtp: (email) => request('/email-marketing/smtp/test', { method: 'POST', body: JSON.stringify({ email }) }),
+  getEmailTemplates: () => request('/email-marketing/templates'),
+  createEmailTemplate: (data) => request('/email-marketing/templates', { method: 'POST', body: JSON.stringify(data) }),
+  updateEmailTemplate: (id, data) => request(`/email-marketing/templates/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteEmailTemplate: (id) => request(`/email-marketing/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getEmailAutomations: () => request('/email-marketing/automations'),
+  createEmailAutomation: (data) => request('/email-marketing/automations', { method: 'POST', body: JSON.stringify(data) }),
+  updateEmailAutomation: (id, data) => request(`/email-marketing/automations/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteEmailAutomation: (id) => request(`/email-marketing/automations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getEmailDeliveries: () => request('/email-marketing/deliveries'),
 
   getHolidayFeed: () => request('/calendar/feed'),
   syncHolidayFeed: () => request('/calendar/sync', { method: 'POST' }),

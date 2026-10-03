@@ -337,13 +337,57 @@
   font-weight: 700;
 }
 
-.customer-whatsapp-button {
+.customer-message-actions {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.customer-message-actions textarea {
   width: 100%;
+  resize: vertical;
+  border: 1px solid rgba(109, 73, 56, 0.16);
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.55rem 0.65rem;
+  color: #24211e;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.customer-message-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.customer-message-buttons button {
+  display: flex;
+  min-width: 0;
+  min-height: 2.45rem;
+  align-items: center;
   justify-content: center;
-  min-height: 2.8rem;
-  border-radius: 14px !important;
-  font-size: 0.82rem !important;
-  font-weight: 800 !important;
+  gap: 0.3rem;
+  border: 1px solid rgba(109, 73, 56, 0.14);
+  border-radius: 9px;
+  background: #fff;
+  padding: 0.4rem 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.customer-message-buttons button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.customer-message-buttons button.whatsapp { color: #168646; }
+.customer-message-buttons button.email { color: #a45a0a; }
+.customer-message-buttons button.instagram { color: #b42363; }
+
+.customer-message-buttons button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 768px) {

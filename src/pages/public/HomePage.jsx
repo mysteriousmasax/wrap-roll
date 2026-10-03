@@ -141,6 +141,7 @@ export default function HomePage() {
   const [customerEmail, setCustomerEmail] = useState(
     () => localStorage.getItem('wraproll_customer_email') || ''
   );
+  const [emailMarketingConsent, setEmailMarketingConsent] = useState(false);
 
   useEffect(() => {
     const targets = [heroHeadingRef.current, menuHeadingRef.current].filter(Boolean);
@@ -409,11 +410,23 @@ export default function HomePage() {
         orderSource: tableContext ? 'nfc' : 'website',
         paymentReference: paymentReference || undefined,
       });
+      const subscribeForEmailUpdates = emailMarketingConsent && customerEmail.trim();
       setActivePlacedOrder(order);
       setPaymentModalOpen(true);
       setCartItems([]);
       setCartOpen(false);
+      setEmailMarketingConsent(false);
       setOrderStatus('');
+      if (subscribeForEmailUpdates) {
+        api.subscribeToEmailMarketing({
+            email: customerEmail,
+            firstName: customerName.trim().split(/\s+/)[0] || '',
+            lastName: customerName.trim().split(/\s+/).slice(1).join(' '),
+            marketingConsent: true,
+            source: 'website_checkout',
+          }).then(() => setOrderStatus('Check your email to confirm marketing updates.'))
+          .catch((subscriptionError) => setOrderStatus(`Your order is safe. Email signup could not be completed: ${subscriptionError.message}`));
+      }
     } catch (error) {
       setOrderStatus(error.message || 'We could not send that order.');
     }
@@ -966,6 +979,7 @@ export default function HomePage() {
                   <input required value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Your Full Name" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
                   <input required type="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="Phone Number (e.g., 0712345678)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
                   <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="Email Address (Optional)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
+                  <label className="flex items-start gap-2 px-1 text-[11px] leading-4 text-[#746e67]"><input type="checkbox" checked={emailMarketingConsent} onChange={(event) => setEmailMarketingConsent(event.target.checked)} disabled={!customerEmail.trim()} className="mt-0.5" /><span>Email me restaurant news and offers. I’ll confirm my subscription from my inbox.</span></label>
 
                   <div className="flex gap-2">
                     <input required value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder="Delivery Address or Table Number" className="flex-1 px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />

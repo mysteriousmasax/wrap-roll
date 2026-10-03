@@ -1,0 +1,9 @@
+{
+  "appId": "tz.wrapandroll.pos",
+  "appName": "Wrap & Roll POS",
+  "webDir": "dist",
+  "server": {
+    "url": "https://wrapandrolltz.com",
+    "cleartext": false
+  }
+}

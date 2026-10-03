@@ -3,6 +3,7 @@ import db from '../db/database.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
 import { printReceipt } from '../utils/escposPrinter.js';
+import { sendCrmMessage } from '../utils/crmMessaging.js';
 
 const router = Router();
 
@@ -319,39 +320,51 @@ router.post('/:id/invoices', authMiddleware, async (req, res) => {
   const now = new Date().toISOString();
   db.prepare(`INSERT OR IGNORE INTO invoices (invoice_number, customer_id, order_id, customer_type, company_name, tin, billing_address, subtotal, tax, total, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(invoiceNumber, customer.id, order.id, customer.customer_type || 'individual', customer.company_name || null, customer.tin || null, customer.billing_address || null, order.subtotal, order.tax, order.total, now);
-  let printStatus = 'failed';
-  try {
-    const settings = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((row) => [row.key, row.value]));
-    const invoice = { ...order, items, invoiceNumber, customer: mapCustomer(customer) };
-    await printReceipt(invoice, settings);
-    printStatus = 'printed';
-  } catch (error) {
-    console.warn('Invoice printer unavailable:', error.message);
-    const settings = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((row) => [row.key, row.value]));
-    const branchCode = settings.branch_code || 'MAIN';
-    const pairedAgent = db.prepare('SELECT id FROM printer_agents WHERE branch_code = ? LIMIT 1').get(branchCode);
-    if (process.platform !== 'win32' && pairedAgent) {
+  let printStatus = req.body?.printLocally === true ? 'native' : 'failed';
+  if (req.body?.printLocally !== true) {
+    try {
+      const settings = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((row) => [row.key, row.value]));
       const invoice = { ...order, items, invoiceNumber, customer: mapCustomer(customer) };
-      db.prepare(`INSERT INTO printer_document_jobs (document_type, document_id, payload, branch_code, created_at)
-        VALUES ('invoice', ?, ?, ?, ?)`)
-        .run(invoiceNumber, JSON.stringify(invoice), branchCode, new Date().toISOString());
-      printStatus = 'queued';
+      await printReceipt(invoice, settings);
+      printStatus = 'printed';
+    } catch (error) {
+      console.warn('Invoice printer unavailable:', error.message);
+      const settings = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((row) => [row.key, row.value]));
+      const branchCode = settings.branch_code || 'MAIN';
+      const pairedAgent = db.prepare('SELECT id FROM printer_agents WHERE branch_code = ? LIMIT 1').get(branchCode);
+      if (process.platform !== 'win32' && pairedAgent) {
+        const invoice = { ...order, items, invoiceNumber, customer: mapCustomer(customer) };
+        db.prepare(`INSERT INTO printer_document_jobs (document_type, document_id, payload, branch_code, created_at)
+          VALUES ('invoice', ?, ?, ?, ?)`)
+          .run(invoiceNumber, JSON.stringify(invoice), branchCode, new Date().toISOString());
+        printStatus = 'queued';
+      }
     }
   }
   res.status(201).json({ invoiceNumber, customer: mapCustomer(customer), order, items, createdAt: now, printStatus });
 });
 
-router.post('/whatsapp', authMiddleware, (req, res) => {
+router.post('/:id/message', authMiddleware, async (req, res) => {
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+  try {
+    const result = await sendCrmMessage({ customer, channel: req.body?.channel, message: req.body?.message });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(error.statusCode || 502).json({ error: error.message || 'Unable to send customer message.' });
+  }
+});
+
+router.post('/whatsapp', authMiddleware, async (req, res) => {
   const { customerId, message, templateName } = req.body;
   const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
-
-  const now = new Date().toISOString();
-  db.prepare(
-    'INSERT INTO notifications (type, title, message, read, created_at) VALUES (?, ?, ?, 0, ?)'
-  ).run('success', 'WhatsApp Sent', `Message sent to ${customer.name}: ${message || templateName}`, now);
-
-  res.json({ ok: true, customer: mapCustomer(customer), message: message || templateName });
+  try {
+    const result = await sendCrmMessage({ customer, channel: 'whatsapp', message: message || templateName });
+    res.json({ ok: true, customer: mapCustomer(customer), ...result });
+  } catch (error) {
+    res.status(error.statusCode || 502).json({ error: error.message || 'Unable to send WhatsApp message.' });
+  }
 });
 
 export default router;

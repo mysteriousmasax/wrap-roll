@@ -22,7 +22,7 @@ import AiAssistantPage from './pages/management/AiAssistantPage';
 import SettingsPage from './pages/management/SettingsPage';
 import LoyaltyManagementPage from './pages/management/LoyaltyManagementPage';
 import CampaignDashboardPage from './pages/management/CampaignDashboardPage';
-import EmailMarketingPage from './pages/management/EmailMarketingPage';
+import EmailMarketingPage from './pages/management/email/EmailMarketingWorkspace';
 import OperationsHubPage from './pages/management/OperationsHubPage';
 import PaymentVerificationPage from './pages/management/PaymentVerificationPage';
 import PeopleHubPage from './pages/management/PeopleHubPage';

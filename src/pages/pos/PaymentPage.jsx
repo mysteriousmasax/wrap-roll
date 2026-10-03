@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertCircle } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Banknote, Smartphone } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
 import useCartStore from '../../store/useCartStore';
 import useOrderStore from '../../store/useOrderStore';
@@ -13,6 +13,7 @@ export default function PaymentPage() {
   const [error, setError] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [selectedMethod, setSelectedMethod] = useState('lipa_namba');
   const [paymentOrder, setPaymentOrder] = useState(null);
   const location = useLocation();
 
@@ -32,16 +33,6 @@ export default function PaymentPage() {
   }, [cartCustomerPhone]);
 
   const handlePayment = async () => {
-    if (!customerEmail) {
-      setError('Email address is required');
-      return;
-    }
-
-    if (!customerPhone) {
-      setError('Phone number is required');
-      return;
-    }
-
     setProcessing(true);
     setError('');
 
@@ -68,8 +59,8 @@ export default function PaymentPage() {
         deliveryAddress: deliveryAddress || null,
         deliveryLatitude,
         deliveryLongitude,
-        paymentMethod: 'lipa_namba',
-        paymentTiming: 'pay-later',
+        paymentMethod: selectedMethod,
+        paymentTiming: selectedMethod === 'cash' ? 'paid-cash' : 'pay-later',
         orderSource,
       });
 
@@ -83,7 +74,13 @@ export default function PaymentPage() {
       }
 
       clearCart();
-      setPaymentOrder(order);
+      if (selectedMethod === 'cash') {
+        navigate('/pos/success', {
+          state: { order, orderId: order.id, total: order.total, method: 'cash' },
+        });
+      } else {
+        setPaymentOrder(order);
+      }
     } catch (err) {
       setError(err.message || 'Payment failed. Please try again.');
       setProcessing(false);
@@ -152,7 +149,7 @@ export default function PaymentPage() {
           <h3 className="font-bold text-sm mb-4">Customer Information</h3>
           <div className="space-y-3">
             <div>
-              <label className="block text-xs font-semibold text-surface-on-variant mb-1">Email Address *</label>
+              <label className="block text-xs font-semibold text-surface-on-variant mb-1">Email Address (Optional)</label>
               <input
                 type="email"
                 value={customerEmail}
@@ -162,7 +159,7 @@ export default function PaymentPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-surface-on-variant mb-1">Phone Number *</label>
+              <label className="block text-xs font-semibold text-surface-on-variant mb-1">Phone Number (Optional)</label>
               <input
                 type="tel"
                 value={customerPhone}
@@ -171,6 +168,32 @@ export default function PaymentPage() {
                 className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
+          </div>
+        </div>
+
+        <div className="card mb-6">
+          <h3 className="font-bold text-sm mb-3">Payment Method</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {[
+              { id: 'cash', label: 'Cash', description: 'Collected by staff', icon: Banknote },
+              { id: 'lipa_namba', label: 'Lipa Namba', description: 'Mobile money', icon: Smartphone },
+            ].map(({ id, label, description, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setSelectedMethod(id)}
+                aria-pressed={selectedMethod === id}
+                className={'flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ' + (
+                  selectedMethod === id ? 'border-primary bg-primary/5' : 'border-outline-variant hover:border-primary/50'
+                )}
+              >
+                <Icon size={20} className={selectedMethod === id ? 'text-primary' : 'text-surface-on-variant'} />
+                <span>
+                  <span className="block text-sm font-semibold">{label}</span>
+                  <span className="block text-xs text-surface-on-variant">{description}</span>
+                </span>
+              </button>
+            ))}
           </div>
         </div>
 
@@ -185,18 +208,18 @@ export default function PaymentPage() {
           </Button>
           <Button
             onClick={handlePayment}
-            disabled={processing || !customerEmail || !customerPhone}
+            disabled={processing}
             className="flex-1"
           >
-            {processing ? 'Creating order...' : 'Continue to payment'}
+            {processing ? 'Creating order...' : selectedMethod === 'cash' ? 'Complete cash order' : 'Continue to Lipa Namba'}
           </Button>
         </div>
 
-        <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+        {selectedMethod === 'lipa_namba' && <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <p className="text-xs text-blue-900">
             <strong>Manual confirmation:</strong> Your order stays pending until a staff member confirms that the Lipa Namba payment has been received.
           </p>
-        </div>
+        </div>}
       </div>
       <LipaPaymentModal
         order={paymentOrder}

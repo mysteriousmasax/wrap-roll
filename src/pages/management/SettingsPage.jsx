@@ -3,6 +3,7 @@ import PageHeader from '../../components/layout/PageHeader';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
+import MobileBluetoothPrinterSettings from '../../components/settings/MobileBluetoothPrinterSettings';
 import { api } from '../../api/client';
 import useSettingsStore from '../../store/useSettingsStore';
 import { Save, Store, Receipt, CreditCard, Globe, Shield, Bell, MessageCircle, Star, Plus, Trash2, Brain, Download, Printer, RefreshCw, Copy, Link2 } from 'lucide-react';
@@ -431,6 +432,7 @@ export default function SettingsPage() {
                   Automatically print staff POS orders
                 </label>
               </div>
+              <MobileBluetoothPrinterSettings />
               {isLocalPrinterHost ? (
                 <div className="mt-5 space-y-4 border-t border-outline-variant pt-4">
                   <div className="flex flex-wrap items-end gap-3">

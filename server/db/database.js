@@ -444,6 +444,12 @@ export async function initDatabase() {
       customer_id INTEGER,
       active INTEGER DEFAULT 1,
       verified INTEGER DEFAULT 1,
+      consent_status TEXT NOT NULL DEFAULT 'pending',
+      consent_at TEXT,
+      consent_source TEXT,
+      unsubscribed_at TEXT,
+      tags TEXT NOT NULL DEFAULT '[]',
+      custom_fields TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -460,6 +466,10 @@ export async function initDatabase() {
       payload TEXT DEFAULT '{}',
       body TEXT,
       status TEXT NOT NULL DEFAULT 'draft',
+      preheader TEXT DEFAULT '',
+      html_body TEXT,
+      scheduled_at TEXT,
+      sent_at TEXT,
       sent_count INTEGER DEFAULT 0,
       total_target INTEGER DEFAULT 0,
       created_at TEXT NOT NULL,
@@ -474,7 +484,94 @@ export async function initDatabase() {
       status TEXT NOT NULL DEFAULT 'queued',
       sent_at TEXT NOT NULL,
       response TEXT DEFAULT '',
+      message_id TEXT,
+      opened_at TEXT,
+      clicked_at TEXT,
+      bounced_at TEXT,
+      error_code TEXT,
+      metadata TEXT NOT NULL DEFAULT '{}',
       FOREIGN KEY (campaign_id) REFERENCES email_campaigns(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS email_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'marketing',
+      subject TEXT NOT NULL,
+      preheader TEXT DEFAULT '',
+      html_body TEXT NOT NULL DEFAULT '',
+      body_text TEXT NOT NULL DEFAULT '',
+      is_system INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS email_suppressions (
+      email TEXT PRIMARY KEY,
+      reason TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS email_automations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      trigger_type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      segment TEXT NOT NULL DEFAULT 'all',
+      config TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS email_automation_steps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      automation_id INTEGER NOT NULL,
+      step_order INTEGER NOT NULL,
+      delay_minutes INTEGER NOT NULL DEFAULT 0,
+      template_id INTEGER,
+      subject TEXT NOT NULL,
+      body_text TEXT NOT NULL,
+      FOREIGN KEY (automation_id) REFERENCES email_automations(id) ON DELETE CASCADE,
+      FOREIGN KEY (template_id) REFERENCES email_templates(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS email_automation_enrollments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      automation_id INTEGER NOT NULL,
+      subscriber_id INTEGER NOT NULL,
+      event_key TEXT NOT NULL,
+      current_step INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active',
+      next_send_at TEXT NOT NULL,
+      last_sent_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (automation_id, event_key),
+      FOREIGN KEY (automation_id) REFERENCES email_automations(id) ON DELETE CASCADE,
+      FOREIGN KEY (subscriber_id) REFERENCES email_subscribers(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS email_automation_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      automation_id INTEGER NOT NULL,
+      subscriber_id INTEGER NOT NULL,
+      step_id INTEGER,
+      email TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      sent_at TEXT NOT NULL,
+      message_id TEXT,
+      response TEXT DEFAULT '',
+      FOREIGN KEY (automation_id) REFERENCES email_automations(id) ON DELETE CASCADE,
+      FOREIGN KEY (subscriber_id) REFERENCES email_subscribers(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS email_webhook_events (
+      event_id TEXT PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'received',
+      received_at TEXT NOT NULL,
+      response TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS operational_summaries (
@@ -1046,6 +1143,42 @@ function migrateSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_email_campaigns_status ON email_campaigns(status);
     CREATE INDEX IF NOT EXISTS idx_email_subscribers_segment ON email_subscribers(segment, active);
+  `);
+
+  const emailColumns = {
+    email_subscribers: [
+      ['consent_status', "TEXT NOT NULL DEFAULT 'pending'"],
+      ['consent_at', 'TEXT'],
+      ['consent_source', 'TEXT'],
+      ['unsubscribed_at', 'TEXT'],
+      ['tags', "TEXT NOT NULL DEFAULT '[]'"],
+      ['custom_fields', "TEXT NOT NULL DEFAULT '{}'"],
+    ],
+    email_campaigns: [
+      ['preheader', "TEXT DEFAULT ''"],
+      ['html_body', 'TEXT'],
+      ['scheduled_at', 'TEXT'],
+      ['sent_at', 'TEXT'],
+    ],
+    email_campaign_events: [
+      ['message_id', 'TEXT'],
+      ['opened_at', 'TEXT'],
+      ['clicked_at', 'TEXT'],
+      ['bounced_at', 'TEXT'],
+      ['error_code', 'TEXT'],
+      ['metadata', "TEXT NOT NULL DEFAULT '{}'"],
+    ],
+  };
+  for (const [tableName, columns] of Object.entries(emailColumns)) {
+    const existingColumns = new Set(db.prepare(`PRAGMA table_info(${tableName})`).all().map((column) => column.name));
+    for (const [columnName, definition] of columns) {
+      if (!existingColumns.has(columnName)) db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+    }
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_email_campaign_events_campaign ON email_campaign_events(campaign_id, sent_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_email_automation_due ON email_automation_enrollments(status, next_send_at);
+    CREATE INDEX IF NOT EXISTS idx_email_suppressions_reason ON email_suppressions(reason, created_at DESC);
   `);
 
   db.exec(`
