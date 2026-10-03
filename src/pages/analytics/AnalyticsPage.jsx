@@ -24,6 +24,7 @@ import { formatCurrency } from '../../utils/format';
 import {
   ArrowRight,
   DollarSign,
+  Download,
   RefreshCw,
   ShoppingBag,
   Truck,
@@ -71,7 +72,29 @@ export default function AnalyticsPage() {
   const navigate = useNavigate();
   const currentUser = useAuthStore((state) => state.currentUser);
   const [summaryMessage, setSummaryMessage] = useState('');
+  const [exporting, setExporting] = useState(false);
   const refreshTimerRef = useRef(null);
+
+  const exportAnalytics = async (format) => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const { blob, filename } = await api.exportAnalytics(reportRange, format);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setSummaryMessage(`Exported ${reportRange} analytics (${format.toUpperCase()}).`);
+    } catch (error) {
+      setSummaryMessage(error.message || 'Unable to export analytics.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const loadAnalytics = async (showLoader = false) => {
     if (showLoader) setRefreshing(true);
@@ -146,10 +169,41 @@ export default function AnalyticsPage() {
         title="Executive Analytics"
         subtitle="Real-time restaurant revenue, category trends, and live order pipeline"
         actions={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <span className="hidden text-[10px] text-[#746e67] sm:block">
               Updated {lastUpdated?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
+            <div className="inline-flex rounded-full border border-[#ebdccb] bg-[#fbf6ee] p-1">
+              {['day', 'week', 'month'].map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setReportRange(option)}
+                  className={
+                    'rounded-full px-3 py-1 text-xs font-bold capitalize transition-colors ' +
+                    (reportRange === option ? 'bg-[#ae002a] text-white shadow-sm' : 'text-[#746e67] hover:bg-white')
+                  }
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => exportAnalytics('csv')}
+              disabled={exporting}
+              className="flex items-center gap-1.5 rounded-xl bg-white border border-[#ebdccb] px-3 py-2 text-xs font-bold text-[#227653] shadow-sm hover:bg-[#f0f9f3] transition-colors disabled:opacity-50"
+              title={`Export ${reportRange} analytics as CSV`}
+            >
+              <Download size={14} /> CSV
+            </button>
+            <button
+              onClick={() => exportAnalytics('json')}
+              disabled={exporting}
+              className="flex items-center gap-1.5 rounded-xl bg-white border border-[#ebdccb] px-3 py-2 text-xs font-bold text-[#227653] shadow-sm hover:bg-[#f0f9f3] transition-colors disabled:opacity-50"
+              title={`Export ${reportRange} analytics as JSON`}
+            >
+              <Download size={14} /> JSON
+            </button>
             <button
               onClick={() => loadAnalytics(true)}
               disabled={refreshing}
@@ -288,7 +342,7 @@ export default function AnalyticsPage() {
           <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
               <h3 className="font-display font-bold text-sm text-[#1f1d1b]">Revenue Trajectory</h3>
-              <p className="text-xs text-[#746e67]">Monthly business turnover trend</p>
+              <p className="text-xs text-[#746e67]">{reportRange === 'day' ? 'Daily turnover · last 7 days' : reportRange === 'week' ? 'Weekly turnover · last 8 weeks' : 'Monthly turnover · last 12 months'}</p>
             </div>
             <div className="inline-flex rounded-full border border-[#ebdccb] bg-[#fbf6ee] p-1">
               {['day', 'week', 'month'].map((option) => (

@@ -492,6 +492,31 @@ router.get('/reports/export', authMiddleware, async (req, res) => {
   res.type('text/csv').set('Content-Disposition', `attachment; filename="${filename}"`).send(csv);
 });
 
+// Range-parameterized analytics export: day / week / month revenue, orders, and profit.
+router.get('/export', authMiddleware, (req, res) => {
+  const range = ['day', 'week', 'month'].includes(String(req.query.range)) ? String(req.query.range) : 'month';
+  const format = ['csv', 'json'].includes(String(req.query.format).toLowerCase()) ? String(req.query.format).toLowerCase() : 'csv';
+  const series = getSeriesForRange(range);
+  const totalRevenue = series.reduce((sum, row) => sum + Number(row.revenue || 0), 0);
+  const totalOrders = series.reduce((sum, row) => sum + Number(row.orders || 0), 0);
+  const totalProfit = series.reduce((sum, row) => sum + Number(row.profit || 0), 0);
+  const filename = `wrap-roll-analytics-${range}.${format}`;
+  const payload = {
+    range,
+    generatedAt: new Date().toISOString(),
+    totals: { revenue: totalRevenue, orders: totalOrders, profit: totalProfit },
+    series,
+  };
+  if (format === 'json') {
+    res.type('application/json').set('Content-Disposition', `attachment; filename="${filename}"`).send(JSON.stringify(payload, null, 2));
+    return;
+  }
+  const header = 'period,revenue,orders,profit';
+  const lines = series.map((row) => [csvValue(row.label), row.revenue, row.orders, row.profit].join(','));
+  lines.push([csvValue('TOTAL'), totalRevenue, totalOrders, totalProfit].join(','));
+  res.type('text/csv').set('Content-Disposition', `attachment; filename="${filename}"`).send([header, ...lines].join('\n'));
+});
+
 function getAiSnapshot() {
   const now = new Date().toISOString();
   return {
