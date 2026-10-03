@@ -47,7 +47,16 @@ function deductRecipeInventory(menuItemId, qty, inventoryUsage = []) {
 
     const nextQty = Number(item.quantity) - (Number(amount) * qty);
     if (nextQty < 0) {
-      throw new Error(`${item.name} stock is insufficient for ${menuItem.name}.`);
+      // Do not block a paying customer's order over a stock-counting gap.
+      // Record the shortfall so staff can reconcile, clamp inventory at 0, and keep selling.
+      console.warn(`[inventory] ${item.name} stock shortfall for ${menuItem.name}: needed ${amount * qty}, had ${item.quantity}. Order allowed; inventory clamped to 0.`);
+      db.prepare('INSERT INTO notifications (type, title, message, read, created_at, audience_role) VALUES (?, ?, ?, 0, ?, ?)')
+        .run('warning', `Low stock: ${item.name}`, `${item.name} ran out while preparing ${menuItem.name}. Reconcile inventory.`, new Date().toISOString(), 'manager');
+      db.prepare('UPDATE inventory SET quantity = 0 WHERE id = ?').run(item.id);
+      db.prepare('INSERT INTO inventory_audit (inventory_id, action, changed_by_id, changed_by_name, changed_by_role, changes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(item.id, 'updated', null, 'System', 'system', JSON.stringify({ quantity: { from: item.quantity, to: 0 }, reason: { from: null, to: `Order deduction (shortfall) for ${menuItem.name}` } }), new Date().toISOString());
+      broadcast('inventory:updated', { itemId: item.id, action: 'order-deducted', shortfall: true });
+      continue;
     }
     db.prepare('UPDATE inventory SET quantity = ? WHERE id = ?').run(nextQty, item.id);
     db.prepare('INSERT INTO inventory_audit (inventory_id, action, changed_by_id, changed_by_name, changed_by_role, changes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
@@ -181,36 +190,43 @@ function createOrderRecord(
   `);
 
   const tx = db.transaction(() => {
-    // Customer loyalty & record sync
-    if (customerName?.trim()) {
-      const normalizedEmail = String(customerEmail || '').trim().toLowerCase();
-      const normalizedName = String(customerName || '').trim().toLowerCase();
-      const contactMatches = db.prepare("SELECT * FROM customers WHERE (? <> '' AND phone = ?) OR (? <> '' AND lower(email) = ?) ORDER BY id DESC")
-        .all(customerPhone?.trim() || '', customerPhone?.trim() || '', normalizedEmail, normalizedEmail);
+    // Customer identity: match by phone, email, or company TIN so each real
+    // customer maps to exactly one record (never grouped under a shared "Guest").
+    const normalizedEmail = String(customerEmail || '').trim().toLowerCase();
+    const normalizedPhone = String(customerPhone || '').trim();
+    const normalizedName = String(customerName || '').trim().toLowerCase();
+    const hasIdentity = Boolean(normalizedPhone || normalizedEmail || (normalizedCustomerType === 'company' && normalizedCustomerTin) || customerName?.trim());
+    let resolvedCustomerId = null;
+    if (hasIdentity) {
+      const contactMatches = db.prepare(
+        "SELECT * FROM customers WHERE (? <> '' AND phone = ?) OR (? <> '' AND lower(email) = ?) OR (? <> '' AND tin = ?) ORDER BY id DESC"
+      ).all(normalizedPhone, normalizedPhone, normalizedEmail, normalizedEmail, normalizedCustomerTin, normalizedCustomerTin);
       const nameMatches = db.prepare("SELECT * FROM customers WHERE ? <> '' AND lower(name) = ? ORDER BY id DESC").all(normalizedName, normalizedName);
       const existingCustomer = contactMatches[0] || (nameMatches.length === 1 ? nameMatches[0] : null);
       if (existingCustomer) {
+        resolvedCustomerId = existingCustomer.id;
         db.prepare(
-          'UPDATE customers SET name = ?, email = ?, last_visit = ?, visits = visits + 1, lifetime_value = lifetime_value + ?, favorite_items = ?, customer_type = ?, company_name = ?, tin = ?, billing_address = ? WHERE id = ?'
+          'UPDATE customers SET name = ?, phone = COALESCE(NULLIF(?, \'\'), phone), email = COALESCE(NULLIF(?, \'\'), email), last_visit = ?, visits = visits + 1, lifetime_value = lifetime_value + ?, favorite_items = ?, customer_type = ?, company_name = ?, tin = COALESCE(NULLIF(?, \'\'), tin), billing_address = ? WHERE id = ?'
         ).run(
-          customerName.trim(),
-          customerEmail || '',
+          (customerName || existingCustomer.name || 'Customer').trim(),
+          normalizedPhone,
+          normalizedEmail,
           now.slice(0, 10),
           total,
           JSON.stringify(priced.items.map((item) => item.name)),
           normalizedCustomerType,
-          normalizedCustomerType === 'company' ? normalizedCompanyName : '',
+          normalizedCustomerType === 'company' ? normalizedCompanyName : (existingCustomer.company_name || ''),
           normalizedCustomerTin,
           String(billingAddress || '').trim(),
           existingCustomer.id
         );
       } else {
-        db.prepare(
+        const result = db.prepare(
           'INSERT INTO customers (name, phone, email, favorite_items, lifetime_value, last_visit, visits, customer_segment, preferred_channel, customer_type, company_name, tin, billing_address) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)'
         ).run(
-          customerName.trim(),
-          customerPhone || '',
-          customerEmail || '',
+          (customerName || 'Customer').trim(),
+          normalizedPhone,
+          normalizedEmail,
           JSON.stringify(priced.items.map((item) => item.name)),
           total,
           now.slice(0, 10),
@@ -221,6 +237,7 @@ function createOrderRecord(
           normalizedCustomerTin,
           String(billingAddress || '').trim()
         );
+        resolvedCustomerId = result.lastInsertRowid;
       }
     }
 
@@ -320,6 +337,25 @@ function createOrderRecord(
       enqueueOrderEmail(order.id, order.paymentStatus === PAYMENT_STATUSES.PAID ? 'paid_invoice' : 'order_received');
     } catch (error) {
       console.error(`Could not queue customer email for order ${order.id}:`, error.message);
+    }
+    // Automatically add every order email to the email-marketing list.
+    // New addresses enter as 'pending' (double opt-in); existing suppressed/unsubscribed
+    // addresses are left untouched so we never re-add someone who opted out.
+    try {
+      const normalizedEmail = String(order.customerEmail).trim().toLowerCase();
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        const existing = db.prepare('SELECT id, consent_status, active FROM email_subscribers WHERE lower(email) = ?').get(normalizedEmail);
+        const suppressed = db.prepare('SELECT email FROM email_suppressions WHERE email = ?').get(normalizedEmail);
+        if (!existing && !suppressed) {
+          const firstName = String(order.customer_name || order.customerName || '').trim().split(/\s+/)[0] || '';
+          const lastName = String(order.customer_name || order.customerName || '').trim().split(/\s+/).slice(1).join(' ');
+          db.prepare(`INSERT INTO email_subscribers (email, first_name, last_name, segment, source, preferred_channel, active, verified,
+            consent_status, consent_source, created_at, updated_at) VALUES (?, ?, ?, ?, 'order', 'email', 0, 0, 'pending', 'order_checkout', ?, ?)`)
+            .run(normalizedEmail, firstName, lastName, 'regular', now, now);
+        }
+      }
+    } catch (error) {
+      console.error(`Could not auto-enroll order email ${order.customerEmail}:`, error.message);
     }
   }
 

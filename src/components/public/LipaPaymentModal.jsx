@@ -115,7 +115,7 @@ export default function LipaPaymentModal({
     };
 
     pollStatus();
-    const interval = setInterval(pollStatus, 1000);
+    const interval = setInterval(pollStatus, 8000);
     return () => clearInterval(interval);
   }, [liveOrder?.id, paymentRef]);
 

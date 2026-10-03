@@ -67,7 +67,7 @@ const restaurantLocation = {
   mapsUrl: 'https://maps.app.goo.gl/gZqwfknocNK6FYNAA',
 };
 
-function OrderTrackingCard({ order, onOpenPayment, now, settings }) {
+function OrderTrackingCard({ order, onOpenPayment, onPrintInvoice, now, settings }) {
   const elapsedEnd = order.status === 'completed'
     ? new Date(order.completedAt || order.updatedAt || now).getTime()
     : now;
@@ -77,6 +77,14 @@ function OrderTrackingCard({ order, onOpenPayment, now, settings }) {
   const paymentLabel = order.paymentStatus === 'paid' ? 'Payment confirmed' : order.paymentStatus === 'manual_review' ? 'Payment submitted for review' : 'Waiting for payment';
   const kitchenLabel = order.status === 'confirmed' ? 'Confirmed and sent to kitchen' : order.status === 'preparing' ? 'Being prepared' : order.status === 'ready' ? 'Ready for collection' : order.status === 'completed' ? 'Completed' : 'Waiting for payment confirmation';
   const isPaid = order.paymentStatus === 'paid';
+
+  // Estimated ready time from the slowest item prep time (default 15 min) plus a small buffer.
+  const prepSource = (order.items || []).map((item) => Number(item.prepTimeMinutes ?? item.prep_time_minutes ?? 15));
+  const prepMinutes = Math.max(15, ...prepSource);
+  const etaMinutes = prepMinutes + 5;
+  const overdue = order.status !== 'completed' && order.status !== 'ready' && elapsedMinutes >= etaMinutes;
+  const remainingMinutes = Math.max(0, etaMinutes - elapsedMinutes);
+
   const reviewLinks = [
     { key: 'review_whatsapp_url', label: 'WhatsApp', icon: MessageCircle },
     { key: 'review_instagram_url', label: 'Instagram', icon: Instagram },
@@ -94,6 +102,18 @@ function OrderTrackingCard({ order, onOpenPayment, now, settings }) {
       <div className="reference-delivery-copy order-tracking-copy">
         <span className="text-xs font-bold uppercase tracking-[0.18em] text-[#ffc72c]">Live order tracker</span>
         <h2>{order.orderNumber || order.id}</h2>
+
+        {/* Estimated ready time / timeout state */}
+        {order.status !== 'completed' && (
+          <p className={'order-tracking-eta ' + (overdue ? 'order-tracking-eta-overdue' : '')}>
+            {order.status === 'ready'
+              ? 'Ready now — please collect your order.'
+              : overdue
+                ? 'Taking longer than expected. Please check with our staff — your order matters to us.'
+                : `Estimated ready in about ${remainingMinutes} min (around ${new Date(new Date(order.createdAt).getTime() + etaMinutes * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}).`}
+          </p>
+        )}
+
         <div className="order-tracking-statuses">
           <p><span className={isPaid ? 'status-dot status-dot-paid' : 'status-dot'} />{paymentLabel}</p>
           <p><span className={order.status === 'confirmed' || order.status === 'preparing' || order.status === 'ready' ? 'status-dot status-dot-paid' : 'status-dot'} />{kitchenLabel}</p>
@@ -111,7 +131,12 @@ function OrderTrackingCard({ order, onOpenPayment, now, settings }) {
             </div>
           </div>
         )}
-        <button type="button" onClick={onOpenPayment}>VIEW PAYMENT &amp; ORDER DETAILS</button>
+        <div className="order-tracking-actions">
+          <button type="button" onClick={onOpenPayment}>VIEW PAYMENT &amp; ORDER DETAILS</button>
+          {isPaid && onPrintInvoice && (
+            <button type="button" className="order-invoice-btn" onClick={onPrintInvoice}>VIEW / PRINT INVOICE</button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -184,7 +209,6 @@ export default function HomePage() {
   const [mealInstructions, setMealInstructions] = useState('');
   const [mealModifiers, setMealModifiers] = useState([]);
   const [activeCategory, setActiveCategory] = useState('all');
-  const printedOrderRef = useRef(null);
 
   const publicSettings = useSettingsStore((state) => state.settings);
 
@@ -215,7 +239,7 @@ export default function HomePage() {
       }
     };
     refreshOrder();
-    const interval = window.setInterval(refreshOrder, 1000);
+    const interval = window.setInterval(refreshOrder, 8000);
     return () => window.clearInterval(interval);
   }, [activePlacedOrder?.id, activePlacedOrder?.paymentReference]);
 
@@ -225,11 +249,8 @@ export default function HomePage() {
     return () => window.clearInterval(interval);
   }, [activePlacedOrder]);
 
-  useEffect(() => {
-    if (activePlacedOrder?.paymentStatus !== 'paid' || printedOrderRef.current === activePlacedOrder.id) return;
-    printedOrderRef.current = activePlacedOrder.id;
-    printFiscalInvoice(activePlacedOrder, publicSettings);
-  }, [activePlacedOrder?.paymentStatus, activePlacedOrder?.id, publicSettings]);
+  // Invoice is generated on demand via the "View / Print invoice" action in the
+  // order tracker, instead of auto-opening a disruptive print dialog on payment.
 
   const dynamicCategories = Array.from(new Set([
     ...defaultCategories.map((entry) => entry.filter),
@@ -395,6 +416,10 @@ export default function HomePage() {
   const submitOrder = async (event) => {
     event.preventDefault();
     if (!cartItems.length) return setOrderStatus('Add a dish before checking out.');
+    if (!customerName.trim()) return setOrderStatus('Please enter your full name.');
+    if (!customerPhone.trim()) return setOrderStatus('Please enter your phone number so we can confirm your order.');
+    if (!tableContext && !deliveryAddress.trim()) return setOrderStatus('Please enter a delivery address or table number.');
+    if (customerType === 'company' && (!companyName.trim() || !customerTin.trim())) return setOrderStatus('Company name and TIN are required for a company invoice.');
     setOrderStatus('Sending your order...');
     try {
       const order = await api.createPublicOrder({
@@ -421,7 +446,9 @@ export default function HomePage() {
       const subscribeForEmailUpdates = emailMarketingConsent && customerEmail.trim();
       setActivePlacedOrder(order);
       setPaymentModalOpen(true);
+      // Clear the cart (state + persisted copy) so ordered items never linger.
       setCartItems([]);
+      localStorage.removeItem('wraproll_public_cart');
       setCartOpen(false);
       setEmailMarketingConsent(false);
       setCustomerType('individual');
@@ -487,6 +514,14 @@ export default function HomePage() {
         >
           {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
         </button>
+
+        {mobileMenuOpen && (
+          <div
+            className="mobile-nav-backdrop fixed inset-0 z-20 bg-black/30 md:hidden"
+            onClick={() => setMobileMenuOpen(false)}
+            aria-hidden="true"
+          />
+        )}
 
         <nav className={mobileMenuOpen ? 'public-nav is-open' : 'public-nav'}>
           <a href="#home" onClick={() => setMobileMenuOpen(false)}>{t('home')}</a>
@@ -643,7 +678,7 @@ export default function HomePage() {
 
       <section className="reference-delivery-section public-reveal-section px-6 pb-14 pt-0 sm:px-12 sm:pb-20" aria-label="Delivery and catering">
         {activePlacedOrder ? (
-          <OrderTrackingCard order={activePlacedOrder} now={trackingNow} settings={publicSettings} onOpenPayment={() => setPaymentModalOpen(true)} />
+          <OrderTrackingCard order={activePlacedOrder} now={trackingNow} settings={publicSettings} onOpenPayment={() => setPaymentModalOpen(true)} onPrintInvoice={() => printFiscalInvoice(activePlacedOrder, publicSettings)} />
         ) : (
           <div className="reference-delivery-card">
             <div className="reference-delivery-visual" aria-hidden="true" />
@@ -882,17 +917,26 @@ export default function HomePage() {
               />
             </div>
 
-            {publicModifiers.filter((modifier) => modifier.type === 'add').length > 0 && (
+            {(() => {
+              // Scope extras to those mapped to this item; fall back to all 'add' modifiers
+              // only when the item has no specific mapping.
+              const itemAddModifiers = (selectedMealItem.modifiers || []).filter((modifier) => modifier.type === 'add');
+              const extras = itemAddModifiers.length
+                ? itemAddModifiers
+                : publicModifiers.filter((modifier) => modifier.type === 'add');
+              if (!extras.length) return null;
+              return (
               <div className="space-y-2">
                 <label className="text-xs font-bold text-[#746e67] uppercase tracking-wider block">Add extras</label>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {publicModifiers.filter((modifier) => modifier.type === 'add').map((modifier) => {
+                  {extras.map((modifier) => {
                     const selected = mealModifiers.some((entry) => entry.id === modifier.id);
                     return <button key={modifier.id} type="button" onClick={() => setMealModifiers((current) => selected ? current.filter((entry) => entry.id !== modifier.id) : [...current, modifier])} className={'flex items-center justify-between rounded-xl border px-3 py-2 text-left text-xs font-semibold ' + (selected ? 'border-[#ae002a] bg-[#fff3ec] text-[#ae002a]' : 'border-[#ebdccb] bg-white text-[#554e46]')}><span>{modifier.name}</span><span>{modifier.price > 0 ? `+ ${formatCurrency(modifier.price, displayCurrency)}` : 'Included'}</span></button>;
                   })}
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             <div className="pt-2 flex items-center justify-between">
               <span className="font-bold text-sm text-[#ae002a]">
@@ -996,6 +1040,7 @@ export default function HomePage() {
                   <input required={customerType === 'company'} value={customerTin} onChange={(event) => setCustomerTin(event.target.value)} placeholder={customerType === 'company' ? 'Company TIN (Required)' : 'Customer TIN (Optional)'} className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
                   {customerType === 'company' && <input value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} placeholder="Billing address (Optional)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />}
                   <label className="flex items-start gap-2 px-1 text-[11px] leading-4 text-[#746e67]"><input type="checkbox" checked={emailMarketingConsent} onChange={(event) => setEmailMarketingConsent(event.target.checked)} disabled={!customerEmail.trim()} className="mt-0.5" /><span>Email me restaurant news and offers. I’ll confirm my subscription from my inbox.</span></label>
+                  {!customerEmail.trim() && <p className="px-1 text-[10px] italic text-[#a09a92]">Enter your email above to enable news &amp; offers signup.</p>}
 
                   <div className="flex gap-2">
                     <input required value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder="Delivery Address or Table Number" className="flex-1 px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />

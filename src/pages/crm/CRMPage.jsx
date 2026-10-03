@@ -359,7 +359,15 @@ export default function CRMPage() {
                       <h3>{customer.name}</h3>
                       <StatusBadge status={customer.tier} />
                       {customer.atRisk && <span className="badge-red">At Risk</span>}
+                      {customer.customerType === 'company' && <span className="mini-tag">Company</span>}
                     </div>
+                    {(customer.phone || customer.email || customer.tin) && (
+                      <div className="customer-meta-row customer-contact-row">
+                        {customer.phone && <span>{customer.phone}</span>}
+                        {customer.email && <span>{customer.email}</span>}
+                        {customer.customerType === 'company' && customer.tin && <span>TIN {customer.tin}</span>}
+                      </div>
+                    )}
                     <div className="customer-meta-row">
                       <span>{customer.totalOrders || customer.visits || 0} orders</span><span className="font-bold text-[#ae002a]">{customer.rollPoints || 0} Roll Points</span>
                       <span>•</span>

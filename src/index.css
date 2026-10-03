@@ -250,6 +250,12 @@
   color: #6f6a66;
   font-size: 0.75rem;
 }
+.customer-contact-row {
+  margin-top: 2px;
+  color: #554e46;
+  font-weight: 600;
+  gap: 0.6rem;
+}
 
 .tag-row {
   display: flex;
@@ -2314,6 +2320,38 @@ button, input, select, textarea { max-width: 100%; }
   color: #5a1b00;
   font-size: 11px;
   font-weight: 800;
+}
+.order-tracking-eta {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #d8f0dd;
+}
+.order-tracking-eta-overdue {
+  color: #ffc72c;
+  animation: order-eta-pulse 1.6s ease-in-out infinite;
+}
+@keyframes order-eta-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.order-tracking-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.order-invoice-btn {
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #fff;
+}
+.mobile-nav-backdrop {
+  animation: fade-in 0.2s ease both;
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .public-reveal-section {
   animation: reference-section-rise .8s .18s cubic-bezier(.2,.75,.25,1) both;
