@@ -191,9 +191,14 @@ function OrderDetails({ order, onClose }) {
 
 function OrderCard({ order, now, onSelect, onDelete, onEmailInvoice, emailInvoiceState, canDelete, settings }) {
   const itemCount = order.items?.reduce((sum, item) => sum + item.qty, 0) || 0;
+  const emailStatus = {
+    queued: { label: 'Invoice email queued', color: 'text-amber-700' },
+    sent: { label: 'Invoice email sent', color: 'text-green-700' },
+    failed: { label: 'Invoice email failed', color: 'text-red-700' },
+  }[order.invoiceEmailStatus];
   return <article className="flex min-h-[285px] flex-col rounded-2xl border border-outline-variant bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
     <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-surface-on">{order.id}</p><p className="mt-1 text-[10px] text-surface-on-variant">{itemCount} item{itemCount === 1 ? '' : 's'}</p></div><StatusBadge status={order.status} /></div>
-    <div className="mt-4 flex items-start gap-2"><span className="mt-0.5 text-primary"><OrderTypeIcon type={order.type} /></span><div className="min-w-0"><p className="truncate text-sm font-semibold">{order.customer || 'Walk-in customer'}</p><p className="mt-1 text-xs capitalize text-surface-on-variant">{order.type}{order.table ? ` · Table ${order.table}` : ''}</p>{order.deliveryAddress && <p className="mt-1 truncate text-[10px] text-surface-on-variant">{order.deliveryAddress}</p>}</div></div>
+    <div className="mt-4 flex items-start gap-2"><span className="mt-0.5 text-primary"><OrderTypeIcon type={order.type} /></span><div className="min-w-0"><p className="truncate text-sm font-semibold">{order.customer || 'Walk-in customer'}</p><p className="mt-1 text-xs capitalize text-surface-on-variant">{order.type}{order.table ? ` · Table ${order.table}` : ''}</p>{order.deliveryAddress && <p className="mt-1 truncate text-[10px] text-surface-on-variant">{order.deliveryAddress}</p>}{emailStatus && <p className={`mt-2 inline-flex items-center gap-1 text-[10px] font-bold ${emailStatus.color}`} role="status"><Mail size={12} />{emailStatus.label}</p>}</div></div>
     <div className="mt-4 flex-1 rounded-xl bg-surface-container-low p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-surface-on-variant">Items</p>{order.items?.length ? <p className="mt-1 line-clamp-3 text-xs text-surface-on">{order.items.map((item) => `${item.qty}x ${item.name}`).join(', ')}</p> : <p className="mt-1 text-xs text-surface-on-variant">No item details recorded</p>}</div>
     <div className="mt-4 flex items-end justify-between gap-3"><div><p className="text-[10px] text-surface-on-variant">Placed</p><p className="mt-1 text-xs font-semibold">{new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p><p className="mt-1 text-[10px] text-surface-on-variant">{new Date(order.createdAt).toLocaleDateString()}</p></div><div className="text-right"><p className="text-lg font-bold text-primary">{formatCurrency(order.total || 0)}</p><p className="mt-1 text-[10px] font-semibold text-warning">{getCountdownText(order, now)}</p></div></div>
     <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2"><button onClick={() => onSelect(order)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5">View details <ChevronRight size={14} /></button>{order.paymentStatus === 'paid' && <button onClick={() => printFiscalInvoice(order, settings)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5"><Printer size={14} /> Invoice</button>}{order.paymentStatus === 'paid' && <button onClick={() => onEmailInvoice(order)} disabled={emailInvoiceState === 'sending'} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-[#227653] hover:bg-[#f0f9f3] disabled:opacity-50"><Mail size={14} /> {emailInvoiceState === 'sending' ? 'Sending…' : 'Email invoice'}</button>}{canDelete && <button onClick={() => onDelete(order)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"><Trash2 size={14} /> Delete</button>}</div>
@@ -228,6 +233,12 @@ export default function OrdersListPage() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (!orders.some((order) => order.invoiceEmailStatus === 'queued')) return undefined;
+    const timer = setInterval(() => fetchOrders(), 10_000);
+    return () => clearInterval(timer);
+  }, [orders, fetchOrders]);
+
   const visibleOrders = useMemo(() => orders.filter((order) => {
     const searchText = `${order.id} ${order.customer || ''} ${order.type || ''} ${(order.items || []).map((item) => item.name).join(' ')}`.toLowerCase();
     return (activeFilter === 'all' || order.status === activeFilter) && searchText.includes(search.toLowerCase());
@@ -256,6 +267,7 @@ export default function OrdersListPage() {
     setInvoiceSending((current) => ({ ...current, [order.id]: 'sending' }));
     try {
       const result = await api.sendOrderInvoice(order.id, email);
+      await fetchOrders();
       setActionNotice(`Invoice for ${order.id} queued to ${result.recipient}.`);
     } catch (error) {
       setActionError(error.message || 'Unable to email the invoice.');

@@ -1,6 +1,6 @@
 import db from '../db/database.js';
 
-export function formatOrder(row, items) {
+export function formatOrder(row, items, { includeInvoiceEmailStatus = false } = {}) {
   const menuImages = new Map();
   db.prepare('SELECT id, name, image FROM menu_items').all().forEach((item) => {
     menuImages.set(item.id, item.image);
@@ -24,6 +24,9 @@ export function formatOrder(row, items) {
   }));
   const creator = row.staff_id ? db.prepare('SELECT name, role FROM users WHERE id = ?').get(row.staff_id) : null;
   const paymentRecord = db.prepare('SELECT * FROM payments WHERE order_id = ? OR payment_reference = ? ORDER BY created_at DESC LIMIT 1').get(row.id, row.payment_reference || '');
+  const invoiceEmail = includeInvoiceEmailStatus
+    ? db.prepare("SELECT status FROM order_email_outbox WHERE order_id = ? AND email_type = 'paid_invoice' ORDER BY id DESC LIMIT 1").get(row.id)
+    : null;
 
   return {
     id: row.id,
@@ -59,6 +62,9 @@ export function formatOrder(row, items) {
     total: row.total,
     paymentMethod: row.payment_method,
     paymentStatus: row.payment_status || 'pending',
+    invoiceEmailStatus: invoiceEmail
+      ? (['pending', 'sending'].includes(invoiceEmail.status) ? 'queued' : invoiceEmail.status)
+      : null,
     orderSource: row.order_source,
     paymentReference: row.payment_reference || (paymentRecord?.payment_reference || null),
     paidAt: row.paid_at || paymentRecord?.paid_at || null,
@@ -85,14 +91,14 @@ export function formatOrder(row, items) {
   };
 }
 
-export function getOrderById(id) {
+export function getOrderById(id, options = {}) {
   const row = db.prepare('SELECT * FROM orders WHERE id = ? OR order_number = ? OR payment_reference = ?').get(id, id, id);
   if (!row) return null;
   const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(row.id);
-  return formatOrder(row, items);
+  return formatOrder(row, items, options);
 }
 
-export function getOrders(filter = {}) {
+export function getOrders(filter = {}, options = {}) {
   let sql = 'SELECT * FROM orders WHERE 1=1';
   const params = [];
 
@@ -112,7 +118,7 @@ export function getOrders(filter = {}) {
   const rows = db.prepare(sql).all(...params);
   return rows.map((row) => {
     const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(row.id);
-    return formatOrder(row, items);
+    return formatOrder(row, items, options);
   });
 }
 

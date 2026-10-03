@@ -41,12 +41,17 @@ test('paid company order creates one invoice record and sends one branded invoic
     };
 
     const { enqueueOrderEmail, processOrderEmailOutbox } = await import(`../utils/orderEmailService.js?order-email-test=${Date.now()}`);
+    const { getOrderById } = await import('../utils/orders.js');
     assert.equal(enqueueOrderEmail('WR-20261003-1001', 'paid_invoice'), true);
     assert.equal(enqueueOrderEmail('WR-20261003-1001', 'paid_invoice'), false);
+    assert.equal(getOrderById('WR-20261003-1001', { includeInvoiceEmailStatus: true }).invoiceEmailStatus, 'queued');
     assert.equal(await processOrderEmailOutbox(), 1);
     assert.equal(await processOrderEmailOutbox(), 0);
     assert.equal(fetchCount, 1);
+    assert.equal(getOrderById('WR-20261003-1001', { includeInvoiceEmailStatus: true }).invoiceEmailStatus, 'sent');
     assert.equal(testDb.prepare('SELECT status FROM order_email_outbox').get().status, 'sent');
+    testDb.prepare("UPDATE order_email_outbox SET status = 'failed' WHERE order_id = ? AND email_type = 'paid_invoice'").run('WR-20261003-1001');
+    assert.equal(getOrderById('WR-20261003-1001', { includeInvoiceEmailStatus: true }).invoiceEmailStatus, 'failed');
     assert.equal(testDb.prepare('SELECT invoice_number FROM invoices WHERE order_id = ?').get('WR-20261003-1001').invoice_number, 'INV-20261003-031001');
   } finally {
     globalThis.fetch = originalFetch;

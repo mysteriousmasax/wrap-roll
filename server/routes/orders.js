@@ -471,7 +471,7 @@ router.get('/public/:idOrRef', (req, res) => {
  */
 router.get('/', authMiddleware, (req, res) => {
   const { status, paymentStatus } = req.query;
-  res.json(getOrders({ status, paymentStatus }));
+  res.json(getOrders({ status, paymentStatus }, { includeInvoiceEmailStatus: true }));
 });
 
 /**
@@ -479,7 +479,7 @@ router.get('/', authMiddleware, (req, res) => {
  * GET /api/orders/:id
  */
 router.get('/:id', authMiddleware, (req, res) => {
-  const order = getOrderById(req.params.id);
+  const order = getOrderById(req.params.id, { includeInvoiceEmailStatus: true });
   if (!order) return res.status(404).json({ error: 'Order not found' });
   res.json(order);
 });
