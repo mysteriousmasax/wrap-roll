@@ -9,7 +9,7 @@ import useAuthStore from '../../store/useAuthStore';
 import useSettingsStore from '../../store/useSettingsStore';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
-import { CalendarDays, ChevronRight, Clock3, CreditCard, MapPin, Search, ShoppingBag, UserRound, Utensils, Printer, Trash2 } from 'lucide-react';
+import { CalendarDays, ChevronRight, Clock3, CreditCard, Mail, MapPin, Search, ShoppingBag, UserRound, Utensils, Printer, Trash2 } from 'lucide-react';
 
 const filters = [
   { id: 'all', label: 'All orders' },
@@ -189,14 +189,14 @@ function OrderDetails({ order, onClose }) {
   );
 }
 
-function OrderCard({ order, now, onSelect, onDelete, canDelete, settings }) {
+function OrderCard({ order, now, onSelect, onDelete, onEmailInvoice, emailInvoiceState, canDelete, settings }) {
   const itemCount = order.items?.reduce((sum, item) => sum + item.qty, 0) || 0;
   return <article className="flex min-h-[285px] flex-col rounded-2xl border border-outline-variant bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
     <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-surface-on">{order.id}</p><p className="mt-1 text-[10px] text-surface-on-variant">{itemCount} item{itemCount === 1 ? '' : 's'}</p></div><StatusBadge status={order.status} /></div>
     <div className="mt-4 flex items-start gap-2"><span className="mt-0.5 text-primary"><OrderTypeIcon type={order.type} /></span><div className="min-w-0"><p className="truncate text-sm font-semibold">{order.customer || 'Walk-in customer'}</p><p className="mt-1 text-xs capitalize text-surface-on-variant">{order.type}{order.table ? ` · Table ${order.table}` : ''}</p>{order.deliveryAddress && <p className="mt-1 truncate text-[10px] text-surface-on-variant">{order.deliveryAddress}</p>}</div></div>
     <div className="mt-4 flex-1 rounded-xl bg-surface-container-low p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-surface-on-variant">Items</p>{order.items?.length ? <p className="mt-1 line-clamp-3 text-xs text-surface-on">{order.items.map((item) => `${item.qty}x ${item.name}`).join(', ')}</p> : <p className="mt-1 text-xs text-surface-on-variant">No item details recorded</p>}</div>
     <div className="mt-4 flex items-end justify-between gap-3"><div><p className="text-[10px] text-surface-on-variant">Placed</p><p className="mt-1 text-xs font-semibold">{new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p><p className="mt-1 text-[10px] text-surface-on-variant">{new Date(order.createdAt).toLocaleDateString()}</p></div><div className="text-right"><p className="text-lg font-bold text-primary">{formatCurrency(order.total || 0)}</p><p className="mt-1 text-[10px] font-semibold text-warning">{getCountdownText(order, now)}</p></div></div>
-    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3"><button onClick={() => onSelect(order)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5">View details <ChevronRight size={14} /></button>{order.paymentStatus === 'paid' && <button onClick={() => printFiscalInvoice(order, settings)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5"><Printer size={14} /> Invoice</button>}{canDelete && <button onClick={() => onDelete(order)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"><Trash2 size={14} /> Delete</button>}</div>
+    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2"><button onClick={() => onSelect(order)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5">View details <ChevronRight size={14} /></button>{order.paymentStatus === 'paid' && <button onClick={() => printFiscalInvoice(order, settings)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5"><Printer size={14} /> Invoice</button>}{order.paymentStatus === 'paid' && <button onClick={() => onEmailInvoice(order)} disabled={emailInvoiceState === 'sending'} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-[#227653] hover:bg-[#f0f9f3] disabled:opacity-50"><Mail size={14} /> {emailInvoiceState === 'sending' ? 'Sending…' : 'Email invoice'}</button>}{canDelete && <button onClick={() => onDelete(order)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"><Trash2 size={14} /> Delete</button>}</div>
   </article>;
 }
 
@@ -209,6 +209,8 @@ export default function OrdersListPage() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [now, setNow] = useState(Date.now());
   const [actionError, setActionError] = useState('');
+  const [invoiceSending, setInvoiceSending] = useState({});
+  const [actionNotice, setActionNotice] = useState('');
   const currentUser = useAuthStore((state) => state.currentUser);
   const settings = useSettingsStore((state) => state.settings);
   const canDelete = ['admin', 'executive', 'manager'].includes(currentUser?.role);
@@ -243,10 +245,30 @@ export default function OrdersListPage() {
     }
   };
 
+  const emailInvoice = async (order) => {
+    setActionError('');
+    setActionNotice('');
+    let email = String(order.customerEmail || '').trim();
+    if (!email) {
+      email = String(window.prompt('Enter the email address to send this invoice to:', '') || '').trim();
+      if (!email) return;
+    }
+    setInvoiceSending((current) => ({ ...current, [order.id]: 'sending' }));
+    try {
+      const result = await api.sendOrderInvoice(order.id, email);
+      setActionNotice(`Invoice for ${order.id} queued to ${result.recipient}.`);
+    } catch (error) {
+      setActionError(error.message || 'Unable to email the invoice.');
+    } finally {
+      setInvoiceSending((current) => ({ ...current, [order.id]: null }));
+    }
+  };
+
   return (
     <div className="orders-page p-4 sm:p-6">
       <PageHeader title="All Orders" subtitle="Track every order from the website, FOH, and delivery channel" />
       {actionError && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800" role="alert">{actionError}</div>}
+      {actionNotice && <div className="mb-4 rounded-xl border border-[#bfe3cf] bg-[#f0f9f3] px-4 py-3 text-sm font-semibold text-[#227653]" role="status">{actionNotice}</div>}
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4"><div className="orders-summary-card border-l-4 border-primary"><p>All orders</p><strong>{orders.length}</strong><span>Across all channels</span></div><div className="orders-summary-card border-l-4 border-secondary"><p>Pending</p><strong>{statusCount('pending')}</strong><span>Waiting for kitchen</span></div><div className="orders-summary-card border-l-4 border-warning"><p>Preparing</p><strong>{statusCount('preparing')}</strong><span>Currently cooking</span></div><div className="orders-summary-card border-l-4 border-success"><p>Ready</p><strong>{statusCount('ready')}</strong><span>Ready to serve</span></div></div>
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex gap-2 overflow-x-auto">{filters.map((filter) => <button key={filter.id} onClick={() => setActiveFilter(filter.id)} className={`whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold transition-colors ${activeFilter === filter.id ? 'bg-primary text-white' : 'bg-white text-surface-on hover:bg-surface-container-low'}`}>{filter.label}{filter.id !== 'all' && <span className="ml-2 opacity-70">{statusCount(filter.id)}</span>}</button>)}</div><div className="relative w-full lg:w-72"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order, customer, item..." className="input-field pl-9" /></div></div>
       <div>
@@ -260,7 +282,7 @@ export default function OrdersListPage() {
               <p className="shrink-0 text-xs text-surface-on-variant">{group.orders.length} order{group.orders.length === 1 ? '' : 's'} · {formatCurrency(group.total)}</p>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {group.orders.map((order) => <OrderCard key={order.id} order={order} now={now} onSelect={setSelectedOrder} onDelete={deleteOrder} canDelete={canDelete} settings={settings} />)}
+              {group.orders.map((order) => <OrderCard key={order.id} order={order} now={now} onSelect={setSelectedOrder} onDelete={deleteOrder} onEmailInvoice={emailInvoice} emailInvoiceState={invoiceSending[order.id]} canDelete={canDelete} settings={settings} />)}
             </div>
           </section>
         ))}

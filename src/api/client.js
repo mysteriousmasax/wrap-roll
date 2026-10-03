@@ -82,6 +82,7 @@ export const api = {
   getPublicOrder: (id, phone) => request(`/orders/public/${encodeURIComponent(id)}?phone=${encodeURIComponent(phone)}`),
   updateOrderStatus: (id, status) => request(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   updateOrderPaymentStatus: (id, paymentStatus, notes) => request(`/orders/${id}/payment-status`, { method: 'PATCH', body: JSON.stringify({ paymentStatus, notes }) }),
+  sendOrderInvoice: (id, email) => request(`/orders/${encodeURIComponent(id)}/send-invoice`, { method: 'POST', body: JSON.stringify(email ? { email } : {}) }),
   deleteOrder: (id) => request(`/orders/${id}`, { method: 'DELETE' }),
   getDeletionAudit: () => request('/business/deletion-audit'),
   printReceipt: (order) => request('/printer/receipt', { method: 'POST', body: JSON.stringify(order) }),

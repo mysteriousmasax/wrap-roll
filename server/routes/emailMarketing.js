@@ -440,9 +440,21 @@ router.post('/subscribers/import', authMiddleware, requireRole(...adminRoles), (
 });
 
 router.post('/order-contacts/import', authMiddleware, requireRole(...adminRoles), (req, res) => {
+  // Pull every email we know: from completed orders and from the customer records
+  // (so CRM-entered contacts are included even if they have not ordered online).
   const orderContacts = db.prepare(`SELECT lower(trim(customer_email)) AS email, MAX(customer_name) AS customer_name
     FROM orders WHERE customer_email IS NOT NULL AND trim(customer_email) != ''
     GROUP BY lower(trim(customer_email))`).all();
+  const customerContacts = db.prepare(`SELECT lower(trim(email)) AS email, MAX(name) AS customer_name
+    FROM customers WHERE email IS NOT NULL AND trim(email) != ''
+    GROUP BY lower(trim(email))`).all();
+
+  const byEmail = new Map();
+  for (const contact of [...orderContacts, ...customerContacts]) {
+    if (!contact.email) continue;
+    if (!byEmail.has(contact.email)) byEmail.set(contact.email, contact.customer_name || '');
+  }
+
   const now = new Date().toISOString();
   let added = 0;
   let existing = 0;
@@ -452,22 +464,22 @@ router.post('/order-contacts/import', authMiddleware, requireRole(...adminRoles)
     (email, first_name, last_name, segment, source, preferred_channel, active, verified, consent_status, consent_source, created_at, updated_at)
     VALUES (?, ?, ?, 'regular', 'order_history', 'email', 0, 0, 'pending', 'order_history_import', ?, ?)`);
 
-  for (const contact of orderContacts) {
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)) continue;
-    if (db.prepare('SELECT email FROM email_suppressions WHERE lower(email) = ?').get(contact.email)) {
+  for (const [email, name] of byEmail) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+    if (db.prepare('SELECT email FROM email_suppressions WHERE lower(email) = ?').get(email)) {
       suppressed += 1;
       continue;
     }
-    if (db.prepare('SELECT id FROM email_subscribers WHERE lower(email) = ?').get(contact.email)) {
+    if (db.prepare('SELECT id FROM email_subscribers WHERE lower(email) = ?').get(email)) {
       existing += 1;
       continue;
     }
-    const nameParts = String(contact.customer_name || '').trim().split(/\s+/).filter(Boolean);
-    insert.run(contact.email, nameParts[0] || '', nameParts.slice(1).join(' '), now, now);
+    const nameParts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    insert.run(email, nameParts[0] || '', nameParts.slice(1).join(' '), now, now);
     added += 1;
   }
 
-  res.json({ added, existing, suppressed, totalOrderEmails: orderContacts.length });
+  res.json({ added, existing, suppressed, totalOrderEmails: byEmail.size });
 });
 
 router.get('/subscribers/export', authMiddleware, requireRole(...adminRoles), (_req, res) => {

@@ -1,23 +1,9 @@
-import nodemailer from 'nodemailer';
+import { isEmailDeliveryConfigured, sendEmail, resolveEmailSender } from './emailDelivery.js';
 
 function errorWithStatus(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
-}
-
-function createEmailTransport() {
-  const host = process.env.EMAIL_SMTP_HOST;
-  const user = process.env.EMAIL_SMTP_USER;
-  const pass = process.env.EMAIL_SMTP_PASS;
-  if (!host || !user || !pass) return null;
-
-  return nodemailer.createTransport({
-    host,
-    port: Number(process.env.EMAIL_SMTP_PORT || 587),
-    secure: String(process.env.EMAIL_SMTP_SECURE || 'false').toLowerCase() === 'true',
-    auth: { user, pass },
-  });
 }
 
 async function sendMetaMessage(url, token, payload) {
@@ -60,15 +46,13 @@ export async function sendCrmMessage({ customer, channel, message }) {
 
   if (channel === 'email') {
     if (!customer.email) throw errorWithStatus('This customer has no email address.', 400);
-    const transport = createEmailTransport();
-    if (!transport) throw errorWithStatus('Email sending is not configured. Add the SMTP settings to Railway.', 503);
-    const fromName = process.env.EMAIL_FROM_NAME || 'Wrap & Roll';
-    const fromAddress = process.env.EMAIL_FROM_ADDRESS || process.env.EMAIL_SMTP_USER;
-    const result = await transport.sendMail({
-      from: `${fromName} <${fromAddress}>`,
+    if (!isEmailDeliveryConfigured()) throw errorWithStatus('Email sending is not configured. Add Resend or SMTP settings to Railway.', 503);
+    const sender = resolveEmailSender();
+    const result = await sendEmail({
       to: customer.email,
-      subject: `A message from ${fromName}`,
+      subject: `A message from ${sender.name}`,
       text,
+      html: `<p style="font-family:Arial,sans-serif;line-height:1.6">${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</p>`,
     });
     return { channel, recipient: customer.email, messageId: result.messageId };
   }

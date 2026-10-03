@@ -606,4 +606,37 @@ router.delete('/:id', authMiddleware, deletionViewer, (req, res) => {
   res.json({ ok: true, orderId: order.id, permanentlyDeleted: true });
 });
 
+// Email the paid invoice for an order to the customer (or an address supplied on the spot).
+router.post('/:id/send-invoice', authMiddleware, (req, res) => {
+  const order = getOrderById(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+
+  const requestedEmail = String(req.body?.email || '').trim().toLowerCase();
+  const recipient = requestedEmail || String(order.customerEmail || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+    return res.status(400).json({ error: 'Add an email address to send the invoice to.' });
+  }
+  if (!['paid', 'completed'].includes(order.paymentStatus)) {
+    return res.status(409).json({ error: 'The invoice can only be emailed once the order is paid.' });
+  }
+
+  // If a new email was supplied, persist it on the order and customer so future
+  // invoices and marketing reach the same address.
+  if (requestedEmail && requestedEmail !== String(order.customerEmail || '').trim().toLowerCase()) {
+    db.prepare('UPDATE orders SET customer_email = ?, updated_at = ? WHERE id = ?').run(requestedEmail, new Date().toISOString(), order.id);
+    const phone = String(order.customerPhone || '').trim();
+    const existingCustomer = db.prepare('SELECT id FROM customers WHERE lower(email) = ? OR (? <> \'\' AND phone = ?) LIMIT 1')
+      .get(requestedEmail, phone, phone);
+    if (existingCustomer) {
+      db.prepare("UPDATE customers SET email = ? WHERE id = ? AND (email IS NULL OR email = '')").run(requestedEmail, existingCustomer.id);
+    }
+  }
+
+  // Reuse the outbox so delivery is retried/tracked. Clear a prior failed/sent row so re-sends work.
+  db.prepare("DELETE FROM order_email_outbox WHERE order_id = ? AND email_type = 'paid_invoice'").run(order.id);
+  const queued = enqueueOrderEmail(order.id, 'paid_invoice');
+  if (!queued) return res.status(409).json({ error: 'An invoice email for this order is already queued or sent.' });
+  res.json({ ok: true, queued: true, recipient });
+});
+
 export default router;

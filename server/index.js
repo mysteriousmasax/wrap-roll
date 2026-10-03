@@ -95,7 +95,19 @@ if (process.env.PRINTER_AGENT_ENABLED === 'true') startPrinterAgent();
 startEmailMarketingWorker();
 
 app.use(express.static(clientDist, { index: false, setHeaders: (res, filePath) => {
-  if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-store');
+  // index.html must never be cached so each refresh fetches the newest asset manifest.
+  if (filePath.endsWith('index.html')) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    return;
+  }
+  // Vite emits content-hashed filenames under /assets; safe to cache long-term.
+  if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    return;
+  }
+  // Everything else (icons, logos, manifest) revalidates each load.
+  res.setHeader('Cache-Control', 'no-cache');
 } }));
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/') || req.path === '/ws') return next();
