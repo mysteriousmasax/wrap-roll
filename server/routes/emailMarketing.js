@@ -483,11 +483,12 @@ router.get('/smtp/status', authMiddleware, requireRole(...adminRoles), (_req, re
 router.get('/deliverability', authMiddleware, requireRole(...adminRoles), async (_req, res) => {
   const sender = senderSummary();
   const domain = String(sender.address.split('@')[1] || '').toLowerCase();
+  const spfHostname = sender.provider === 'resend' ? `send.${domain}` : domain;
   const check = async (task) => { try { return await task(); } catch { return null; } };
   if (!domain) return res.json({ domain: '', ...senderSummary(), checks: [] });
 
   const [txtRecords, dmarcRecords, mxRecords, dkimRecords, ptrRecords] = await Promise.all([
-    check(() => resolveTxt(domain)),
+    check(() => resolveTxt(spfHostname)),
     check(() => resolveTxt(`_dmarc.${domain}`)),
     check(() => resolveMx(domain)),
     process.env.EMAIL_DKIM_SELECTOR ? check(() => resolveTxt(`${process.env.EMAIL_DKIM_SELECTOR}._domainkey.${domain}`)) : Promise.resolve(null),
@@ -506,9 +507,9 @@ router.get('/deliverability', authMiddleware, requireRole(...adminRoles), async 
     checks: [
       { id: 'delivery', label: sender.provider === 'resend' ? 'Resend API' : 'SMTP relay', status: sender.deliveryConfigured ? 'configured' : isResendConfigured() ? 'check' : 'missing', detail: sender.provider === 'resend' ? 'Resend API key and sender address are configured; send a test email to verify delivery.' : sender.smtpConfigured ? 'SMTP credentials are present; send a test email to verify delivery.' : isResendConfigured() ? 'Set EMAIL_FROM_ADDRESS to a sender verified in Resend.' : 'Configure RESEND_API_KEY and EMAIL_FROM_ADDRESS, or add SMTP credentials in Railway.' },
       { id: 'postal', label: 'Postal address', status: process.env.EMAIL_POSTAL_ADDRESS ? 'configured' : 'missing', detail: process.env.EMAIL_POSTAL_ADDRESS || 'A real business postal address is required in marketing footers.' },
-      { id: 'spf', label: 'SPF', status: spf ? 'found' : 'missing', record: spf || null, hostname: domain },
+      { id: 'spf', label: 'SPF', status: spf ? 'found' : 'missing', record: spf || null, suggestedRecord: !spf && sender.provider === 'resend' ? 'v=spf1 include:amazonses.com ~all' : null, hostname: spfHostname },
       { id: 'dkim', label: 'DKIM', status: dkim ? 'found' : 'missing', record: dkim || null, hostname: process.env.EMAIL_DKIM_SELECTOR ? `${process.env.EMAIL_DKIM_SELECTOR}._domainkey.${domain}` : null, detail: process.env.EMAIL_DKIM_SELECTOR ? undefined : 'Set EMAIL_DKIM_SELECTOR to the selector published by your mail provider.' },
-      { id: 'dmarc', label: 'DMARC', status: dmarc ? 'found' : 'missing', record: dmarc || null, hostname: `_dmarc.${domain}` },
+      { id: 'dmarc', label: 'DMARC', status: dmarc ? 'found' : 'missing', record: dmarc || null, suggestedRecord: dmarc ? null : 'v=DMARC1; p=none;', hostname: `_dmarc.${domain}`, detail: dmarc ? undefined : 'Add this TXT record in your DNS host. Start with p=none while monitoring delivery.' },
       { id: 'mx', label: 'MX', status: mxRecords?.length ? 'found' : 'missing', records: mxRecords || [], hostname: domain },
       { id: 'ptr', label: 'Reverse DNS (PTR)', status: expectedHelo && ptr.includes(expectedHelo) ? 'matched' : (process.env.EMAIL_SENDING_IP ? 'check' : 'not_applicable'), records: ptr, detail: process.env.EMAIL_SENDING_IP ? `Expected ${expectedHelo || 'EMAIL_HELO_DOMAIN to be configured'}.` : 'The SMTP provider manages the sending IP and PTR record.' },
     ],

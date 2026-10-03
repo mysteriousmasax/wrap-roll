@@ -91,8 +91,8 @@ export default function EmailAudiencePanel({ onReport }) {
   };
 
   return (
-    <div className="space-y-5">
-      <Card className="p-5">
+    <div className="min-w-0 space-y-5">
+      <Card className="min-w-0 p-4 sm:p-5">
         <div className="mb-4 flex items-center gap-2"><Plus size={17} className="text-primary" /><h2 className="font-display text-base font-bold">Add a consented contact</h2></div>
         <form className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" onSubmit={addSubscriber}>
           <label className="block text-xs font-semibold">Email<input required type="email" className="input-field mt-1 w-full" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
@@ -104,17 +104,17 @@ export default function EmailAudiencePanel({ onReport }) {
         </form>
       </Card>
 
-      <Card className="p-5">
+      <Card className="min-w-0 p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><h2 className="font-display text-base font-bold">Audience</h2><p className="mt-1 text-xs text-surface-on-variant">{result.total} contacts · campaign sends require subscribed consent and no suppression.</p></div>
           <div className="flex flex-wrap gap-2"><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-outline-variant px-3 py-2 text-xs font-bold"><Upload size={14} /> Import CSV<input type="file" accept=".csv,text/csv" className="sr-only" onChange={importCsv} /></label><Button size="sm" variant="secondary" onClick={exportCsv}><Download size={14} /> Export CSV</Button></div>
         </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(180px,1fr)_160px_170px]">
+        <div className="mt-4 grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_160px_170px]">
           <div className="relative"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" /><input className="input-field w-full pl-9" placeholder="Search name or email" value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} /></div>
           <select className="input-field" value={filters.segment} onChange={(event) => updateFilter('segment', event.target.value)}><option value="all">All segments</option>{['regular', 'vip', 'inactive', 'birthday', 'loyalty'].map((segment) => <option key={segment}>{segment}</option>)}</select>
           <select className="input-field" value={filters.consent} onChange={(event) => updateFilter('consent', event.target.value)}><option value="all">All consent states</option><option value="subscribed">Subscribed</option><option value="pending">Pending</option><option value="unsubscribed">Unsubscribed</option></select>
         </div>
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 min-w-0 max-w-full overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-xs"><thead className="border-b border-outline-variant text-surface-on-variant"><tr><th className="py-2 pr-3">Contact</th><th className="py-2 pr-3">Segment</th><th className="py-2 pr-3">Source</th><th className="py-2 pr-3">Consent</th><th className="py-2">Recorded</th><th className="py-2 text-right">Action</th></tr></thead>
             <tbody className="divide-y divide-outline-variant">{result.subscribers.map((subscriber) => <tr key={subscriber.id}><td className="py-3 pr-3"><p className="font-semibold">{[subscriber.first_name, subscriber.last_name].filter(Boolean).join(' ') || subscriber.email}</p><p className="text-surface-on-variant">{subscriber.email}</p></td><td className="py-3 pr-3">{subscriber.segment}</td><td className="py-3 pr-3">{subscriber.source}</td><td className="py-3 pr-3 capitalize">{subscriber.consent_status}</td><td className="py-3">{subscriber.consent_at ? new Date(subscriber.consent_at).toLocaleDateString() : 'Not recorded'}</td><td className="py-3 text-right"><button className="font-bold text-primary" onClick={() => toggleConsent(subscriber)}>{subscriber.consent_status === 'subscribed' ? 'Unsubscribe' : 'Resubscribe'}</button></td></tr>)}</tbody>
           </table>
@@ -123,7 +123,7 @@ export default function EmailAudiencePanel({ onReport }) {
         <div className="mt-4 flex items-center justify-between text-xs"><span>Page {result.page} of {Math.max(1, result.pages)}</span><div className="flex gap-2"><Button size="xs" variant="secondary" disabled={filters.page <= 1} onClick={() => setFilters({ ...filters, page: filters.page - 1 })}>Previous</Button><Button size="xs" variant="secondary" disabled={filters.page >= result.pages} onClick={() => setFilters({ ...filters, page: filters.page + 1 })}>Next</Button></div></div>
       </Card>
 
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-2">
         <Card className="p-5"><div className="mb-3 flex items-center gap-2"><ShieldCheck size={16} className="text-primary" /><h2 className="font-display text-base font-bold">Suppression list</h2></div><div className="max-h-64 divide-y divide-outline-variant overflow-y-auto">{suppressions.map((item) => <div className="flex items-center justify-between gap-3 py-2 text-xs" key={item.email}><div><p className="font-semibold">{item.email}</p><p className="text-surface-on-variant">{item.reason} · {item.source}</p></div><Button size="xs" variant="secondary" onClick={() => releaseSuppression(item.email)}>Release</Button></div>)}{!suppressions.length && <p className="py-4 text-xs text-surface-on-variant">No suppressed addresses.</p>}</div></Card>
         <Card className="p-5"><h2 className="font-display text-base font-bold">Suppress an address</h2><p className="mt-1 text-xs text-surface-on-variant">Use for hard bounces, spam complaints, or customer requests. Suppressed addresses cannot receive campaigns.</p><form className="mt-4 flex flex-col gap-2 sm:flex-row" onSubmit={addSuppression}><input required type="email" className="input-field min-w-0 flex-1" value={suppressionEmail} onChange={(event) => setSuppressionEmail(event.target.value)} placeholder="customer@example.com" /><Button size="sm" type="submit">Suppress</Button></form></Card>
       </div>

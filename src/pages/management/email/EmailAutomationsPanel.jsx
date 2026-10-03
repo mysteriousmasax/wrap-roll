@@ -71,8 +71,8 @@ export default function EmailAutomationsPanel({ onReport }) {
   };
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
-      <Card className="p-5">
+    <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
+      <Card className="min-w-0 p-4 sm:p-5">
         <div className="mb-4 flex items-center gap-2"><Workflow size={17} className="text-primary" /><div><h2 className="font-display text-base font-bold">Automations</h2><p className="text-xs text-surface-on-variant">Flows only enroll subscribed contacts and stop when they opt out.</p></div></div>
         <div className="divide-y divide-outline-variant">
           {automations.map((automation) => <div key={automation.id} className="flex flex-wrap items-center justify-between gap-3 py-4">
@@ -82,14 +82,14 @@ export default function EmailAutomationsPanel({ onReport }) {
           {!automations.length && <p className="py-8 text-center text-xs text-surface-on-variant">No automations configured.</p>}
         </div>
       </Card>
-      <Card className="p-5">
+      <Card className="min-w-0 p-4 sm:p-5">
         <div className="mb-4 flex items-center gap-2"><Plus size={16} className="text-primary" /><h2 className="font-display text-base font-bold">New sequence</h2></div>
         <form className="space-y-3" onSubmit={create}>
           <label className="block text-xs font-semibold">Name<input required className="input-field mt-1 w-full" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="After-visit follow-up" /></label>
           <label className="block text-xs font-semibold">Trigger<select className="input-field mt-1 w-full" value={form.triggerType} onChange={(event) => setForm({ ...form, triggerType: event.target.value })}>{triggers.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
           {form.triggerType === 'winback' && <label className="block text-xs font-semibold">Days without a visit<input className="input-field mt-1 w-full" type="number" min="30" max="365" value={form.inactiveDays} onChange={(event) => setForm({ ...form, inactiveDays: event.target.value })} /></label>}
           <div className="space-y-3">
-            {form.steps.map((step, index) => <div key={index} className="grid gap-2 rounded-lg border border-outline-variant p-3 sm:grid-cols-[1fr_150px_auto]">
+            {form.steps.map((step, index) => <div key={index} className="grid min-w-0 gap-2 rounded-lg border border-outline-variant p-3 sm:grid-cols-[minmax(0,1fr)_150px_auto]">
               <label className="block text-xs font-semibold">Step {index + 1} template<select className="input-field mt-1 w-full" value={step.templateId} onChange={(event) => setForm({ ...form, steps: form.steps.map((item, itemIndex) => itemIndex === index ? { ...item, templateId: event.target.value } : item) })}><option value="">Choose a template</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>
               <label className="block text-xs font-semibold">Wait (minutes)<input className="input-field mt-1 w-full" type="number" min="0" max="525600" value={step.delayMinutes} onChange={(event) => setForm({ ...form, steps: form.steps.map((item, itemIndex) => itemIndex === index ? { ...item, delayMinutes: event.target.value } : item) })} /></label>
               <Button type="button" size="xs" variant="danger" className="self-end" disabled={form.steps.length === 1} onClick={() => setForm({ ...form, steps: form.steps.filter((_, itemIndex) => itemIndex !== index) })}>Remove</Button>

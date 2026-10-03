@@ -106,8 +106,8 @@ export default function EmailCampaignsPanel({ campaigns, onReport }) {
   };
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(320px,0.85fr)_minmax(0,1.4fr)]">
-      <Card className="p-5">
+    <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(320px,0.85fr)_minmax(0,1.4fr)]">
+      <Card className="min-w-0 p-4 sm:p-5">
         <div className="mb-4 flex items-center gap-2"><MailCheck size={17} className="text-primary" /><h2 className="font-display text-base font-bold">{editingId ? 'Edit campaign' : 'Campaign editor'}</h2></div>
         <form className="space-y-3" onSubmit={saveCampaign}>
           <label className="block text-xs font-semibold">Start from a template
@@ -143,9 +143,9 @@ export default function EmailCampaignsPanel({ campaigns, onReport }) {
         </div>
       </Card>
 
-      <Card className="p-5">
+      <Card className="min-w-0 p-4 sm:p-5">
         <div className="mb-4 flex items-center justify-between gap-3"><div><h2 className="font-display text-base font-bold">Campaigns</h2><p className="mt-1 text-xs text-surface-on-variant">Only subscribed, active, non-suppressed contacts are eligible.</p></div><span className="text-xs text-surface-on-variant">{campaigns.length} total</span></div>
-        <div className="overflow-x-auto">
+        <div className="min-w-0 max-w-full overflow-x-auto">
           <table className="w-full min-w-[680px] text-left text-xs"><thead className="border-b border-outline-variant text-surface-on-variant"><tr><th className="py-2 pr-3">Campaign</th><th className="py-2 pr-3">Audience</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Delivery</th><th className="py-2 text-right">Actions</th></tr></thead>
             <tbody className="divide-y divide-outline-variant">{campaigns.map((campaign) => <tr key={campaign.id}>
               <td className="py-3 pr-3"><p className="font-bold">{campaign.name}</p><p className="mt-1 text-surface-on-variant">{campaign.subject}</p>{campaign.scheduled_at && <p className="mt-1 text-[10px] text-surface-on-variant">{new Date(campaign.scheduled_at).toLocaleString()}</p>}</td>
