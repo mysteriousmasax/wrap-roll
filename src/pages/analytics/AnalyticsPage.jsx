@@ -73,13 +73,17 @@ export default function AnalyticsPage() {
   const currentUser = useAuthStore((state) => state.currentUser);
   const [summaryMessage, setSummaryMessage] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dayOrders, setDayOrders] = useState(null);
+  const [dayOrdersLoading, setDayOrdersLoading] = useState(false);
   const refreshTimerRef = useRef(null);
 
   const exportAnalytics = async (format) => {
     if (exporting) return;
     setExporting(true);
     try {
-      const { blob, filename } = await api.exportAnalytics(reportRange, format);
+      const date = reportRange === 'day' ? selectedDate : '';
+      const { blob, filename } = await api.exportAnalytics(reportRange, format, date);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -95,6 +99,18 @@ export default function AnalyticsPage() {
       setExporting(false);
     }
   };
+
+  // When "day" is selected, load that day's completed orders for the drill-down preview.
+  useEffect(() => {
+    if (reportRange !== 'day') { setDayOrders(null); return; }
+    let cancelled = false;
+    setDayOrdersLoading(true);
+    api.getOrdersByDay(selectedDate)
+      .then((data) => { if (!cancelled) setDayOrders(data); })
+      .catch(() => { if (!cancelled) setDayOrders(null); })
+      .finally(() => { if (!cancelled) setDayOrdersLoading(false); });
+    return () => { cancelled = true; };
+  }, [reportRange, selectedDate]);
 
   const loadAnalytics = async (showLoader = false) => {
     if (showLoader) setRefreshing(true);
@@ -188,22 +204,30 @@ export default function AnalyticsPage() {
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => exportAnalytics('csv')}
-              disabled={exporting}
-              className="flex items-center gap-1.5 rounded-xl bg-white border border-[#ebdccb] px-3 py-2 text-xs font-bold text-[#227653] shadow-sm hover:bg-[#f0f9f3] transition-colors disabled:opacity-50"
-              title={`Export ${reportRange} analytics as CSV`}
-            >
-              <Download size={14} /> CSV
-            </button>
-            <button
-              onClick={() => exportAnalytics('json')}
-              disabled={exporting}
-              className="flex items-center gap-1.5 rounded-xl bg-white border border-[#ebdccb] px-3 py-2 text-xs font-bold text-[#227653] shadow-sm hover:bg-[#f0f9f3] transition-colors disabled:opacity-50"
-              title={`Export ${reportRange} analytics as JSON`}
-            >
-              <Download size={14} /> JSON
-            </button>
+            {reportRange === 'day' && (
+              <input
+                type="date"
+                value={selectedDate}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                className="rounded-xl border border-[#ebdccb] bg-white px-3 py-2 text-xs font-semibold text-[#554e46] focus:outline-none focus:border-[#ae002a]"
+                aria-label="Select day"
+              />
+            )}
+            <div className="inline-flex overflow-hidden rounded-xl border border-[#ebdccb] bg-white shadow-sm">
+              {[['xlsx', 'Excel'], ['docx', 'Word'], ['pdf', 'PDF']].map(([format, label]) => (
+                <button
+                  key={format}
+                  type="button"
+                  onClick={() => exportAnalytics(format)}
+                  disabled={exporting}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#227653] transition-colors hover:bg-[#f0f9f3] disabled:opacity-50 border-r border-[#ebdccb] last:border-r-0"
+                  title={`Export ${reportRange}${reportRange === 'day' ? ` (${selectedDate})` : ''} analytics as ${label}`}
+                >
+                  <Download size={14} /> {label}
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => loadAnalytics(true)}
               disabled={refreshing}
@@ -438,6 +462,65 @@ export default function AnalyticsPage() {
           </div>
         </Card>
       </div>
+
+      {/* Day drill-down: every order placed on the selected day, ready to export */}
+      {reportRange === 'day' && (
+        <Card className="border border-[#ebdccb] bg-white rounded-3xl p-5 shadow-sm">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="font-display font-bold text-sm text-[#1f1d1b]">Orders on {selectedDate}</h3>
+              <p className="text-xs text-[#746e67]">
+                {dayOrdersLoading ? 'Loading orders…' : `${dayOrders?.count ?? 0} completed order${(dayOrders?.count ?? 0) === 1 ? '' : 's'} · ${formatCurrency(dayOrders?.totalRevenue ?? 0)} · ordering time tracked`}
+              </p>
+            </div>
+            <div className="inline-flex overflow-hidden rounded-xl border border-[#ebdccb] bg-white shadow-sm">
+              {[['xlsx', 'Excel'], ['docx', 'Word'], ['pdf', 'PDF']].map(([format, label]) => (
+                <button
+                  key={format}
+                  type="button"
+                  onClick={() => exportAnalytics(format)}
+                  disabled={exporting}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#227653] transition-colors hover:bg-[#f0f9f3] disabled:opacity-50 border-r border-[#ebdccb] last:border-r-0"
+                >
+                  <Download size={13} /> {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse text-left text-xs">
+              <thead className="bg-[#fbf6ee] text-[10px] uppercase tracking-wide text-[#746e67]">
+                <tr>
+                  <th className="border border-[#ebdccb] p-2">Order</th>
+                  <th className="border border-[#ebdccb] p-2">Time ordered</th>
+                  <th className="border border-[#ebdccb] p-2">Customer</th>
+                  <th className="border border-[#ebdccb] p-2">Type</th>
+                  <th className="border border-[#ebdccb] p-2">Source</th>
+                  <th className="border border-[#ebdccb] p-2">Payment</th>
+                  <th className="border border-[#ebdccb] p-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(dayOrders?.orders || []).map((order) => (
+                  <tr key={order.id} className="hover:bg-[#fbf6ee]">
+                    <td className="border border-[#ebdccb] p-2 font-bold text-[#ae002a]">{order.id}</td>
+                    <td className="border border-[#ebdccb] p-2 font-semibold text-[#1f1d1b]">{order.time}</td>
+                    <td className="border border-[#ebdccb] p-2">{order.customer}</td>
+                    <td className="border border-[#ebdccb] p-2 capitalize">{order.type}</td>
+                    <td className="border border-[#ebdccb] p-2 capitalize">{order.source}</td>
+                    <td className="border border-[#ebdccb] p-2 capitalize">{order.payment}</td>
+                    <td className="border border-[#ebdccb] p-2 text-right font-bold text-[#ae002a]">{formatCurrency(order.total)}</td>
+                  </tr>
+                ))}
+                {!dayOrdersLoading && !(dayOrders?.orders || []).length && (
+                  <tr><td colSpan={7} className="border border-[#ebdccb] p-6 text-center text-[#746e67]">No completed orders on {selectedDate}.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       {/* Live Transaction Feed Table */}
       <Card className="border border-[#ebdccb] bg-white rounded-3xl p-5 shadow-sm">

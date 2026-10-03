@@ -224,10 +224,12 @@ export const api = {
 
   getSales: () => request('/analytics/sales'),
   getAnalyticsSummary: (date) => request(`/analytics/summary${date ? `?date=${encodeURIComponent(date)}` : ''}`),
-  exportAnalytics: async (range, format = 'csv') => {
+  exportAnalytics: async (range, format = 'csv', date = '') => {
     const token = getToken();
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    const response = await fetch(`${API_BASE}/analytics/export?range=${encodeURIComponent(range)}&format=${encodeURIComponent(format)}`, { headers });
+    const params = new URLSearchParams({ range, format });
+    if (date) params.set('date', date);
+    const response = await fetch(`${API_BASE}/analytics/export?${params.toString()}`, { headers });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       throw new ApiError(data.error || response.statusText, response.status);
@@ -236,6 +238,7 @@ export const api = {
     const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `wrap-roll-analytics-${range}.${format}`;
     return { blob: await response.blob(), filename };
   },
+  getOrdersByDay: (date) => request(`/analytics/orders-by-day${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   saveOperationalSummary: (type, date, payload) => request(`/analytics/operational-summary/${encodeURIComponent(type)}/${encodeURIComponent(date)}`, { method: 'PUT', body: JSON.stringify({ payload }) }),
   approveOperationalSummary: (type, date) => request(`/analytics/operational-summary/${encodeURIComponent(type)}/${encodeURIComponent(date)}/approve`, { method: 'PATCH' }),
   getCategorySales: () => request('/analytics/categories'),

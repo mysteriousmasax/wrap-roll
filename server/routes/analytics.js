@@ -493,28 +493,90 @@ router.get('/reports/export', authMiddleware, async (req, res) => {
 });
 
 // Range-parameterized analytics export: day / week / month revenue, orders, and profit.
-router.get('/export', authMiddleware, (req, res) => {
+// Supports an exact `date` (YYYY-MM-DD) for daily detail and Excel/Word/PDF output.
+router.get('/export', authMiddleware, async (req, res) => {
   const range = ['day', 'week', 'month'].includes(String(req.query.range)) ? String(req.query.range) : 'month';
-  const format = ['csv', 'json'].includes(String(req.query.format).toLowerCase()) ? String(req.query.format).toLowerCase() : 'csv';
+  const format = ['csv', 'json', 'xlsx', 'docx', 'pdf'].includes(String(req.query.format).toLowerCase()) ? String(req.query.format).toLowerCase() : 'csv';
+  const requestedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : null;
+
+  const report = buildAnalyticsExport(range, requestedDate);
+  const dateSuffix = requestedDate ? `-${requestedDate}` : '';
+  const filename = `wrap-roll-analytics-${range}${dateSuffix}.${format}`;
+
+  if (format === 'xlsx' || format === 'docx' || format === 'pdf') {
+    const generators = { xlsx: xlsxBuffer, docx: docxBuffer, pdf: pdfBuffer };
+    const contentTypes = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', pdf: 'application/pdf' };
+    const content = await generators[format](report);
+    res.type(contentTypes[format]).set('Content-Disposition', `attachment; filename="${filename}"`).send(content);
+    return;
+  }
+  if (format === 'json') {
+    res.type('application/json').set('Content-Disposition', `attachment; filename="${filename}"`).send(JSON.stringify(report, null, 2));
+    return;
+  }
+  const csv = [report.columns.join(','), ...report.rows.map((row) => report.columns.map((column) => csvValue(row[column])).join(','))].join('\n');
+  res.type('text/csv').set('Content-Disposition', `attachment; filename="${filename}"`).send(csv);
+});
+
+// Build a { title, columns, rows } report for a range, optionally drilling into one
+// specific day to list every order placed that day (with ordering time).
+function buildAnalyticsExport(range, requestedDate) {
+  // Specific day: list all completed orders for that date with ordering time.
+  if (range === 'day' && requestedDate) {
+    const orders = db.prepare(`
+      SELECT id, created_at, order_type, order_source, payment_method, total
+      FROM orders
+      WHERE status = 'completed' AND payment_status IN ('paid', 'completed') AND substr(created_at, 1, 10) = ?
+      ORDER BY created_at ASC
+    `).all(requestedDate);
+    const rows = orders.map((order) => ({
+      order: order.id,
+      time: new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      type: order.order_type || '',
+      source: order.order_source || '',
+      payment: order.payment_method || '',
+      total: Number(order.total || 0),
+    }));
+    const totalRevenue = rows.reduce((sum, row) => sum + row.total, 0);
+    rows.push({ order: 'TOTAL', time: '', type: '', source: '', payment: `${rows.length} orders`, total: totalRevenue });
+    return { title: `Sales for ${requestedDate}`, columns: ['order', 'time', 'type', 'source', 'payment', 'total'], rows };
+  }
+
   const series = getSeriesForRange(range);
   const totalRevenue = series.reduce((sum, row) => sum + Number(row.revenue || 0), 0);
   const totalOrders = series.reduce((sum, row) => sum + Number(row.orders || 0), 0);
   const totalProfit = series.reduce((sum, row) => sum + Number(row.profit || 0), 0);
-  const filename = `wrap-roll-analytics-${range}.${format}`;
-  const payload = {
-    range,
-    generatedAt: new Date().toISOString(),
-    totals: { revenue: totalRevenue, orders: totalOrders, profit: totalProfit },
-    series,
-  };
-  if (format === 'json') {
-    res.type('application/json').set('Content-Disposition', `attachment; filename="${filename}"`).send(JSON.stringify(payload, null, 2));
-    return;
-  }
-  const header = 'period,revenue,orders,profit';
-  const lines = series.map((row) => [csvValue(row.label), row.revenue, row.orders, row.profit].join(','));
-  lines.push([csvValue('TOTAL'), totalRevenue, totalOrders, totalProfit].join(','));
-  res.type('text/csv').set('Content-Disposition', `attachment; filename="${filename}"`).send([header, ...lines].join('\n'));
+  const rows = series.map((row) => ({ period: row.label, revenue: row.revenue, orders: row.orders, profit: row.profit }));
+  rows.push({ period: 'TOTAL', revenue: totalRevenue, orders: totalOrders, profit: totalProfit });
+  const title = range === 'day' ? 'Daily revenue · last 7 days' : range === 'week' ? 'Weekly revenue · last 8 weeks' : 'Monthly revenue · last 12 months';
+  return { title, columns: ['period', 'revenue', 'orders', 'profit'], rows };
+}
+
+// JSON list of completed orders for one specific day (powers the day drill-down preview).
+router.get('/orders-by-day', authMiddleware, (req, res) => {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : new Date().toISOString().slice(0, 10);
+  const orders = db.prepare(`
+    SELECT id, created_at, order_type, order_source, payment_method, total, table_number, customer_name
+    FROM orders
+    WHERE status = 'completed' AND payment_status IN ('paid', 'completed') AND substr(created_at, 1, 10) = ?
+    ORDER BY created_at ASC
+  `).all(date);
+  res.json({
+    date,
+    count: orders.length,
+    totalRevenue: orders.reduce((sum, order) => sum + Number(order.total || 0), 0),
+    orders: orders.map((order) => ({
+      id: order.id,
+      time: new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: order.created_at,
+      type: order.order_type || '',
+      source: order.order_source || '',
+      payment: order.payment_method || '',
+      total: Number(order.total || 0),
+      table: order.table_number,
+      customer: order.customer_name || 'Walk-in Guest',
+    })),
+  });
 });
 
 function getAiSnapshot() {
