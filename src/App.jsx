@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import useAuthStore from './store/useAuthStore';
 import useSettingsStore from './store/useSettingsStore';
 import useNotificationStore from './store/useNotificationStore';
@@ -166,8 +166,9 @@ function AppRoutes() {
 }
 
 export default function App() {
+  const location = useLocation();
   return (
-    <ErrorBoundary>
+    <ErrorBoundary key={location.pathname}>
       <AppRoutes />
     </ErrorBoundary>
   );

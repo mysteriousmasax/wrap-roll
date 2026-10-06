@@ -84,7 +84,7 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
       }`}
     >
       {/* Card Header */}
-      <div className="kds-order-card-header space-y-3.5 p-4">
+      <div className="kds-order-card-header space-y-2 p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="kds-order-id font-display text-xl font-black tracking-tight text-[#1f1d1b]">
@@ -110,7 +110,7 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
           </div>
         </div>
 
-        <div className="kds-order-card-meta flex items-center justify-between border-b border-[#eadfd2] pb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a7d73]">
+        <div className="kds-order-card-meta flex items-center justify-between border-b border-[#eadfd2] pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a7d73]">
           <span>{order.status === 'pending' ? 'Queued for kitchen' : order.status === 'preparing' ? 'On the line' : 'Pickup / pass'}</span>
           <span>{elapsedMins < 1 ? 'Just now' : `${elapsedMins} min active`}</span>
         </div>
@@ -150,10 +150,10 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
         </div>
 
         {/* Order Items List */}
-        <div className="space-y-2 py-1 border-b border-[#eee4d5]/70">
+        <div className="kds-order-items flex flex-col gap-1.5 py-0.5 border-b border-[#eee4d5]/70">
           {order.items.map((item, i) => (
             <div key={i} className="flex items-start gap-2.5">
-              <span className="bg-[#ae002a] text-white text-xs font-black w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+              <span className="bg-[#ae002a] text-white text-[11px] font-black w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
                 {item.qty}
               </span>
               <div className="min-w-0 flex-1">
@@ -174,7 +174,6 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex gap-2 pt-1">
         <div className="kds-order-card-actions flex gap-2 pt-0.5">
           {order.paymentMethod === 'lipa_namba' && order.paymentStatus !== 'paid' && (
             <button
@@ -210,7 +209,6 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
             </button>
           )}
         </div>
-      </div>
     </div>
     </div>
   );

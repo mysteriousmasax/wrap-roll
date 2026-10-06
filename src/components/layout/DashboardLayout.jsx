@@ -8,6 +8,7 @@ import useOrderStore from '../../store/useOrderStore';
 import useNotificationStore from '../../store/useNotificationStore';
 import useSettingsStore from '../../store/useSettingsStore';
 import useAuthStore from '../../store/useAuthStore';
+import { isPageAllowedForUser } from '../../utils/roleAccess';
 import ChatInbox from '../kds/ChatInbox';
 import { MessageCircle } from 'lucide-react';
 
@@ -105,7 +106,8 @@ export default function DashboardLayout() {
     if (event === 'order:created' || event === 'order:updated') upsertOrder(data);
     if (event === 'notification:created') {
       const roles = data?.audienceRoles || (data?.audienceRole ? [data.audienceRole] : []);
-      const visible = (!data?.audienceUserId || data.audienceUserId === currentUser?.id)
+      const visible = isPageAllowedForUser(currentUser, '/notifications')
+        && (!data?.audienceUserId || data.audienceUserId === currentUser?.id)
         && (!roles.length || roles.includes(currentUser?.role) || currentUser?.role === 'admin');
       if (visible) {
         fetchNotifications();

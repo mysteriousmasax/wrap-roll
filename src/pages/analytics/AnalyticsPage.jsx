@@ -20,6 +20,7 @@ import Card from '../../components/ui/Card';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import useAuthStore from '../../store/useAuthStore';
+import { isPageAllowedForUser } from '../../utils/roleAccess';
 import { formatCurrency } from '../../utils/format';
 import {
   ArrowRight,
@@ -314,12 +315,14 @@ export default function AnalyticsPage() {
               <h3 className="font-display font-bold text-sm text-[#1f1d1b]">Live Kitchen Flow</h3>
               <p className="mt-0.5 text-xs text-[#746e67]">Real-time pipeline across all ordering points</p>
             </div>
-            <button
-              onClick={() => navigate('/orders')}
-              className="flex items-center gap-1 text-xs font-bold text-[#ae002a] hover:underline"
-            >
-              View all orders <ArrowRight size={13} />
-            </button>
+            {isPageAllowedForUser(currentUser, '/orders') && (
+              <button
+                onClick={() => navigate('/orders')}
+                className="flex items-center gap-1 text-xs font-bold text-[#ae002a] hover:underline"
+              >
+                View all orders <ArrowRight size={13} />
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-3 gap-3">

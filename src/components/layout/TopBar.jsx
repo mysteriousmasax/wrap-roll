@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../../store/useAuthStore';
 import useNotificationStore from '../../store/useNotificationStore';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { isPageAllowedForUser } from '../../utils/roleAccess';
 import { Bell, CheckCircle2, LogOut, Menu, Pencil, UserRound, WifiOff, Wifi, X } from 'lucide-react';
 import EditProfileModal from './EditProfileModal';
 
@@ -11,6 +12,7 @@ const isImageAvatar = (value) => typeof value === 'string' && value.startsWith('
 export default function TopBar({ title, onMenuClick }) {
   const currentUser = useAuthStore((s) => s.currentUser);
   const unreadCount = useNotificationStore((s) => s.getUnreadCount());
+  const canViewNotifications = isPageAllowedForUser(currentUser, '/notifications');
   const navigate = useNavigate();
   const online = useOnlineStatus();
   const logout = useAuthStore((s) => s.logout);
@@ -46,17 +48,20 @@ export default function TopBar({ title, onMenuClick }) {
         <span className="hidden sm:inline">{online ? 'Online' : 'Offline'}</span>
       </div>
 
-      <button
-        onClick={() => navigate('/notifications')}
-        className="relative p-2 rounded-lg hover:bg-surface-container transition-colors"
-      >
-        <Bell size={18} className="text-surface-on-variant" />
-        {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 bg-primary text-white text-xs font-bold h-[18px] min-w-[18px] px-1 rounded-full flex items-center justify-center text-[10px] leading-none">
-            {unreadCount}
-          </span>
-        )}
-      </button>
+      {canViewNotifications && (
+        <button
+          onClick={() => navigate('/notifications')}
+          className="relative p-2 rounded-lg hover:bg-surface-container transition-colors"
+          aria-label="Open notifications"
+        >
+          <Bell size={18} className="text-surface-on-variant" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 bg-primary text-white text-xs font-bold h-[18px] min-w-[18px] px-1 rounded-full flex items-center justify-center text-[10px] leading-none">
+              {unreadCount}
+            </span>
+          )}
+        </button>
+      )}
 
       <div className="relative flex items-center gap-2.5 pl-3 border-l border-outline-variant">
         <button

@@ -1477,6 +1477,9 @@
 .kds-order-id { color: #211d1b !important; font-size: 22px !important; }
 .kds-order-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
 .kds-order-grid .kds-order-card { min-width: 0; }
+.kds-order-card .kds-order-card-header { padding: 10px !important; }
+.kds-order-card-header > :not([hidden]) ~ :not([hidden]) { margin-top: 8px !important; }
+.kds-order-card .kds-order-items { gap: 6px; }
 @media (max-width: 699px) {
   .kds-command-bar { grid-template-columns: 1fr; gap: 12px !important; }
   .kds-station-tabs { width: 100%; }
@@ -1976,7 +1979,7 @@ button, input, select, textarea { max-width: 100%; }
   .kds-workspace.is-tickets .kds-ticket-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) !important; height: 100%; overflow: hidden; }
   .kds-workspace.is-tickets .kds-ticket-board > .kds-lane { grid-column: auto !important; }
   .kds-workspace.is-tickets .kds-lane { max-height: none; }
-  .kds-workspace.is-tickets .kds-order-grid { grid-template-columns: 1fr; }
+  .kds-workspace.is-tickets .kds-order-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
 }
 
 /* Match the established white, red, and yellow POS language. */
@@ -2059,6 +2062,10 @@ button, input, select, textarea { max-width: 100%; }
   .kds-order-card-actions button { min-height: 48px; font-size: 12px; }
   .global-support-fab { right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); width: 46px; height: 46px; padding: 0; justify-content: center; border-radius: 50%; }
   .global-support-fab span { display: none; }
+}
+
+@media (min-width: 768px) {
+  .kds-order-card-actions button { min-height: 38px; }
 }
 
 @media (max-width: 767px) {
