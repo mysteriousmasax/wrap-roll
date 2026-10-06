@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { animate, stagger, splitText } from 'animejs';
-import { useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowRight,
   ChevronDown,
@@ -153,8 +153,11 @@ function OrderTrackingCard({ order, onOpenPayment, onPrintInvoice, now, settings
 
 export default function HomePage() {
   const { tagId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const heroHeadingRef = useRef(null);
   const menuHeadingRef = useRef(null);
+  const reorderedFavoriteRef = useRef('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);
@@ -176,7 +179,7 @@ export default function HomePage() {
     () => localStorage.getItem('wraproll_customer_email') || ''
   );
   const [rememberedCustomer, setRememberedCustomer] = useState(null);
-  const [customerPointsLoading, setCustomerPointsLoading] = useState(false);
+  const [reorderNotice, setReorderNotice] = useState('');
   const [customerType, setCustomerType] = useState('individual');
   const [companyName, setCompanyName] = useState('');
   const [customerTin, setCustomerTin] = useState('');
@@ -355,31 +358,35 @@ export default function HomePage() {
   }, [displayCurrency]);
 
   useEffect(() => {
-    const identifier = customerPhone.trim() || customerEmail.trim();
-    if (!identifier) {
+    const sessionToken = localStorage.getItem('wraproll_customer_session');
+    if (!sessionToken) {
       setRememberedCustomer(null);
-      setCustomerPointsLoading(false);
       return undefined;
     }
-
     let active = true;
-    const timer = window.setTimeout(async () => {
-      setCustomerPointsLoading(true);
-      try {
-        const customer = await api.getPublicCustomerPoints(identifier);
-        if (active) setRememberedCustomer(customer);
-      } catch {
-        if (active) setRememberedCustomer(null);
-      } finally {
-        if (active) setCustomerPointsLoading(false);
-      }
-    }, 350);
+    api.getPublicCustomerSession(sessionToken).then((customer) => {
+      if (!active) return;
+      setRememberedCustomer(customer);
+      setCustomerName((current) => current || customer.name || '');
+      setCustomerPhone((current) => current || customer.phone || '');
+      setCustomerEmail((current) => current || customer.email || '');
+    }).catch(() => {
+      localStorage.removeItem('wraproll_customer_session');
+      if (active) setRememberedCustomer(null);
+    });
+    return () => { active = false; };
+  }, []);
 
-    return () => {
-      active = false;
-      window.clearTimeout(timer);
-    };
-  }, [customerPhone, customerEmail, activePlacedOrder?.paymentStatus]);
+  useEffect(() => {
+    if (!activePlacedOrder?.id || !['paid', 'completed'].includes(activePlacedOrder.paymentStatus)) return;
+    const sessionToken = localStorage.getItem('wraproll_customer_session');
+    if (!sessionToken) return;
+    let active = true;
+    api.getPublicCustomerSession(sessionToken)
+      .then((customer) => { if (active) setRememberedCustomer(customer); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [activePlacedOrder?.id, activePlacedOrder?.paymentStatus]);
 
   const scrollTo = (id) => {
     setMobileMenuOpen(false);
@@ -467,6 +474,82 @@ export default function HomePage() {
     });
   };
 
+  const addFavoriteOrderToCart = (order) => {
+    const cartRows = (order.items || []).flatMap((savedItem, index) => {
+      let product = publicMenu.find((item) => String(item.id) === String(savedItem.menuItemId));
+      let variant = product?.variants?.find((entry) => String(entry.menuItemId) === String(savedItem.menuItemId));
+
+      if (!product) {
+        product = publicMenu.find((item) => item.variants?.some((entry) => String(entry.menuItemId) === String(savedItem.menuItemId)));
+        variant = product?.variants?.find((entry) => String(entry.menuItemId) === String(savedItem.menuItemId));
+      }
+
+      if (!product && savedItem.name) {
+        const savedName = savedItem.name.trim().toLowerCase();
+        product = publicMenu.find((item) => item.name.trim().toLowerCase() === savedName
+          || item.variants?.some((entry) => `${item.name} (${entry.name})`.trim().toLowerCase() === savedName));
+        variant = product?.variants?.find((entry) => `${product.name} (${entry.name})`.trim().toLowerCase() === savedName);
+      }
+      if (product && !variant && savedItem.name && product.variants?.length) {
+        const savedName = savedItem.name.trim().toLowerCase();
+        variant = product.variants.find((entry) => `${product.name} (${entry.name})`.trim().toLowerCase() === savedName);
+      }
+      if (!product) return [];
+
+      const modifierNames = (savedItem.modifiers || []).map((modifier) => typeof modifier === 'string' ? modifier : modifier.name).filter(Boolean);
+      const modifiers = modifierNames.map((name) => publicModifiers.find((modifier) => modifier.name === name)).filter(Boolean);
+      if (modifiers.length !== modifierNames.length) return [];
+
+      return [{
+        id: product.id,
+        cartId: `favorite-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+        name: variant ? `${product.name} (${variant.name})` : product.name,
+        description: product.description,
+        image: product.image,
+        price: Number(variant?.price ?? product.price) + modifiers.reduce((sum, modifier) => sum + (modifier.type === 'add' ? Number(modifier.price || 0) : 0), 0),
+        variantName: variant?.name || '',
+        variantMenuItemId: variant?.menuItemId || null,
+        modifiers,
+        qty: Math.max(1, Number(savedItem.qty) || 1),
+        instructions: savedItem.specialInstructions || '',
+      }];
+    });
+
+    if (!cartRows.length) {
+      setReorderNotice('Those saved dishes or add-ons are no longer available.');
+      return;
+    }
+
+    setCartItems((currentItems) => {
+      const nextItems = [...currentItems];
+      cartRows.forEach((row) => {
+        const modifierKey = (modifiers) => JSON.stringify((modifiers || []).map((modifier) => typeof modifier === 'string' ? modifier : modifier.name).sort());
+        const existing = nextItems.find((item) => item.id === row.id
+          && (item.variantName || '') === row.variantName
+          && modifierKey(item.modifiers) === modifierKey(row.modifiers)
+          && (item.instructions || '') === row.instructions);
+        if (existing) {
+          nextItems.splice(nextItems.indexOf(existing), 1, { ...existing, qty: existing.qty + row.qty });
+        } else {
+          nextItems.push(row);
+        }
+      });
+      return nextItems;
+    });
+    setReorderNotice('Your usual order is back in the cart.');
+    setCartOpen(true);
+  };
+
+  useEffect(() => {
+    const favoriteOrder = location.state?.favoriteOrder;
+    if (!favoriteOrder || menuLoading || !publicMenu.length) return;
+    const requestKey = `${favoriteOrder.createdAt || ''}:${favoriteOrder.items?.map((item) => item.menuItemId).join(',') || ''}`;
+    if (reorderedFavoriteRef.current === requestKey) return;
+    reorderedFavoriteRef.current = requestKey;
+    addFavoriteOrderToCart(favoriteOrder);
+    navigate('/', { replace: true, state: null });
+  }, [location.state, menuLoading, publicMenu]);
+
   const changeQuantity = (cartId, quantity) => {
     setCartItems((items) =>
       items
@@ -489,6 +572,7 @@ export default function HomePage() {
           menuItemId: item.id,
           variantName: item.variantMenuItemId ? undefined : (item.variantName || undefined),
           qty: item.qty,
+          modifiers: item.modifiers || [],
           specialInstructions: item.instructions || undefined,
         })),
         customerName,
@@ -721,14 +805,13 @@ export default function HomePage() {
       <section className="reference-home-hero hero-tablet w-full px-6 sm:px-12 flex items-center justify-start" id="home" style={{backgroundImage: 'linear-gradient(90deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.62) 43%, rgba(0,0,0,0.08) 82%), url(/hero-food.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'scroll'}}>
         <div className="hero-copy reference-hero-copy space-y-5 max-w-xl">
           <a
-            href={customerPhone.trim() || customerEmail.trim() ? `/customer-rewards?identifier=${encodeURIComponent(customerPhone.trim() || customerEmail.trim())}` : '/customer-rewards'}
+            href="/customer-rewards"
             className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-[#fde8d7] px-3 py-1 text-xs font-bold uppercase tracking-wider text-[#ae002a] transition-colors hover:bg-white"
-            aria-label={rememberedCustomer ? `${rememberedCustomer.rollPoints} Roll Points. Open rewards.` : 'Fresh, fast and delicious. Open Roll Points rewards.'}
+            aria-label={rememberedCustomer ? `${rememberedCustomer.rollPoints} Roll Points. Open rewards.` : 'Open Roll Points rewards.'}
           >
             <Sparkles size={14} className="text-[#e6ac29]" />
-            <span>Fresh, Fast &amp; Delicious</span>
+            <span>{rememberedCustomer ? 'Your Roll Points' : 'Join Roll Points'}</span>
             {rememberedCustomer && <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-black normal-case">{rememberedCustomer.rollPoints} Roll Points</span>}
-            {!rememberedCustomer && customerPointsLoading && <span className="text-[10px] font-semibold normal-case">Checking points...</span>}
           </a>
           <h1 ref={heroHeadingRef} className="reference-hero-heading hero-heading-animation text-4xl sm:text-6xl font-bold font-display leading-[1.02] tracking-tight">
             <span className="hero-heading-line">Dine with Delight at</span>{' '}
@@ -755,6 +838,36 @@ export default function HomePage() {
         </div>
 
       </section>
+
+      {rememberedCustomer && (
+        <section className="px-6 pb-8 sm:px-12" aria-label="Your saved favorites">
+          <div className="mx-auto max-w-7xl border-y border-[#eadfd2] py-5">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#ae002a]">Welcome back, {rememberedCustomer.name.split(' ')[0]}</p>
+                <h2 className="mt-1 text-lg font-black text-[#1f1d1b]">Shall we make your usual?</h2>
+              </div>
+              <a href="/customer-rewards" className="text-xs font-bold text-[#ae002a] hover:underline">{rememberedCustomer.rollPoints} Roll Points</a>
+            </div>
+            {reorderNotice && <p className="mt-2 text-xs font-semibold text-[#227653]" role="status">{reorderNotice}</p>}
+            {rememberedCustomer.favoriteOrders?.length ? (
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {rememberedCustomer.favoriteOrders.slice(0, 2).map((order, index) => (
+                  <div key={`${order.createdAt}-${index}`} className="flex flex-col justify-between gap-3 rounded-xl border border-[#eadfd2] bg-white p-4 sm:flex-row sm:items-center">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#1f1d1b]">{order.items.map((item) => `${item.qty} × ${item.name}`).join(' · ')}</p>
+                      <p className="mt-1 text-[10px] text-[#746e67]">Last ordered {new Date(order.createdAt).toLocaleDateString()}</p>
+                    </div>
+                    <button type="button" onClick={() => addFavoriteOrderToCart(order)} className="min-h-10 shrink-0 rounded-xl bg-[#ae002a] px-4 py-2 text-xs font-bold text-white hover:bg-[#920023]">Add to cart</button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-[#746e67]">Your paid orders will appear here as quick reorders.</p>
+            )}
+          </div>
+        </section>
+      )}
 
       <section className="reference-delivery-section public-reveal-section px-6 pb-14 pt-0 sm:px-12 sm:pb-20" aria-label="Delivery and catering">
         {activePlacedOrder ? (

@@ -21,6 +21,10 @@ function WhatsAppLogo({ className = 'h-4 w-4' }) {
 function CustomerMessageActions({ customer, onSend, sendingChannel }) {
   const [message, setMessage] = useState(`Hello ${customer.name?.split(' ')[0] || 'there'}, we would love to serve you again soon.`);
   const instagramRecipientId = customer.socialLinks?.instagramRecipientId || customer.socialLinks?.instagram_scoped_id;
+  const favoriteItems = (customer.favoriteItems || []).filter(Boolean).slice(0, 4);
+  const favoriteReminder = favoriteItems.length
+    ? `Hello ${customer.name?.split(' ')[0] || 'there'}, your Wrap & Roll favorites are ready for another round: ${favoriteItems.join(', ')}. Revisit us at https://wrapandrolltz.com and we will help you order again.`
+    : '';
 
   return (
     <div className="customer-message-actions" onClick={(event) => event.stopPropagation()}>
@@ -32,6 +36,9 @@ function CustomerMessageActions({ customer, onSend, sendingChannel }) {
         <button type="button" className="email" disabled={!customer.email || Boolean(sendingChannel)} onClick={() => onSend(customer, 'email', message)} title={customer.email ? 'Send from the configured Wrap & Roll email account' : 'Add an email address to this customer'}>
           <Mail size={15} /> <span>Email</span>
         </button>
+        {favoriteReminder && <button type="button" className="email" disabled={!customer.email || Boolean(sendingChannel)} onClick={() => onSend(customer, 'email', favoriteReminder)} title={customer.email ? 'Email a reminder featuring this customer’s favorite dishes' : 'Add an email address to this customer'}>
+          <Sparkles size={15} /> <span>Favorite reminder</span>
+        </button>}
         <button type="button" className="instagram" disabled={!instagramRecipientId || Boolean(sendingChannel)} onClick={() => onSend(customer, 'instagram', message)} title={instagramRecipientId ? 'Send with the connected Instagram account' : 'Add the Instagram messaging recipient ID to this customer'}>
           <Instagram size={15} /> <span>Instagram</span>
         </button>

@@ -28,7 +28,7 @@ export async function request(path, options = {}) {
     throw new ApiError('Network error — is the server running?', 0);
   }
 
-  if (res.status === 401 && path !== '/auth/login' && path !== '/auth/logout') {
+  if (res.status === 401 && path !== '/auth/login' && path !== '/auth/logout' && !path.startsWith('/customers/public/')) {
     setToken(null);
     window.dispatchEvent(new Event('auth:logout'));
   }
@@ -130,7 +130,12 @@ export const api = {
   updateTable: (id, data) => request(`/tables/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   getCustomers: () => request('/customers'),
+  createCustomer: (data) => request('/customers', { method: 'POST', body: JSON.stringify(data) }),
+  updateCustomer: (id, data) => request(`/customers/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getPublicCustomerPoints: (identifier) => request(`/customers/public/lookup?identifier=${encodeURIComponent(identifier)}`),
+  requestCustomerVerification: (identifier) => request('/customers/public/session/request-code', { method: 'POST', body: JSON.stringify({ identifier }) }),
+  verifyCustomerCode: (identifier, code) => request('/customers/public/session/verify-code', { method: 'POST', body: JSON.stringify({ identifier, code }) }),
+  getPublicCustomerSession: (token) => request('/customers/public/session', { headers: { 'X-Customer-Session': token } }),
   deleteCustomer: (id) => request(`/customers/${id}`, { method: 'DELETE' }),
   getCustomerOrders: (id) => request(`/customers/${id}/orders`),
   getCrmIntelligence: () => request('/crm-intelligence/snapshot'),

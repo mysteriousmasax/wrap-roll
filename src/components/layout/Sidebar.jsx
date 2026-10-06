@@ -15,6 +15,7 @@ const navItems = [
   { path: '/pos/tables', label: 'Tables', icon: ClipboardList, roles: ['admin', 'foh'] },
   { path: '/kds', label: 'Kitchen', icon: ChefHat, roles: ['admin', 'kitchen'] },
   { path: '/orders', label: 'Orders', icon: ShoppingBag, roles: ['admin', 'foh', 'manager'] },
+  { path: '/customers', label: 'Customers', icon: Users, roles: ['admin', 'foh', 'manager'] },
   { path: '/roadside', label: 'Roadside & Reservations', icon: Navigation, roles: ['admin', 'manager', 'foh'] },
   { path: '/management/payments', label: 'Payment Verification', icon: ShieldCheck, roles: ['admin', 'manager', 'foh'] },
   { path: '/crm', label: 'CRM & Loyalty', icon: Users, roles: ['admin', 'manager', 'executive'] },

@@ -12,6 +12,7 @@ import PaymentPage from './pages/pos/PaymentPage';
 import PaymentSuccessPage from './pages/pos/PaymentSuccessPage';
 import TableManagementPage from './pages/pos/TableManagementPage';
 import OrdersListPage from './pages/pos/OrdersListPage';
+import CustomersPage from './pages/management/CustomersPage';
 import RoadsideOperationsPage from './pages/pos/RoadsideOperationsPage';
 import KDSPage from './pages/kds/KDSPage';
 import CRMPage from './pages/crm/CRMPage';
@@ -43,6 +44,7 @@ const ROUTE_ROLES = {
   '/pos/success': ['admin', 'foh'],
   '/pos/tables': ['admin', 'foh'],
   '/orders': ['admin', 'foh', 'manager'],
+  '/customers': ['admin', 'foh', 'manager'],
   '/roadside': ['admin', 'manager', 'foh'],
   '/management/payments': ['admin', 'manager', 'foh'],
   '/kds': ['admin', 'kitchen'],
@@ -140,6 +142,7 @@ function AppRoutes() {
         <Route path="/pos/success" element={<RoleRoute path="/pos/success"><PaymentSuccessPage /></RoleRoute>} />
         <Route path="/pos/tables" element={<RoleRoute path="/pos/tables"><TableManagementPage /></RoleRoute>} />
         <Route path="/orders" element={<RoleRoute path="/orders"><OrdersListPage /></RoleRoute>} />
+        <Route path="/customers" element={<RoleRoute path="/customers"><CustomersPage /></RoleRoute>} />
         <Route path="/roadside" element={<RoleRoute path="/roadside"><RoadsideOperationsPage /></RoleRoute>} />
         <Route path="/management/payments" element={<RoleRoute path="/management/payments"><PaymentVerificationPage /></RoleRoute>} />
         <Route path="/kds" element={<RoleRoute path="/kds"><KDSPage /></RoleRoute>} />

@@ -1,7 +1,7 @@
 export const ROUTE_ACCESS = {
   admin: [
     '/pos', '/pos/payment', '/pos/success', '/pos/tables',
-    '/orders', '/roadside', '/management/payments', '/kds', '/crm', '/crm/whatsapp',
+    '/orders', '/customers', '/roadside', '/management/payments', '/kds', '/crm', '/crm/whatsapp',
     '/analytics', '/management/menu', '/management/operations',
     '/staff-playbook',
     '/management/reports', '/assistant', '/management/people',
@@ -9,7 +9,7 @@ export const ROUTE_ACCESS = {
     '/management/settings', '/management/email-marketing', '/notifications',
   ],
   manager: [
-    '/orders', '/roadside', '/management/payments', '/crm', '/crm/whatsapp',
+    '/orders', '/customers', '/roadside', '/management/payments', '/crm', '/crm/whatsapp',
     '/analytics', '/management/menu', '/management/operations',
     '/staff-playbook',
     '/assistant', '/management/loyalty', '/management/campaigns', '/management/email-marketing',
@@ -22,7 +22,7 @@ export const ROUTE_ACCESS = {
     '/management/kanban',
   ],
   kitchen: ['/kds', '/assistant', '/staff-playbook'],
-  foh: ['/pos', '/pos/payment', '/pos/success', '/pos/tables', '/orders', '/roadside', '/management/payments', '/assistant', '/notifications', '/staff-playbook'],
+  foh: ['/pos', '/pos/payment', '/pos/success', '/pos/tables', '/orders', '/customers', '/roadside', '/management/payments', '/assistant', '/notifications', '/staff-playbook'],
 };
 
 const VALID_PAGE_PATHS = new Set(Object.values(ROUTE_ACCESS).flat());

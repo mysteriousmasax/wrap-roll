@@ -45,13 +45,14 @@ function getCustomerOrderSummary(customer) {
   const name = String(customer.name || '').trim().toLowerCase();
 
   const orderRows = db.prepare(`
-    SELECT id, customer_name, customer_phone, customer_email, order_type, total, created_at
+     SELECT id, customer_id, customer_name, customer_phone, customer_email, order_type, total, created_at
     FROM orders
-    WHERE (? <> '' AND replace(replace(replace(replace(customer_phone, ' ', ''), '+', ''), '-', ''), '(', '') LIKE '%' || ?)
+     WHERE customer_id = ?
+       OR (? <> '' AND replace(replace(replace(replace(customer_phone, ' ', ''), '+', ''), '-', ''), '(', '') LIKE '%' || ?)
        OR (? <> '' AND lower(trim(customer_email)) = ?)
        OR (? <> '' AND lower(trim(customer_name)) = ?)
     ORDER BY created_at DESC
-  `).all(phone, phone, email, email, name, name);
+    `).all(customer.id, phone, phone, email, email, name, name);
 
   const lifetimeValue = orderRows.reduce((sum, order) => sum + Number(order.total || 0), 0);
   const lastVisit = orderRows[0]?.created_at ? orderRows[0].created_at.slice(0, 10) : customer.last_visit;

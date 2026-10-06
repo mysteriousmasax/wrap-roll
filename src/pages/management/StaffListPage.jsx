@@ -21,6 +21,7 @@ const PAGE_ACCESS_OPTIONS = [
   { value: '/pos', label: 'POS Till' },
   { value: '/pos/tables', label: 'Table Setup' },
   { value: '/orders', label: 'Orders' },
+  { value: '/customers', label: 'Customers' },
   { value: '/roadside', label: 'Roadside & Reservations' },
   { value: '/crm/whatsapp', label: 'WhatsApp' },
   { value: '/management/payments', label: 'Payment Verification' },

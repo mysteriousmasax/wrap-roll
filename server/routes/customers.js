@@ -4,6 +4,8 @@ import { authMiddleware } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
 import { printReceipt } from '../utils/escposPrinter.js';
 import { sendCrmMessage } from '../utils/crmMessaging.js';
+import { createCustomerAccessService } from '../utils/customerAccess.js';
+import { isEmailDeliveryConfigured, resolveEmailSender, sendEmail } from '../utils/emailDelivery.js';
 
 const router = Router();
 
@@ -14,46 +16,97 @@ export function normalizePublicCustomerIdentifier(value) {
 export function lookupPublicCustomerProfile(targetDb = db, identifier) {
   const rawValue = normalizePublicCustomerIdentifier(identifier);
   if (!rawValue) return null;
-
-  const normalizedPhone = rawValue.replace(/\D/g, '');
-  const normalizedEmail = rawValue.toLowerCase();
-  const normalizedNfc = rawValue.toUpperCase();
-
   const customer = targetDb.prepare(`
-    SELECT * FROM customers
-    WHERE (
-      (? <> '' AND replace(replace(replace(replace(lower(COALESCE(phone, '')), ' ', ''), '+', ''), '-', ''), '(', '') LIKE '%' || ?)
-      OR (? <> '' AND lower(trim(COALESCE(email, ''))) = ?)
-      OR (? <> '' AND upper(trim(COALESCE(nfc_tag_code, ''))) = ?)
-      OR (? <> '' AND lower(trim(name)) = ?)
-    )
-    ORDER BY id DESC
-    LIMIT 1
-  `).get(
-    normalizedPhone,
-    normalizedPhone,
-    normalizedPhone,
-    normalizedEmail,
-    normalizedNfc,
-    normalizedNfc,
-    rawValue.toLowerCase(),
-    rawValue.toLowerCase()
-  );
+    SELECT * FROM customers WHERE upper(trim(COALESCE(nfc_tag_code, ''))) = ? LIMIT 1
+  `).get(rawValue.toUpperCase());
 
   if (!customer) return null;
 
   return {
     id: customer.id,
     name: customer.name,
-    phone: customer.phone,
-    email: customer.email,
-    nfcTagCode: customer.nfc_tag_code,
     rollPoints: Number(customer.roll_points_balance || 0),
-    lifetimeValue: Number(customer.lifetime_value || 0),
     customerSegment: customer.customer_segment || 'regular',
-    preferredChannel: customer.preferred_channel || 'pos',
   };
 }
+
+function normalizePhoneForLookup(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits.length >= 9 ? digits.slice(-9) : digits;
+}
+
+function findCustomerForVerification(targetDb, identifier) {
+  const value = String(identifier || '').trim();
+  if (value.includes('@')) {
+    const matches = targetDb.prepare("SELECT * FROM customers WHERE lower(trim(COALESCE(email, ''))) = ?")
+      .all(value.toLowerCase());
+    return matches.length === 1 ? matches[0] : null;
+  }
+  const normalizedPhone = normalizePhoneForLookup(value);
+  if (normalizedPhone.length < 8) return null;
+  const matches = targetDb.prepare("SELECT * FROM customers WHERE COALESCE(phone, '') != ''").all()
+    .filter((customer) => normalizePhoneForLookup(customer.phone) === normalizedPhone);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function getFavoriteOrders(targetDb, customerId) {
+  const orders = targetDb.prepare(`
+    SELECT id, created_at, total FROM orders
+    WHERE customer_id = ? AND payment_status IN ('paid', 'completed')
+    ORDER BY created_at DESC LIMIT 4
+  `).all(customerId);
+  if (!orders.length) return [];
+
+  const orderIds = orders.map((order) => order.id);
+  const items = targetDb.prepare(`
+    SELECT oi.order_id, oi.menu_item_id, oi.name, oi.qty, oi.price, oi.modifiers, oi.special_instructions
+    FROM order_items oi
+    LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
+    WHERE oi.order_id IN (${orderIds.map(() => '?').join(',')}) AND (mi.id IS NULL OR mi.active = 1)
+    ORDER BY oi.id
+  `).all(...orderIds);
+  const itemsByOrder = new Map();
+  for (const item of items) {
+    let modifiers = [];
+    try { modifiers = JSON.parse(item.modifiers || '[]'); } catch {}
+    const current = itemsByOrder.get(item.order_id) || [];
+    current.push({ menuItemId: item.menu_item_id, name: item.name, qty: Number(item.qty || 1), price: Number(item.price || 0), modifiers, specialInstructions: item.special_instructions || '' });
+    itemsByOrder.set(item.order_id, current);
+  }
+  return orders.map((order) => ({
+    createdAt: order.created_at,
+    total: Number(order.total || 0),
+    items: itemsByOrder.get(order.id) || [],
+  })).filter((order) => order.items.length > 0);
+}
+
+function mapVerifiedCustomer(targetDb, customer) {
+  let favoriteItems = [];
+  try { favoriteItems = JSON.parse(customer.favorite_items || '[]'); } catch {}
+  return {
+    id: customer.id,
+    name: customer.name,
+    email: customer.email || '',
+    phone: customer.phone || '',
+    rollPoints: Number(customer.roll_points_balance || 0),
+    favoriteItems,
+    favoriteOrders: getFavoriteOrders(targetDb, customer.id),
+  };
+}
+
+const customerAccess = createCustomerAccessService({
+  findCustomer: (identifier) => findCustomerForVerification(db, identifier),
+  deliverCode: async (email, code) => {
+    if (!isEmailDeliveryConfigured()) throw new Error('Email delivery is not configured.');
+    const sender = resolveEmailSender();
+    await sendEmail({
+      to: email,
+      subject: 'Your Wrap & Roll verification code',
+      text: `Your verification code is ${code}. It expires in 10 minutes. If you did not request it, you can ignore this email.`,
+      html: `<p>Hello,</p><p>Your Wrap &amp; Roll verification code is <strong>${code}</strong>.</p><p>It expires in 10 minutes. If you did not request it, you can ignore this email.</p><p>${sender.name}</p>`,
+    });
+  },
+});
 
 export function deleteCustomerCascade(targetDb = db, customerId) {
   const target = targetDb.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
@@ -77,6 +130,47 @@ export function deleteCustomerCascade(targetDb = db, customerId) {
     deletedCustomerId: Number(customerId),
     customer: snapshot,
   };
+}
+
+export function updateCustomerContact(targetDb = db, customerId, input = {}) {
+  const current = targetDb.prepare('SELECT id, name, phone, email FROM customers WHERE id = ?').get(customerId);
+  if (!current) return { ok: false, error: 'Customer not found' };
+
+  const name = String(input.name ?? current.name).trim();
+  const phone = String(input.phone ?? current.phone ?? '').trim();
+  const email = String(input.email ?? current.email ?? '').trim().toLowerCase();
+  if (!name) return { ok: false, error: 'Customer name is required' };
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Enter a valid email address' };
+
+  const duplicate = findDuplicateCustomerContact(targetDb, current.id, email, phone);
+  if (duplicate) return { ok: false, error: 'Another customer already uses that email or phone number' };
+
+  targetDb.prepare('UPDATE customers SET name = ?, phone = ?, email = ? WHERE id = ?').run(name, phone, email, customerId);
+  return { ok: true, customer: { id: Number(current.id), name, phone, email } };
+}
+
+function findDuplicateCustomerContact(targetDb, excludedId, email, phone) {
+  const normalizedPhone = normalizePhoneForLookup(phone);
+  return targetDb.prepare('SELECT id, email, phone FROM customers').all().find((customer) =>
+    Number(customer.id) !== Number(excludedId)
+    && ((email && String(customer.email || '').trim().toLowerCase() === email)
+      || (normalizedPhone.length >= 8 && normalizePhoneForLookup(customer.phone) === normalizedPhone))
+  ) || null;
+}
+
+export function createCustomerContact(targetDb = db, input = {}) {
+  const name = String(input.name || '').trim();
+  const phone = String(input.phone || '').trim();
+  const email = String(input.email || '').trim().toLowerCase();
+  if (!name) return { ok: false, status: 400, error: 'Name required' };
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, status: 400, error: 'Enter a valid email address' };
+  if (findDuplicateCustomerContact(targetDb, null, email, phone)) {
+    return { ok: false, status: 409, error: 'A customer already uses that email or phone number' };
+  }
+  const result = targetDb.prepare(
+    'INSERT INTO customers (name, tier, phone, email, social_links, favorite_items, last_visit) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(name, input.tier || 'Regular', phone, email, JSON.stringify(input.socialLinks || {}), '[]', new Date().toISOString().slice(0, 10));
+  return { ok: true, customerId: Number(result.lastInsertRowid) };
 }
 
 function normalizeChannel(value) {
@@ -139,6 +233,7 @@ function aggregateCustomerData(customerRows, orderRows, orderItemsByOrder) {
 
   customerRows.forEach((customer) => {
     const orders = orderRows.filter((order) => {
+      if (Number(order.customer_id) === Number(customer.id)) return true;
       const customerName = (customer.name || '').trim().toLowerCase();
       const orderName = (order.customer_name || '').trim().toLowerCase();
       const customerPhone = (customer.phone || '').replace(/\D/g, '');
@@ -203,7 +298,7 @@ function aggregateCustomerData(customerRows, orderRows, orderItemsByOrder) {
 router.get('/', authMiddleware, (req, res) => {
   const customerRows = db.prepare('SELECT * FROM customers ORDER BY name').all();
   const orderRows = db.prepare(
-    'SELECT id, customer_name, customer_phone, customer_email, order_type, table_number, order_source, created_at, total FROM orders WHERE customer_name IS NOT NULL OR customer_phone IS NOT NULL OR customer_email IS NOT NULL ORDER BY created_at DESC'
+    'SELECT id, customer_id, customer_name, customer_phone, customer_email, order_type, table_number, order_source, created_at, total FROM orders WHERE customer_name IS NOT NULL OR customer_phone IS NOT NULL OR customer_email IS NOT NULL ORDER BY created_at DESC'
   ).all();
   const orderItems = db.prepare(
     `SELECT oi.order_id, mi.category AS category
@@ -230,6 +325,31 @@ router.get('/public/lookup', (req, res) => {
   res.json(customer);
 });
 
+router.post('/public/session/request-code', async (req, res) => {
+  try {
+    res.json(await customerAccess.requestCode(req.body?.identifier, req.ip));
+  } catch (error) {
+    console.error('Customer verification email failed:', error.message);
+    res.status(503).json({ error: 'Verification email could not be sent right now. Please try again later.' });
+  }
+});
+
+router.post('/public/session/verify-code', (req, res) => {
+  const result = customerAccess.verifyCode(req.body?.identifier, req.body?.code);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(result.customerId);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+  res.json({ token: result.token, customer: mapVerifiedCustomer(db, customer) });
+});
+
+router.get('/public/session', (req, res) => {
+  const customerId = customerAccess.customerIdFromSession(req.get('X-Customer-Session'));
+  if (!customerId) return res.status(401).json({ error: 'Customer session expired. Verify your contact again.' });
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+  res.json(mapVerifiedCustomer(db, customer));
+});
+
 router.get('/public/:identifier', (req, res) => {
   const customer = lookupPublicCustomerProfile(db, req.params.identifier);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
@@ -244,11 +364,12 @@ router.get('/:id/orders', authMiddleware, (req, res) => {
   const name = String(customer.name || '').trim().toLowerCase();
   const orders = db.prepare(`
     SELECT * FROM orders
-    WHERE (? <> '' AND replace(replace(replace(replace(customer_phone, ' ', ''), '+', ''), '-', ''), '(', '') LIKE '%' || ?)
+     WHERE customer_id = ?
+       OR (? <> '' AND replace(replace(replace(replace(customer_phone, ' ', ''), '+', ''), '-', ''), '(', '') LIKE '%' || ?)
        OR (? <> '' AND lower(trim(customer_email)) = ?)
        OR (? <> '' AND lower(trim(customer_name)) = ?)
     ORDER BY created_at DESC
-  `).all(phone, phone, email, email, name, name);
+    `).all(customer.id, phone, phone, email, email, name, name);
   const items = orders.length
     ? db.prepare('SELECT * FROM order_items WHERE order_id IN (' + orders.map(() => '?').join(',') + ') ORDER BY id').all(...orders.map((order) => order.id))
     : [];
@@ -258,12 +379,17 @@ router.get('/:id/orders', authMiddleware, (req, res) => {
 });
 
 router.post('/', authMiddleware, (req, res) => {
-  const { name, tier, phone, email, socialLinks = {} } = req.body;
-  if (!name) return res.status(400).json({ error: 'Name required' });
-  const result = db.prepare(
-    'INSERT INTO customers (name, tier, phone, email, social_links, favorite_items, last_visit) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(name, tier || 'Regular', phone || '', email || '', JSON.stringify(socialLinks || {}), '[]', new Date().toISOString().slice(0, 10));
-  res.status(201).json(mapCustomer(db.prepare('SELECT * FROM customers WHERE id = ?').get(result.lastInsertRowid)));
+  const result = createCustomerContact(db, req.body);
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  res.status(201).json(mapCustomer(db.prepare('SELECT * FROM customers WHERE id = ?').get(result.customerId)));
+});
+
+router.patch('/:id', authMiddleware, (req, res) => {
+  const updated = updateCustomerContact(db, req.params.id, req.body);
+  if (!updated.ok) return res.status(updated.error === 'Customer not found' ? 404 : 400).json({ error: updated.error });
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
+  broadcast('customer:updated', { customerId: customer.id, customer: mapCustomer(customer) });
+  res.json(mapCustomer(customer));
 });
 
 router.delete('/:id', authMiddleware, (req, res) => {

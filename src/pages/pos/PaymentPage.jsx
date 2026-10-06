@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertCircle, Banknote, Smartphone } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Banknote, Smartphone, Users } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
 import useCartStore from '../../store/useCartStore';
 import useOrderStore from '../../store/useOrderStore';
@@ -22,11 +22,15 @@ export default function PaymentPage() {
   const [selectedMethod, setSelectedMethod] = useState('lipa_namba');
   const [paymentOrder, setPaymentOrder] = useState(null);
   const [availableTables, setAvailableTables] = useState([]);
+  const [savedCustomers, setSavedCustomers] = useState([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [alternateTable, setAlternateTable] = useState('');
   const [showAlternateTables, setShowAlternateTables] = useState(false);
   const location = useLocation();
 
-  const { items, getSubtotal, getTax, getTotal, orderType, tableNumber, customerName, customerPhone: cartCustomerPhone, deliveryAddress, deliveryLatitude, deliveryLongitude, orderSource, fulfillmentMode, scheduledFor, clearCart } = useCartStore();
+  const { items, getSubtotal, getTax, getTotal, orderType, tableNumber, customerName, customerPhone: cartCustomerPhone, customerEmail: cartCustomerEmail, deliveryAddress, deliveryLatitude, deliveryLongitude, orderSource, fulfillmentMode, scheduledFor, clearCart } = useCartStore();
+  const setCartCustomerName = useCartStore((state) => state.setCustomerName);
+  const setCartCustomerPhone = useCartStore((state) => state.setCustomerPhone);
   const setItems = useCartStore((state) => state.setItems);
   const setTableNumber = useCartStore((state) => state.setTableNumber);
   const createOrder = useOrderStore((s) => s.createOrder);
@@ -43,6 +47,28 @@ export default function PaymentPage() {
   useEffect(() => {
     if (cartCustomerPhone) setCustomerPhone(cartCustomerPhone);
   }, [cartCustomerPhone]);
+
+  useEffect(() => {
+    if (cartCustomerEmail) setCustomerEmail(cartCustomerEmail);
+  }, [cartCustomerEmail]);
+
+  useEffect(() => {
+    api.getCustomers().then(setSavedCustomers).catch(() => setSavedCustomers([]));
+  }, []);
+
+  const handleSavedCustomerChange = (event) => {
+    const customerId = event.target.value;
+    setSelectedCustomerId(customerId);
+    const customer = savedCustomers.find((entry) => String(entry.id) === customerId);
+    if (!customer) return;
+    setCartCustomerName(customer.name || '');
+    setCartCustomerPhone(customer.phone || '');
+    setCustomerEmail(customer.email || '');
+    setCustomerType(customer.customerType || 'individual');
+    setCompanyName(customer.companyName || '');
+    setCustomerTin(customer.tin || '');
+    setBillingAddress(customer.billingAddress || '');
+  };
 
   const handlePayment = async (selectedTableNumber = checkoutTableNumber) => {
     setProcessing(true);
@@ -218,6 +244,17 @@ export default function PaymentPage() {
         <div className="card mb-6">
           <h3 className="font-bold text-sm mb-4">Customer Information</h3>
           <div className="space-y-3">
+            {savedCustomers.length > 0 && (
+              <label className="block text-xs font-semibold text-surface-on-variant">Saved customer
+                <span className="relative mt-1 block">
+                  <Users size={15} className="absolute left-3 top-1/2 -translate-y-1/2" />
+                  <select value={selectedCustomerId} onChange={handleSavedCustomerChange} className="input-field w-full pl-9">
+                    <option value="">Walk-in / enter manually</option>
+                    {savedCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}{customer.phone ? ` · ${customer.phone}` : ''}</option>)}
+                  </select>
+                </span>
+              </label>
+            )}
             <div>
               <label className="block text-xs font-semibold text-surface-on-variant mb-1">Email Address (Optional)</label>
               <input
