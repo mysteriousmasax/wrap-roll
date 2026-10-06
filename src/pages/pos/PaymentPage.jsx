@@ -34,7 +34,7 @@ export default function PaymentPage() {
   const currency = useSettingsStore((s) => s.settings.currency || 'TZS');
   const navigate = useNavigate();
   const checkoutOrderType = location.state?.orderType ?? orderType;
-  const checkoutTableNumber = location.state?.tableNumber ?? tableNumber;
+  const checkoutTableNumber = location.state?.orderType ? location.state.tableNumber : tableNumber;
 
   useEffect(() => {
     if (items.length === 0 && location.state?.checkoutItems?.length) setItems(location.state.checkoutItems);
