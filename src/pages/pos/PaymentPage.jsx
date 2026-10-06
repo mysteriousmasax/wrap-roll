@@ -15,6 +15,7 @@ export default function PaymentPage() {
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerType, setCustomerType] = useState('individual');
+  const [paymentTerms, setPaymentTerms] = useState('prepaid');
   const [companyName, setCompanyName] = useState('');
   const [customerTin, setCustomerTin] = useState('');
   const [billingAddress, setBillingAddress] = useState('');
