@@ -12,6 +12,10 @@ function getImageSource(image) {
 }
 
 export default function ProductCard({ item, onClick }) {
+  const startingPrice = item.variants?.length
+    ? Math.min(...item.variants.map((variant) => Number(variant.price)))
+    : item.price;
+
   return (
     <div
       data-pos-item-id={item.id}
@@ -35,7 +39,7 @@ export default function ProductCard({ item, onClick }) {
       <div className="p-3">
         <h3 className="font-display font-semibold text-sm text-surface-on line-clamp-2 leading-tight">{item.name}</h3>
         <p className="text-xs text-surface-on-variant mt-0.5 line-clamp-1">{item.description}</p>
-        <p className="font-display font-bold text-base text-primary mt-2">{formatCurrency(item.price)}</p>
+        <p className="font-display font-bold text-base text-primary mt-2">{item.variants?.length ? 'From ' : ''}{formatCurrency(startingPrice)}</p>
       </div>
     </div>
   );

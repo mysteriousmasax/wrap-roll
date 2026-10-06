@@ -25,6 +25,11 @@ test('page access is normalized and preserves explicit route allow-lists', () =>
   assert.deepEqual(normalizePageAccess(['/pos', ' /management/menu ', '/unknown']), ['/pos', '/management/menu']);
   assert.ok(getRolePageAccess({ role: 'admin', pageAccess: [] }).includes('/management/settings'));
   assert.ok(getRolePageAccess({ role: 'foh', pageAccess: ['/orders'] }).includes('/orders'));
+  assert.deepEqual(
+    getRolePageAccess({ role: 'foh', pageAccess: ['/analytics', '/management/menu'] }),
+    ['/analytics', '/management/menu']
+  );
+  assert.deepEqual(getRolePageAccess({ role: 'foh', pageAccess: [] }), getRolePageAccess('foh'));
 });
 
 test('POS access implies the checkout flow pages', () => {

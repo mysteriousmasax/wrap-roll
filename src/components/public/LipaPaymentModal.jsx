@@ -107,6 +107,7 @@ export default function LipaPaymentModal({
             paymentStatus: statusRes.status,
             orderStatus: statusRes.orderStatus,
             paidAt: statusRes.paidAt,
+            paymentFailureReason: statusRes.status === 'failed' ? (statusRes.notes || prev?.paymentFailureReason) : prev?.paymentFailureReason,
           }));
         }
       } catch (err) {
@@ -131,7 +132,7 @@ export default function LipaPaymentModal({
     } else if (event === 'payment:confirmed') {
       setLiveOrder((prev) => ({ ...prev, paymentStatus: 'paid', status: 'confirmed', orderStatus: 'confirmed' }));
     } else if (event === 'payment:rejected') {
-      setLiveOrder((prev) => ({ ...prev, paymentStatus: 'failed' }));
+      setLiveOrder((prev) => ({ ...prev, paymentStatus: 'failed', paymentFailureReason: data.reason || 'Payment rejected by staff.' }));
     }
   });
 
@@ -166,11 +167,14 @@ export default function LipaPaymentModal({
         setLiveOrder((prev) => ({
           ...prev,
           paymentStatus: 'manual_review',
+          status: 'confirmed',
+          orderStatus: 'confirmed',
         }));
         onSuccess({
           ...liveOrder,
           paymentStatus: 'manual_review',
-          status: 'pending_payment',
+          status: 'confirmed',
+          orderStatus: 'confirmed',
         });
         onClose();
       }
@@ -254,6 +258,13 @@ export default function LipaPaymentModal({
 
         {/* Modal Body */}
         <div className="p-6 space-y-6 overflow-y-auto">
+          {isFailed && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900" role="alert">
+              <h3 className="font-bold">Payment wasn’t approved</h3>
+              <p className="mt-1">{liveOrder.paymentFailureReason || liveOrder.notes || 'Our team could not verify this payment.'}</p>
+              <p className="mt-2 text-xs">Your order has not been sent to the kitchen. Check the payment details and submit the correct transaction information again, or contact the restaurant with order {liveOrder.orderNumber || liveOrder.id} and reference {paymentRef}.</p>
+            </div>
+          )}
           {/* If Paid: Show Success Celebration Screen */}
           {isPaid ? (
             <div className="text-center py-6 space-y-4">

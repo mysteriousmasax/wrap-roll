@@ -13,6 +13,8 @@ import {
   X,
   FileText,
   Percent,
+  Pause,
+  RotateCcw,
 } from 'lucide-react';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
@@ -25,6 +27,7 @@ import ItemCustomization from './ItemCustomization';
 import OrderTypeSelector from './OrderTypeSelector';
 import { syncQueuedOrders } from '../../store/useOrderStore';
 import { getQueuedOrderCount } from '../../offline/orderQueue';
+import { groupLegacyMenuVariants, isMenuVariantCategory } from '../../utils/menuProductVariants';
 
 const defaultCategories = [
   { id: 'all', label: 'All Items' },
@@ -40,6 +43,17 @@ const defaultCategories = [
   { id: 'cold-drinks', label: 'Cold Drinks' },
   { id: 'soft-drinks', label: 'Soft Drinks' },
 ];
+const categoryFallbackImages = ['/hero-food.jpg', '/delivery-wraps.jpg', '/craft-story.jpg'];
+const HELD_BILLS_STORAGE_KEY = 'wraproll_pos_held_bills';
+
+function loadHeldBills() {
+  try {
+    const bills = JSON.parse(localStorage.getItem(HELD_BILLS_STORAGE_KEY) || '[]');
+    return Array.isArray(bills) ? bills : [];
+  } catch {
+    return [];
+  }
+}
 
 const quickUpsells = [
   { name: 'French Fries', price: 4000, category: 'sides' },
@@ -183,7 +197,7 @@ function CustomItemModal({ isOpen, onClose, onAdd }) {
   );
 }
 
-function CartPanel({ onCheckout, onOpenCustomModal }) {
+function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, onHoldBill, onResumeBill, onDiscardBill }) {
   const {
     items,
     updateQuantity,
@@ -203,6 +217,9 @@ function CartPanel({ onCheckout, onOpenCustomModal }) {
   const taxRate = useSettingsStore((s) => s.settings.tax_rate);
   const [showNotes, setShowNotes] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showHeldBills, setShowHeldBills] = useState(false);
+  const [showHoldForm, setShowHoldForm] = useState(false);
+  const [holdLabel, setHoldLabel] = useState('');
 
   const subtotal = getSubtotal();
   const discount = getDiscountAmount();
@@ -210,9 +227,36 @@ function CartPanel({ onCheckout, onOpenCustomModal }) {
   const total = getTotal();
   const itemCount = getItemCount();
 
+  const heldBillsPanel = heldBills.length > 0 && (
+    <section className="rounded-xl border border-[#ebdccb] bg-[#fffaf4] p-2.5 text-left">
+      <button type="button" onClick={() => setShowHeldBills((visible) => !visible)} className="flex w-full items-center justify-between text-xs font-bold text-[#554e46]">
+        <span>Held bills</span>
+        <span className="rounded-full bg-[#ae002a] px-2 py-0.5 text-[10px] text-white">{heldBills.length}</span>
+      </button>
+      {showHeldBills && (
+        <div className="mt-2 max-h-44 space-y-2 overflow-y-auto">
+          {items.length > 0 && <p className="text-[10px] text-[#746e67]">Hold the current bill before switching to another.</p>}
+          {heldBills.map((bill) => (
+            <div key={bill.id} className="flex items-center justify-between gap-2 rounded-lg border border-[#eee4d5] bg-white p-2">
+              <div className="min-w-0">
+                <p className="truncate text-[11px] font-bold text-[#1f1d1b]">{bill.label}</p>
+                <p className="text-[10px] text-[#746e67]">{bill.itemCount} items · {formatCurrency(bill.total)}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <button type="button" disabled={items.length > 0} onClick={() => onResumeBill(bill.id)} className="rounded-lg bg-[#ae002a] px-2 py-1.5 text-[10px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">Resume</button>
+                <button type="button" onClick={() => onDiscardBill(bill.id)} aria-label={`Discard ${bill.label}`} title="Discard held bill" className="grid h-7 w-7 place-items-center rounded-lg border border-[#ebdccb] text-[#ae002a] hover:bg-[#fff0f0]"><Trash2 size={12} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+
   if (items.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-between p-4 text-center bg-[#fffdfa]">
+        {heldBillsPanel}
         <div className="flex-1 flex flex-col items-center justify-center space-y-3 py-6">
           <div className="w-16 h-16 rounded-2xl bg-[#faeee2] text-[#ae002a] flex items-center justify-center shadow-sm">
             <ShoppingCart size={28} />
@@ -269,6 +313,7 @@ function CartPanel({ onCheckout, onOpenCustomModal }) {
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#fffdfa]">
       {/* Items Scroll Area */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+        {heldBillsPanel}
         {items.map((item) => (
           <div
             key={item.cartId}
@@ -287,7 +332,12 @@ function CartPanel({ onCheckout, onOpenCustomModal }) {
               )}
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-1">
-                  <p className="text-xs font-bold text-[#1f1d1b] leading-tight truncate">{item.name}</p>
+                  <button
+                    type="button"
+                    onClick={() => onCustomizeItem(item)}
+                    className="text-left text-xs font-bold text-[#1f1d1b] leading-tight truncate hover:text-[#ae002a]"
+                    title="View item details and edit extras"
+                  >{item.name}</button>
                   <button
                     onClick={() => removeItem(item.cartId)}
                     className="text-[#998f86] hover:text-[#ae002a] p-0.5 rounded transition-colors"
@@ -406,6 +456,16 @@ function CartPanel({ onCheckout, onOpenCustomModal }) {
               <FileText size={12} /> {orderNotes ? 'Notes Added' : 'Order Notes'}
             </button>
 
+            <button
+              type="button"
+              onClick={() => setShowHoldForm((visible) => !visible)}
+              aria-label="Hold current bill"
+              title="Hold bill for another customer"
+              className="grid h-7 w-7 place-items-center rounded-lg border border-[#ebdccb] text-[#ae002a] hover:bg-[#faeee2]"
+            >
+              <Pause size={12} />
+            </button>
+
             <div className="flex items-center gap-1 bg-[#fbf6ee] border border-[#ebdccb] rounded-lg px-2 py-0.5 text-[11px]">
               <Percent size={11} className="text-[#8c8278]" />
               <select
@@ -430,6 +490,13 @@ function CartPanel({ onCheckout, onOpenCustomModal }) {
             Clear Cart
           </button>
         </div>
+
+        {showHoldForm && (
+          <form onSubmit={(event) => { event.preventDefault(); onHoldBill(holdLabel); setHoldLabel(''); setShowHoldForm(false); }} className="flex gap-2">
+            <input value={holdLabel} onChange={(event) => setHoldLabel(event.target.value)} placeholder="Customer name or table" className="min-w-0 flex-1 rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2.5 py-2 text-xs" />
+            <button type="submit" className="shrink-0 rounded-lg bg-[#ae002a] px-3 py-2 text-xs font-bold text-white">Hold bill</button>
+          </form>
+        )}
 
         {showNotes && (
           <textarea
@@ -506,6 +573,7 @@ export default function POSPage() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
+  const [editingCartItem, setEditingCartItem] = useState(null);
   const [showCustomization, setShowCustomization] = useState(false);
   const [showOrderType, setShowOrderType] = useState(false);
   const [showCustomItemModal, setShowCustomItemModal] = useState(false);
@@ -519,10 +587,17 @@ export default function POSPage() {
   const [offlineOrderCount, setOfflineOrderCount] = useState(0);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [kitchenLoad, setKitchenLoad] = useState(0);
+  const [heldBills, setHeldBills] = useState(loadHeldBills);
 
-  const { items, addItem, addCustomItem, getTotal, getItemCount } = useCartStore();
+  const { items, addItem, addCustomItem, updateItem, getTotal, getItemCount } = useCartStore();
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(HELD_BILLS_STORAGE_KEY, JSON.stringify(heldBills));
+    } catch {}
+  }, [heldBills]);
 
   useEffect(() => {
     const refreshOfflineCount = () => getQueuedOrderCount().then(setOfflineOrderCount).catch(() => {});
@@ -543,8 +618,8 @@ export default function POSPage() {
 
   const categories = [{ id: 'all', label: 'All Items' }, ...Array.from(new Set([
     ...defaultCategories.filter((category) => category.id !== 'all').map((category) => category.id),
-    ...menuCategories.map((category) => String(category.slug || category.name || '').trim()).filter(Boolean),
-    ...menuItems.flatMap((item) => Array.isArray(item.categories) ? item.categories : [item.category]).filter(Boolean),
+    ...menuCategories.map((category) => String(category.slug || category.name || '').trim()).filter((category) => category && !isMenuVariantCategory(category)),
+    ...menuItems.flatMap((item) => Array.isArray(item.categories) ? item.categories : [item.category]).filter((category) => category && !isMenuVariantCategory(category)),
   ])).map((categoryId) => ({
     id: categoryId,
     label: (defaultCategories.find((entry) => entry.id === categoryId)?.label)
@@ -554,7 +629,7 @@ export default function POSPage() {
   useEffect(() => {
     Promise.all([api.getMenu(), api.getMenuCategories()])
       .then(([menu, categoriesResult]) => {
-        setMenuItems(menu || []);
+        setMenuItems(groupLegacyMenuVariants(menu || []));
         setMenuCategories(categoriesResult || []);
       })
       .catch((err) => {
@@ -567,7 +642,7 @@ export default function POSPage() {
     if (event !== 'menu:updated') return;
     Promise.all([api.getMenu(), api.getMenuCategories()])
       .then(([menu, categoriesResult]) => {
-        setMenuItems(menu || []);
+        setMenuItems(groupLegacyMenuVariants(menu || []));
         setMenuCategories(categoriesResult || []);
       })
       .catch(() => {});
@@ -604,19 +679,36 @@ export default function POSPage() {
 
   const handleItemClick = (item) => {
     document.querySelector(`[data-pos-item-id="${CSS.escape(String(item.id))}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    setEditingCartItem(null);
     setSelectedItem(item);
     setShowCustomization(true);
   };
 
-  const handleAddToCart = (item, itemModifiers, specialInstructions, quantity) => {
+  const handleCustomizeCartItem = (cartItem) => {
+    const menuItem = menuItems.find((item) => String(item.id) === String(cartItem.id));
+    setEditingCartItem(cartItem);
+    setSelectedItem({ ...(menuItem || cartItem), price: menuItem?.price ?? cartItem.basePrice ?? cartItem.price });
+    setShowCustomization(true);
+  };
+
+  const handleAddToCart = (item, itemModifiers, specialInstructions, quantity, variant = null) => {
     const modifierPrice = itemModifiers.reduce((sum, m) => sum + (m.price || 0), 0);
-    addItem({
+    const basePrice = variant?.price ?? item.price ?? 0;
+    const updatedItem = {
       ...item,
-      price: (item.price || 0) + modifierPrice,
+      basePrice: item.price || 0,
+      price: basePrice + modifierPrice,
+      name: variant ? `${item.name} (${variant.name})` : item.name,
+      variantName: variant?.name || '',
+      variantMenuItemId: variant?.menuItemId || null,
       modifiers: itemModifiers.map((m) => m.name),
+      modifierDetails: itemModifiers.map(({ name, price, type }) => ({ name, price: type === 'add' ? price || 0 : 0, type })),
       specialInstructions,
       quantity,
-    });
+    };
+    if (editingCartItem) updateItem(editingCartItem.cartId, updatedItem);
+    else addItem(updatedItem);
+    setEditingCartItem(null);
     setShowCustomization(false);
   };
 
@@ -625,6 +717,46 @@ export default function POSPage() {
     setShowMobileCart(false);
     setShowOrderType(true);
   };
+
+  const holdCurrentBill = (label) => {
+    const cart = useCartStore.getState();
+    if (!cart.items.length) return;
+    const heldBill = {
+      id: `held-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      label: String(label || '').trim() || cart.customerName.trim() || `Guest bill ${heldBills.length + 1}`,
+      heldAt: new Date().toISOString(),
+      itemCount: cart.getItemCount(),
+      total: cart.getTotal(),
+      cart: {
+        items: cart.items,
+        orderType: cart.orderType,
+        tableNumber: cart.tableNumber,
+        customerName: cart.customerName,
+        customerPhone: cart.customerPhone,
+        customerEmail: cart.customerEmail,
+        deliveryAddress: cart.deliveryAddress,
+        deliveryLatitude: cart.deliveryLatitude,
+        deliveryLongitude: cart.deliveryLongitude,
+        orderSource: cart.orderSource,
+        paymentReference: cart.paymentReference,
+        orderNotes: cart.orderNotes,
+        discountPercent: cart.discountPercent,
+      },
+    };
+    setHeldBills((current) => [...current, heldBill]);
+    cart.resetCart();
+  };
+
+  const resumeHeldBill = (id) => {
+    const cart = useCartStore.getState();
+    if (cart.items.length) return;
+    const heldBill = heldBills.find((bill) => bill.id === id);
+    if (!heldBill) return;
+    cart.restoreCart(heldBill.cart);
+    setHeldBills((current) => current.filter((bill) => bill.id !== id));
+  };
+
+  const discardHeldBill = (id) => setHeldBills((current) => current.filter((bill) => bill.id !== id));
 
   if (loading) {
     return (
@@ -691,22 +823,38 @@ export default function POSPage() {
             />
           </div>
 
-          {/* Category Horizontal Scroll Pills */}
-          <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
-            {categories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={
-                  'px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ' +
-                  (activeCategory === cat.id
-                    ? 'bg-[#ae002a] text-white shadow-sm'
-                    : 'bg-[#fbf6ee] border border-[#ebdccb] text-[#554e46] hover:bg-[#faeee2]')
-                }
-              >
-                {cat.label}
-              </button>
-            ))}
+          {/* Category image tiles */}
+          <div className="pos-category-tiles">
+            {categories.map((cat, index) => {
+              const matchingItem = menuItems.find((item) => cat.id === 'all'
+                || (item.categories || [item.category]).includes(cat.id));
+
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setActiveCategory(cat.id)}
+                  aria-pressed={activeCategory === cat.id}
+                  className={'pos-category-tile' + (activeCategory === cat.id ? ' is-active' : '')}
+                >
+                  <img
+                    className="pos-category-image"
+                    src={matchingItem?.image || categoryFallbackImages[index % categoryFallbackImages.length]}
+                    alt=""
+                    aria-hidden="true"
+                    onError={(event) => {
+                      if (!event.currentTarget.dataset.fallbackApplied) {
+                        event.currentTarget.dataset.fallbackApplied = 'true';
+                        event.currentTarget.src = categoryFallbackImages[index % categoryFallbackImages.length];
+                      } else {
+                        event.currentTarget.style.visibility = 'hidden';
+                      }
+                    }}
+                  />
+                  <span className="pos-category-label">{cat.label}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -756,6 +904,11 @@ export default function POSPage() {
         <CartPanel
           onCheckout={handleCheckout}
           onOpenCustomModal={() => setShowCustomItemModal(true)}
+          onCustomizeItem={handleCustomizeCartItem}
+          heldBills={heldBills}
+          onHoldBill={holdCurrentBill}
+          onResumeBill={resumeHeldBill}
+          onDiscardBill={discardHeldBill}
         />
       </div>
 
@@ -825,10 +978,15 @@ export default function POSPage() {
             </div>
             <CartPanel
               onCheckout={handleCheckout}
+              onCustomizeItem={handleCustomizeCartItem}
               onOpenCustomModal={() => {
                 setShowMobileCart(false);
                 setShowCustomItemModal(true);
               }}
+              heldBills={heldBills}
+              onHoldBill={holdCurrentBill}
+              onResumeBill={resumeHeldBill}
+              onDiscardBill={discardHeldBill}
             />
           </div>
         </div>
@@ -839,8 +997,12 @@ export default function POSPage() {
         isOpen={showCustomization}
         item={selectedItem}
         modifiers={selectedItem?.modifiers || []}
+          initialModifiers={editingCartItem?.modifiers || []}
+          initialVariantName={editingCartItem?.variantName || ''}
+          initialQuantity={editingCartItem?.quantity || 1}
+          selectionKey={editingCartItem?.cartId || 'new'}
             kitchenLoad={kitchenLoad}
-        onClose={() => setShowCustomization(false)}
+          onClose={() => { setEditingCartItem(null); setShowCustomization(false); }}
         onAdd={handleAddToCart}
       />
       <OrderTypeSelector

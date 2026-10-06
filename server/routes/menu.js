@@ -5,6 +5,7 @@ import { createMenuBookExport } from '../utils/menuBookExport.js';
 import { broadcast } from '../ws.js';
 import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/deletionPolicy.js';
 import { decodeMenuImage, fallbackMenuImage, getMenuImage, getMenuImageHash } from '../utils/menuImages.js';
+import { normalizeMenuVariants, parseMenuVariants } from '../utils/menuVariants.js';
 
 const router = Router();
 
@@ -35,8 +36,8 @@ export function getCategoryMatchValues(slug, name = '') {
   return values.filter(Boolean);
 }
 
-function syncCategoryAssignments(db, previousCategory, nextCategory) {
-  const previousValues = getCategoryMatchValues(previousCategory, previousCategory);
+function syncCategoryAssignments(db, previousCategory, nextCategory, previousName = '') {
+  const previousValues = getCategoryMatchValues(previousCategory, previousName);
   if (!previousValues.length) return;
   const nextValue = normalizeMenuCategoryValue(nextCategory);
   const placeholders = previousValues.map(() => '?').join(', ');
@@ -44,8 +45,8 @@ function syncCategoryAssignments(db, previousCategory, nextCategory) {
   db.prepare(`UPDATE menu_items SET category = ? WHERE category IN (${placeholders})`).run(nextValue, ...previousValues);
 }
 
-function deleteCategoryAssignments(db, category) {
-  const values = getCategoryMatchValues(category, category);
+function deleteCategoryAssignments(db, category, name = '') {
+  const values = getCategoryMatchValues(category, name);
   if (!values.length) return;
   const placeholders = values.map(() => '?').join(', ');
   db.prepare(`DELETE FROM menu_item_categories WHERE category IN (${placeholders})`).run(...values);
@@ -83,6 +84,7 @@ function mapMenuItem(row, isPublic = false, relations = {}) {
     name: row.name,
     description: row.description,
     price: row.price,
+    variants: parseMenuVariants(row.variants),
     category: row.category,
     categories: categories.length ? categories : [row.category].filter(Boolean),
     modifiers,
@@ -151,7 +153,7 @@ router.put('/categories/:slug', authMiddleware, requireRole('admin', 'manager'),
   if (!name) return res.status(400).json({ error: 'Category name is required' });
   const slug = normalizeMenuCategoryValue(name);
   db.prepare('UPDATE menu_categories SET name = ?, slug = ? WHERE id = ?').run(name, slug, existing.id);
-  syncCategoryAssignments(db, existing.slug, slug);
+  syncCategoryAssignments(db, existing.slug, slug, existing.name);
   const row = db.prepare('SELECT name, slug, active FROM menu_categories WHERE id = ?').get(existing.id);
   broadcast('menu:updated', { type: 'category', action: 'updated', id: row.slug });
   res.json(row);
@@ -160,7 +162,7 @@ router.put('/categories/:slug', authMiddleware, requireRole('admin', 'manager'),
 router.delete('/categories/:slug', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
   const existing = db.prepare('SELECT * FROM menu_categories WHERE slug = ? OR id = ?').get(req.params.slug, Number(req.params.slug));
   if (!existing) return res.status(404).json({ error: 'Category not found' });
-  deleteCategoryAssignments(db, existing.slug);
+  deleteCategoryAssignments(db, existing.slug, existing.name);
   db.prepare('DELETE FROM menu_categories WHERE id = ?').run(existing.id);
   broadcast('menu:updated', { type: 'category', action: 'deleted', id: existing.slug });
   res.json({ ok: true });
@@ -261,14 +263,20 @@ router.delete('/modifiers/:id', authMiddleware, deletionViewer, requireAdilaDele
 });
 
 router.post('/', authMiddleware, requireRole('admin'), (req, res) => {
-  const { name, description, price, category, categories, modifier_ids: modifierIds = [], image, popular, prep_time_minutes, ingredients, cooking_instructions } = req.body;
+  const { name, description, price, variants, category, categories, modifier_ids: modifierIds = [], image, popular, prep_time_minutes, ingredients, cooking_instructions } = req.body;
   const nextCategories = normalizeMenuCategories(categories ?? category);
   if (!name || price == null || nextCategories.length === 0) return res.status(400).json({ error: 'Name, price, and at least one category required' });
+  let nextVariants;
+  try {
+    nextVariants = normalizeMenuVariants(variants);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
   const prepMinutes = Number(prep_time_minutes ?? 8);
   const normalizedIngredients = JSON.stringify(Array.isArray(ingredients) ? ingredients : []);
   const result = db.prepare(
-    'INSERT INTO menu_items (name, description, price, category, image, prep_time_minutes, popular, active, ingredients, cooking_instructions) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)'
-  ).run(name, description || '', Number(price), nextCategories[0], image || '', Number.isFinite(prepMinutes) ? prepMinutes : 8, popular ? 1 : 0, normalizedIngredients, String(cooking_instructions || ''));
+    'INSERT INTO menu_items (name, description, price, variants, category, image, prep_time_minutes, popular, active, ingredients, cooking_instructions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)'
+  ).run(name, description || '', nextVariants[0]?.price ?? Number(price), JSON.stringify(nextVariants), nextCategories[0], image || '', Number.isFinite(prepMinutes) ? prepMinutes : 8, popular ? 1 : 0, normalizedIngredients, String(cooking_instructions || ''));
   const linkCategory = db.prepare('INSERT OR IGNORE INTO menu_item_categories (menu_item_id, category) VALUES (?, ?)');
   nextCategories.forEach((value) => linkCategory.run(result.lastInsertRowid, value));
   const linkModifier = db.prepare('INSERT OR IGNORE INTO menu_item_modifiers (menu_item_id, modifier_id) VALUES (?, ?)');
@@ -279,19 +287,26 @@ router.post('/', authMiddleware, requireRole('admin'), (req, res) => {
 });
 
 router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
-  const { name, description, price, category, categories, modifier_ids: modifierIds, image, popular, active, prep_time_minutes, ingredients, cooking_instructions } = req.body;
+  const { name, description, price, variants, category, categories, modifier_ids: modifierIds, image, popular, active, prep_time_minutes, ingredients, cooking_instructions } = req.body;
   const existing = db.prepare('SELECT * FROM menu_items WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Item not found' });
   const nextCategories = categories === undefined ? null : normalizeMenuCategories(categories ?? category);
   if (nextCategories && nextCategories.length === 0) return res.status(400).json({ error: 'At least one category is required' });
+  let nextVariants;
+  try {
+    nextVariants = variants === undefined ? parseMenuVariants(existing.variants) : normalizeMenuVariants(variants);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
   const nextPrepMinutes = prep_time_minutes == null ? existing.prep_time_minutes ?? 8 : Number(prep_time_minutes) || 8;
   const normalizedIngredients = ingredients === undefined ? existing.ingredients || '[]' : JSON.stringify(Array.isArray(ingredients) ? ingredients : []);
   db.prepare(
-    'UPDATE menu_items SET name = ?, description = ?, price = ?, category = ?, image = ?, prep_time_minutes = ?, popular = ?, active = ?, ingredients = ?, cooking_instructions = ? WHERE id = ?'
+    'UPDATE menu_items SET name = ?, description = ?, price = ?, variants = ?, category = ?, image = ?, prep_time_minutes = ?, popular = ?, active = ?, ingredients = ?, cooking_instructions = ? WHERE id = ?'
   ).run(
     name ?? existing.name,
     description ?? existing.description,
-    price ?? existing.price,
+    nextVariants[0]?.price ?? price ?? existing.price,
+    JSON.stringify(nextVariants),
     nextCategories?.[0] ?? category ?? existing.category,
     image ?? existing.image,
     nextPrepMinutes,

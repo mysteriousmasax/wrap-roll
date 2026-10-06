@@ -33,7 +33,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     loginName.replace(/[^a-z0-9]+/g, '.'),
   ]);
 
-  const users = db.prepare('SELECT id, name, role, avatar, username, email, password, pin FROM users').all();
+  const users = db.prepare('SELECT id, name, role, avatar, username, email, password, pin, page_access FROM users').all();
   let user = null;
 
   for (const candidate of users) {

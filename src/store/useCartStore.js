@@ -1,7 +1,8 @@
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import useSettingsStore from './useSettingsStore';
 
-const useCartStore = create((set, get) => ({
+const useCartStore = create(persist((set, get) => ({
   items: [],
   orderType: 'dine-in',
   tableNumber: null,
@@ -22,6 +23,7 @@ const useCartStore = create((set, get) => ({
       const existing = state.items.find(
         (i) =>
           i.id === item.id &&
+          (i.variantName || '') === (item.variantName || '') &&
           JSON.stringify(i.modifiers || []) === JSON.stringify(item.modifiers || []) &&
           (i.specialInstructions || '') === (item.specialInstructions || '')
       );
@@ -67,6 +69,38 @@ const useCartStore = create((set, get) => ({
 
   setItems: (items) => set({ items: Array.isArray(items) ? items : [] }),
 
+  restoreCart: (cart = {}) => set({
+    items: Array.isArray(cart.items) ? cart.items : [],
+    orderType: cart.orderType || 'dine-in',
+    tableNumber: cart.tableNumber ?? null,
+    customerName: cart.customerName || '',
+    customerPhone: cart.customerPhone || '',
+    customerEmail: cart.customerEmail || '',
+    deliveryAddress: cart.deliveryAddress || '',
+    deliveryLatitude: cart.deliveryLatitude ?? null,
+    deliveryLongitude: cart.deliveryLongitude ?? null,
+    orderSource: cart.orderSource || 'foh',
+    paymentReference: cart.paymentReference || '',
+    orderNotes: cart.orderNotes || '',
+    discountPercent: Number(cart.discountPercent) || 0,
+  }),
+
+  resetCart: () => set({
+    items: [],
+    orderType: 'dine-in',
+    tableNumber: null,
+    customerName: '',
+    customerPhone: '',
+    customerEmail: '',
+    deliveryAddress: '',
+    deliveryLatitude: null,
+    deliveryLongitude: null,
+    orderSource: 'foh',
+    paymentReference: '',
+    orderNotes: '',
+    discountPercent: 0,
+  }),
+
   removeItem: (cartId) => {
     set((state) => ({ items: state.items.filter((i) => i.cartId !== cartId) }));
   },
@@ -80,6 +114,12 @@ const useCartStore = create((set, get) => ({
         items: state.items.map((i) => (i.cartId === cartId ? { ...i, quantity: numQty } : i)),
       }));
     }
+  },
+
+  updateItem: (cartId, updates) => {
+    set((state) => ({
+      items: state.items.map((item) => (item.cartId === cartId ? { ...item, ...updates } : item)),
+    }));
   },
 
   clearCart: () =>
@@ -116,6 +156,24 @@ const useCartStore = create((set, get) => ({
     (get().getSubtotal() - get().getDiscountAmount()) * useSettingsStore.getState().getTaxRate(),
   getTotal: () => get().getSubtotal() - get().getDiscountAmount() + get().getTax(),
   getItemCount: () => get().items.reduce((sum, i) => sum + i.quantity, 0),
+}), {
+  name: 'wraproll_pos_cart',
+  storage: createJSONStorage(() => localStorage),
+  partialize: (state) => ({
+    items: state.items,
+    orderType: state.orderType,
+    tableNumber: state.tableNumber,
+    customerName: state.customerName,
+    customerPhone: state.customerPhone,
+    customerEmail: state.customerEmail,
+    deliveryAddress: state.deliveryAddress,
+    deliveryLatitude: state.deliveryLatitude,
+    deliveryLongitude: state.deliveryLongitude,
+    orderSource: state.orderSource,
+    paymentReference: state.paymentReference,
+    orderNotes: state.orderNotes,
+    discountPercent: state.discountPercent,
+  }),
 }));
 
 export default useCartStore;

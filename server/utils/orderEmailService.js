@@ -2,6 +2,7 @@ import db from '../db/database.js';
 import { getOrderById } from './orders.js';
 import { isEmailDeliveryConfigured, publicEmailUrl, sendEmail } from './emailDelivery.js';
 import { buildOrderReceivedEmail, buildPaidInvoiceEmail } from './orderEmailContent.js';
+import { buildInvoicePdfBuffer } from './invoicePdf.js';
 
 const emailTypes = new Set(['order_received', 'paid_invoice']);
 const maxAttempts = 5;
@@ -86,7 +87,16 @@ export async function processOrderEmailOutbox() {
       const content = event.email_type === 'paid_invoice'
         ? buildPaidInvoiceEmail(order, settings, publicEmailUrl('/wrap-roll-logo-lockup-transparent.png'))
         : buildOrderReceivedEmail(order, publicEmailUrl('/wrap-roll-logo-lockup-transparent.png'));
-      const result = await sendEmail({ to: event.recipient_email, ...content });
+      const attachments = [];
+      if (event.email_type === 'paid_invoice') {
+        const invoicePdf = await buildInvoicePdfBuffer(order, settings);
+        attachments.push({
+          filename: `${order.invoiceNumber || order.id || 'invoice'}.pdf`,
+          content: invoicePdf,
+          contentType: 'application/pdf',
+        });
+      }
+      const result = await sendEmail({ to: event.recipient_email, ...content, attachments });
       db.prepare(`UPDATE order_email_outbox SET status = 'sent', message_id = ?, response = ?, sent_at = ?, updated_at = ? WHERE id = ?`)
         .run(result.messageId || null, `Accepted by ${result.provider || 'email provider'}`, new Date().toISOString(), new Date().toISOString(), event.id);
       sent += 1;

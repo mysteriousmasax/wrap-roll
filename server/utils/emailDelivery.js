@@ -85,7 +85,7 @@ export async function verifyEmailDelivery() {
   return resolveEmailSender();
 }
 
-export async function sendEmail({ to, subject, text, html, headers = {}, transport }) {
+export async function sendEmail({ to, subject, text, html, headers = {}, transport, attachments = [] }) {
   const sender = resolveEmailSender();
   if (isResendConfigured()) {
     const response = await fetch('https://api.resend.com/emails', {
@@ -102,6 +102,11 @@ export async function sendEmail({ to, subject, text, html, headers = {}, transpo
         html: ensureBrandLogo(html),
         reply_to: sender.replyTo,
         headers,
+        attachments: attachments.map((attachment) => ({
+          filename: attachment.filename,
+          content: attachment.content instanceof Buffer ? attachment.content.toString('base64') : Buffer.from(attachment.content || '').toString('base64'),
+          content_type: attachment.contentType || 'application/pdf',
+        })),
       }),
     });
     const result = await response.json().catch(() => ({}));
@@ -119,6 +124,11 @@ export async function sendEmail({ to, subject, text, html, headers = {}, transpo
     text,
     html: ensureBrandLogo(html),
     headers,
+    attachments: attachments.map((attachment) => ({
+      filename: attachment.filename,
+      content: attachment.content,
+      contentType: attachment.contentType || 'application/pdf',
+    })),
   });
 }
 

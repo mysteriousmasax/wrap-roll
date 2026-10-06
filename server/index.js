@@ -4,7 +4,7 @@ import path from 'path';
 import { createServer } from 'http';
 import { fileURLToPath } from 'url';
 import db, { ensureDatabase } from './db/database.js';
-import { initWebSocket } from './ws.js';
+import { broadcast, initWebSocket } from './ws.js';
 
 import authRoutes from './routes/auth.js';
 import menuRoutes from './routes/menu.js';
@@ -28,6 +28,7 @@ import emailMarketingRoutes from './routes/emailMarketing.js';
 import { startPrinterAgent } from './utils/printerAgent.js';
 import { checkPostgresConnection } from './db/postgres.js';
 import { startEmailMarketingWorker } from './utils/emailAutomationWorker.js';
+import { releaseExpiredCleaningTables } from './utils/tableAvailability.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' || process.env.PORT || process.env.RAILWAY_ENVIRONMENT ? '0.0.0.0' : '127.0.0.1');
@@ -121,12 +122,20 @@ app.use((err, _req, res, _next) => {
 
 initWebSocket(server);
 
+const tableAvailabilityTimer = setInterval(() => {
+  releaseExpiredCleaningTables(db).forEach((table) => {
+    broadcast('table:updated', { id: table.id, number: table.number, status: table.status });
+  });
+}, 30_000);
+tableAvailabilityTimer.unref();
+
 const httpServer = server.listen(PORT, HOST, () => {
   console.log(`Wrap & Roll POS running on http://${HOST}:${PORT}`);
 });
 
 function shutdown(signal) {
   console.log(`${signal} received, shutting down`);
+  clearInterval(tableAvailabilityTimer);
   httpServer.close(() => process.exit(0));
 }
 

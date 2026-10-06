@@ -7,6 +7,8 @@ import { getOrderById, getOrders, nextOrderId, nextPaymentReference } from '../u
 import { buildOrderConfirmationMessage, getCustomerNotificationChannels } from '../utils/orderNotifications.js';
 import { PAYMENT_STATUSES, ORDER_STATUSES } from '../utils/paymentProviders.js';
 import { enqueueOrderEmail } from '../utils/orderEmailService.js';
+import { releaseExpiredCleaningTables } from '../utils/tableAvailability.js';
+import { parseMenuVariants } from '../utils/menuVariants.js';
 
 const router = Router();
 
@@ -66,7 +68,7 @@ function deductRecipeInventory(menuItemId, qty, inventoryUsage = []) {
 }
 
 function priceOrderItems(items, { allowCustom = false } = {}) {
-  const findMenuItem = db.prepare('SELECT id, name, price, prep_time_minutes, ingredients FROM menu_items WHERE id = ? AND active = 1');
+  const findMenuItem = db.prepare('SELECT id, name, price, variants, prep_time_minutes, ingredients FROM menu_items WHERE id = ? AND active = 1');
   const findModifier = db.prepare('SELECT name, price, type FROM modifiers WHERE name = ?');
   const pricedItems = items.map((item) => {
     const qty = Number(item.qty);
@@ -90,16 +92,25 @@ function priceOrderItems(items, { allowCustom = false } = {}) {
 
     const menuItem = findMenuItem.get(Number(item.menuItemId));
     if (!menuItem) throw new Error('Each order item must have a valid menu item and quantity');
+    const variants = parseMenuVariants(menuItem.variants);
+    let variant = null;
+    if (variants.length) {
+      variant = variants.find((option) => option.name === String(item.variantName || '').trim());
+      if (!variant) throw new Error(`Choose an available size for ${menuItem.name}`);
+    } else if (item.variantName) {
+      throw new Error(`The selected size is no longer available for ${menuItem.name}`);
+    }
     const modifierNames = Array.isArray(item.modifiers) ? item.modifiers.map((modifier) => typeof modifier === 'string' ? modifier : modifier.name) : [];
     const modifiers = modifierNames.map((name) => findModifier.get(name)).filter(Boolean);
     if (modifiers.length !== modifierNames.length) throw new Error('One or more modifiers are unavailable');
-    const price = menuItem.price + modifiers.reduce((sum, modifier) => sum + (modifier.type === 'add' ? modifier.price : 0), 0);
+    const price = (variant?.price ?? menuItem.price) + modifiers.reduce((sum, modifier) => sum + (modifier.type === 'add' ? modifier.price : 0), 0);
     return {
       menuItemId: menuItem.id,
-      name: menuItem.name,
+      name: variant ? `${menuItem.name} (${variant.name})` : menuItem.name,
       qty,
       price,
       prepTimeMinutes: Number(menuItem.prep_time_minutes ?? 8),
+      variantName: variant?.name || null,
       modifiers: modifierNames,
       specialInstructions: item.specialInstructions || null,
       ingredients: parseMenuIngredients(menuItem.ingredients),
@@ -147,9 +158,10 @@ function createOrderRecord(
   const total = subtotal + tax;
   if (orderType === 'dine-in') {
     if (!tableNumber) throw new Error('A table number is required for dine-in orders');
+    releaseExpiredCleaningTables(db);
     const table = db.prepare('SELECT status FROM tables WHERE number = ?').get(Number(tableNumber));
     if (!table) throw new Error('Table not found');
-    if (table.status !== 'available' && table.status !== 'occupied') throw new Error('Table is not available');
+    if (table.status !== 'available') throw new Error('Table is not available');
   }
 
   const id = nextOrderId();
@@ -326,7 +338,7 @@ function createOrderRecord(
     }
 
     if (tableNumber) {
-      db.prepare('UPDATE tables SET status = ?, current_order_id = ? WHERE number = ?').run('occupied', id, tableNumber);
+      db.prepare('UPDATE tables SET status = ?, current_order_id = ?, cleaning_started_at = NULL WHERE number = ?').run('occupied', id, tableNumber);
     }
   });
 
@@ -528,8 +540,9 @@ router.patch('/:id/status', authMiddleware, (req, res) => {
   db.prepare('INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata) VALUES (?, ?, ?, ?, ?, ?)')
     .run(req.params.id, 'status_changed', status, req.user.id, now, JSON.stringify({ previousStatus: existing.status }));
 
-  if (status === 'completed' && existing.table_number) {
-    db.prepare('UPDATE tables SET status = ?, current_order_id = NULL WHERE number = ?').run('cleaning', existing.table_number);
+  if (status === 'completed' && existing.status !== 'completed' && existing.table_number) {
+    db.prepare('UPDATE tables SET status = ?, current_order_id = NULL, cleaning_started_at = ? WHERE number = ? AND current_order_id = ?')
+      .run('cleaning', now, existing.table_number, existing.id);
   }
 
   const order = getOrderById(req.params.id);
@@ -541,6 +554,42 @@ router.patch('/:id/status', authMiddleware, (req, res) => {
  * Update Payment Status
  * PATCH /api/orders/:id/payment-status
  */
+router.patch('/:id/customer', authMiddleware, (req, res) => {
+  const { customerName, customerPhone, customerEmail, customerType, companyName, customerTin, billingAddress } = req.body || {};
+  const existing = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Order not found' });
+
+  const payload = {
+    customerName: String(customerName ?? existing.customer_name ?? '').trim(),
+    customerPhone: String(customerPhone ?? existing.customer_phone ?? '').trim(),
+    customerEmail: String(customerEmail ?? existing.customer_email ?? '').trim().toLowerCase(),
+    customerType: ['individual', 'company'].includes(String(customerType || existing.customer_type || 'individual'))
+      ? String(customerType || existing.customer_type || 'individual')
+      : 'individual',
+    companyName: String(companyName ?? existing.company_name ?? '').trim(),
+    customerTin: String(customerTin ?? existing.customer_tin ?? '').trim(),
+    billingAddress: String(billingAddress ?? existing.billing_address ?? '').trim(),
+  };
+
+  if (payload.customerType === 'company' && (!payload.companyName || !payload.customerTin)) {
+    return res.status(400).json({ error: 'Company name and TIN are required for company invoices.' });
+  }
+
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE orders SET customer_name = ?, customer_phone = ?, customer_email = ?, customer_type = ?, company_name = ?, customer_tin = ?, billing_address = ?, updated_at = ? WHERE id = ?`)
+    .run(payload.customerName || null, payload.customerPhone || null, payload.customerEmail || null, payload.customerType, payload.companyName || null, payload.customerTin || null, payload.billingAddress || null, now, req.params.id);
+
+  const customerMatch = db.prepare('SELECT * FROM customers WHERE phone = ? OR lower(email) = ? OR lower(name) = ? ORDER BY id DESC LIMIT 1').get(payload.customerPhone || '', payload.customerEmail || '', payload.customerName || '');
+  if (customerMatch) {
+    db.prepare('UPDATE customers SET name = ?, phone = ?, email = ?, customer_type = ?, company_name = ?, tin = ?, billing_address = ?, updated_at = ? WHERE id = ?')
+      .run(payload.customerName || customerMatch.name || 'Customer', payload.customerPhone || customerMatch.phone || '', payload.customerEmail || customerMatch.email || '', payload.customerType, payload.companyName || customerMatch.company_name || '', payload.customerTin || customerMatch.tin || '', payload.billingAddress || customerMatch.billing_address || '', now, customerMatch.id);
+  }
+
+  const order = getOrderById(req.params.id, { includeInvoiceEmailStatus: true });
+  broadcast('order:updated', order);
+  res.json(order);
+});
+
 router.patch('/:id/payment-status', authMiddleware, (req, res) => {
   const { paymentStatus, notes } = req.body || {};
   const validStatuses = Object.values(PAYMENT_STATUSES);

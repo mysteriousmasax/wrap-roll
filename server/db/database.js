@@ -27,6 +27,7 @@ export async function initDatabase() {
       name TEXT NOT NULL,
       description TEXT,
       price REAL NOT NULL,
+      variants TEXT DEFAULT '[]',
       category TEXT NOT NULL,
       image TEXT,
       prep_time_minutes INTEGER DEFAULT 8,
@@ -252,6 +253,19 @@ export async function initDatabase() {
       completed_at TEXT,
       updated_at TEXT NOT NULL,
       UNIQUE(business_date, phase, task_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS operational_checklist_user_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      business_date TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      phase TEXT NOT NULL,
+      task_key TEXT NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      completed_by TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL,
+      UNIQUE(business_date, user_id, phase, task_key)
     );
 
     CREATE TABLE IF NOT EXISTS shift_handover_records (
@@ -966,6 +980,15 @@ function migrateSchema(db) {
   db.prepare(`INSERT OR IGNORE INTO menu_categories (name, slug, active, created_at)
     SELECT DISTINCT category, lower(replace(trim(category), ' ', '-')), 1, datetime('now')
     FROM menu_items WHERE category IS NOT NULL AND trim(category) <> ''`).run();
+  const existingTableColumns = db.prepare('PRAGMA table_info(tables)').all();
+  if (!existingTableColumns.some((column) => column.name === 'cleaning_started_at')) {
+    db.exec('ALTER TABLE tables ADD COLUMN cleaning_started_at TEXT');
+  }
+  db.prepare(`UPDATE tables SET cleaning_started_at = COALESCE(
+    (SELECT updated_at FROM orders WHERE orders.table_number = tables.number AND orders.status = 'completed' ORDER BY orders.updated_at DESC LIMIT 1),
+    strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  ) WHERE status = 'cleaning' AND cleaning_started_at IS NULL`).run();
+
   const cols = db.prepare('PRAGMA table_info(orders)').all();
   if (cols.length > 0 && !cols.some((c) => c.name === 'delivery_address')) {
     db.exec('ALTER TABLE orders ADD COLUMN delivery_address TEXT');
@@ -1061,6 +1084,7 @@ function migrateSchema(db) {
   if (!menuCols.some((col) => col.name === 'prep_time_minutes')) db.exec('ALTER TABLE menu_items ADD COLUMN prep_time_minutes INTEGER DEFAULT 8');
   if (!menuCols.some((col) => col.name === 'ingredients')) db.exec("ALTER TABLE menu_items ADD COLUMN ingredients TEXT DEFAULT '[]'");
   if (!menuCols.some((col) => col.name === 'cooking_instructions')) db.exec("ALTER TABLE menu_items ADD COLUMN cooking_instructions TEXT DEFAULT ''");
+  if (!menuCols.some((col) => col.name === 'variants')) db.exec("ALTER TABLE menu_items ADD COLUMN variants TEXT DEFAULT '[]'");
   const orderItemCols = db.prepare('PRAGMA table_info(order_items)').all();
   if (!orderItemCols.some((col) => col.name === 'prep_time_minutes')) db.exec('ALTER TABLE order_items ADD COLUMN prep_time_minutes INTEGER DEFAULT 8');
   const customerCols = db.prepare('PRAGMA table_info(customers)').all();

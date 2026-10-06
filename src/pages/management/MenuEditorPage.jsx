@@ -8,6 +8,7 @@ import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency } from '../../utils/format';
 import importPhoto from '../../utils/importPhoto';
+import { isMenuVariantCategory } from '../../utils/menuProductVariants';
 import { downloadAsset } from '../../utils/downloadAsset';
 import { downloadBlob } from '../../utils/downloadBlob';
 import {
@@ -33,7 +34,6 @@ import {
   Monitor,
 } from 'lucide-react';
 
-const DEFAULT_CATEGORIES = ['wraps', 'salads', 'rolls', 'pizzas', 'burgers', 'combos', 'sides', 'coffee', 'cold-drinks', 'soft-drinks'];
 const FALLBACK_MENU_IMAGE = 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=600&h=600&fit=crop';
 const INVENTORY_UNIT_OPTIONS = ['kg', 'g', 'l', 'ml', 'pcs', 'pack', 'box', 'bottle', 'slice', 'piece'];
 
@@ -64,6 +64,16 @@ function getSafeMenuImage(image) {
     : FALLBACK_MENU_IMAGE;
 }
 
+function prepareMenuVariants(value) {
+  const rows = (Array.isArray(value) ? value : []).filter((variant) => variant.name?.trim() || String(variant.price || '').trim());
+  if (rows.some((variant) => !variant.name?.trim() || !Number.isFinite(Number(variant.price)) || Number(variant.price) <= 0)) {
+    return { variants: [], error: 'Each size option needs a name and a price greater than zero.' };
+  }
+  const names = rows.map((variant) => variant.name.trim().toLowerCase());
+  if (new Set(names).size !== names.length) return { variants: [], error: 'Size option names must be unique.' };
+  return { variants: rows.map((variant) => ({ name: variant.name.trim(), price: Number(variant.price) })), error: '' };
+}
+
 export default function MenuEditorPage() {
   const [items, setItems] = useState([]);
   const [modifiers, setModifiers] = useState([]);
@@ -86,6 +96,7 @@ export default function MenuEditorPage() {
     name: '',
     description: '',
     price: '',
+    variants: [],
     category: 'wraps',
     categories: ['wraps'],
     modifier_ids: [],
@@ -98,6 +109,7 @@ export default function MenuEditorPage() {
   });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [formError, setFormError] = useState('');
   const [savingId, setSavingId] = useState(null);
   const [menuExporting, setMenuExporting] = useState('');
   const [showMenuPreview, setShowMenuPreview] = useState(false);
@@ -210,9 +222,9 @@ export default function MenuEditorPage() {
   // Compute all available categories from default, custom, and existing items
   const allCategories = Array.from(
     new Set([
-      ...DEFAULT_CATEGORIES,
-      ...normalizedCustomCategories.map((category) => category.slug),
-      ...items.flatMap((i) => i.categories || [i.category]).filter(Boolean),
+      'other',
+      ...normalizedCustomCategories.map((category) => category.slug).filter((category) => !isMenuVariantCategory(category)),
+      ...items.flatMap((i) => i.categories || [i.category]).filter((category) => category && !isMenuVariantCategory(category)),
     ])
   );
 
@@ -227,12 +239,17 @@ export default function MenuEditorPage() {
   });
 
   const openEdit = (item) => {
+    setFormError('');
+    const itemCategories = (item.categories?.length ? item.categories : [item.category || 'wraps'])
+      .filter((category) => !isMenuVariantCategory(category));
+    const editableCategories = itemCategories.length ? itemCategories : ['other'];
     setForm({
       name: item.name,
       description: item.description || '',
       price: String(item.price),
-      category: item.category || 'wraps',
-      categories: item.categories?.length ? item.categories : [item.category || 'wraps'],
+      variants: (item.variants || []).map((variant) => ({ name: variant.name, price: String(variant.price) })),
+      category: editableCategories[0],
+      categories: editableCategories,
       modifier_ids: (item.modifiers || []).map((modifier) => modifier.id),
       image: item.image || '',
       prep_time_minutes: String(item.prep_time_minutes ?? 8),
@@ -245,55 +262,87 @@ export default function MenuEditorPage() {
   };
 
   const saveEdit = async () => {
-    if (!form.name || !form.price) return;
+    const preparedVariants = prepareMenuVariants(form.variants);
+    if (preparedVariants.error) {
+      setFormError(preparedVariants.error);
+      return;
+    }
+    const variants = preparedVariants.variants;
+    const price = variants[0]?.price ?? Number(form.price);
+    if (!form.name || !Number.isFinite(price) || price <= 0) {
+      setFormError('Enter an item name and a valid price.');
+      return;
+    }
     const ingredientPayload = (form.ingredients || []).map((entry) => ({
       name: entry.name?.trim() || '',
       quantity: Number(entry.quantity) || 0,
       unit: entry.unit?.trim() || 'kg',
       inventoryId: entry.inventoryId || '',
     })).filter((entry) => entry.name && entry.quantity > 0);
-    await api.updateMenuItem(editItem.id, {
-      name: form.name,
-      description: form.description,
-      price: parseFloat(form.price),
-      category: form.category,
-      categories: form.categories,
-      modifier_ids: form.modifier_ids,
-      image: form.image,
-      prep_time_minutes: Number(form.prep_time_minutes || 8),
-      ingredients: ingredientPayload,
-      cooking_instructions: form.cooking_instructions,
-      popular: form.popular,
-      active: form.active,
-    });
-    setEditItem(null);
-    loadMenu();
+    setFormError('');
+    try {
+      await api.updateMenuItem(editItem.id, {
+        name: form.name,
+        description: form.description,
+        price,
+        variants,
+        category: form.category,
+        categories: form.categories,
+        modifier_ids: form.modifier_ids,
+        image: form.image,
+        prep_time_minutes: Number(form.prep_time_minutes || 8),
+        ingredients: ingredientPayload,
+        cooking_instructions: form.cooking_instructions,
+        popular: form.popular,
+        active: form.active,
+      });
+      setEditItem(null);
+      loadMenu();
+    } catch (error) {
+      setFormError(error.message || 'Unable to save size options.');
+    }
   };
 
   const saveAdd = async () => {
-    if (!form.name || !form.price) return;
+    const preparedVariants = prepareMenuVariants(form.variants);
+    if (preparedVariants.error) {
+      setFormError(preparedVariants.error);
+      return;
+    }
+    const variants = preparedVariants.variants;
+    const price = variants[0]?.price ?? Number(form.price);
+    if (!form.name || !Number.isFinite(price) || price <= 0) {
+      setFormError('Enter an item name and a valid price.');
+      return;
+    }
     const ingredientPayload = (form.ingredients || []).map((entry) => ({
       name: entry.name?.trim() || '',
       quantity: Number(entry.quantity) || 0,
       unit: entry.unit?.trim() || 'kg',
       inventoryId: entry.inventoryId || '',
     })).filter((entry) => entry.name && entry.quantity > 0);
-    await api.createMenuItem({
-      name: form.name,
-      description: form.description,
-      price: parseFloat(form.price),
-      category: form.category,
-      categories: form.categories,
-      modifier_ids: form.modifier_ids,
-      image: form.image,
-      prep_time_minutes: Number(form.prep_time_minutes || 8),
-      ingredients: ingredientPayload,
-      cooking_instructions: form.cooking_instructions,
-      popular: form.popular,
-    });
-    setShowAdd(false);
-    resetForm();
-    loadMenu();
+    setFormError('');
+    try {
+      await api.createMenuItem({
+        name: form.name,
+        description: form.description,
+        price,
+        variants,
+        category: form.category,
+        categories: form.categories,
+        modifier_ids: form.modifier_ids,
+        image: form.image,
+        prep_time_minutes: Number(form.prep_time_minutes || 8),
+        ingredients: ingredientPayload,
+        cooking_instructions: form.cooking_instructions,
+        popular: form.popular,
+      });
+      setShowAdd(false);
+      resetForm();
+      loadMenu();
+    } catch (error) {
+      setFormError(error.message || 'Unable to create menu item.');
+    }
   };
 
   const saveModifier = async () => {
@@ -319,6 +368,22 @@ export default function MenuEditorPage() {
   const deleteModifier = async (modifierId) => {
     await api.deleteModifier(modifierId);
     loadModifiers();
+  };
+
+  const deleteCategory = async (category) => {
+    const displayName = categoryDisplayName(category);
+    const itemCount = items.filter((item) => (item.categories || [item.category]).includes(category)).length;
+    const itemNotice = itemCount ? ` ${itemCount} menu item${itemCount === 1 ? '' : 's'} will become uncategorized.` : '';
+    if (!window.confirm(`Delete the ${displayName} category?${itemNotice}`)) return;
+
+    setLoadError('');
+    try {
+      await api.deleteMenuCategory(category);
+      if (activeCategory === category) setActiveCategory('all');
+      await Promise.all([loadCategories(), loadMenu()]);
+    } catch (error) {
+      setLoadError(error.message || 'Unable to delete category.');
+    }
   };
 
   const doDelete = async () => {
@@ -361,6 +426,7 @@ export default function MenuEditorPage() {
       name: '',
       description: '',
       price: '',
+      variants: [],
       category: 'wraps',
       categories: ['wraps'],
       modifier_ids: [],
@@ -371,6 +437,7 @@ export default function MenuEditorPage() {
       popular: false,
       active: true,
     });
+    setFormError('');
 
   const syncIngredientFromInventory = (ingredient, value, index) => {
     const match = inventoryItems.find((item) => item.name.toLowerCase() === value.trim().toLowerCase());
@@ -485,11 +552,12 @@ export default function MenuEditorPage() {
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Input
-          label="Price (TZS)"
+          label={form.variants.length ? 'Starting Price (TZS)' : 'Price (TZS)'}
           type="number"
           placeholder="0"
           value={form.price}
           onChange={(e) => setForm({ ...form, price: e.target.value })}
+          disabled={form.variants.length > 0}
         />
         <Input
           label="Prep Time (Minutes)"
@@ -499,6 +567,65 @@ export default function MenuEditorPage() {
           value={form.prep_time_minutes}
           onChange={(e) => setForm({ ...form, prep_time_minutes: e.target.value })}
         />
+      </div>
+
+      <div className="space-y-2 rounded-xl border border-[#ebdccb] bg-[#fffaf4] p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-[#746e67]">Size &amp; price options</label>
+            <p className="mt-1 text-[10px] text-[#8c8278]">Optional. Customers choose a size and its price at checkout.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setForm((current) => ({ ...current, variants: [...(current.variants || []), { name: '', price: '' }] }))}
+            className="shrink-0 rounded-lg border border-[#ebdccb] bg-white px-3 py-2 text-[10px] font-bold text-[#ae002a] hover:bg-[#faeee2]"
+          >
+            + Add size
+          </button>
+        </div>
+        {form.variants.length > 0 && (
+          <div className="space-y-2">
+            {form.variants.map((variant, index) => (
+              <div key={`variant-${index}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
+                <input
+                  value={variant.name}
+                  onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((entry, entryIndex) => entryIndex === index ? { ...entry, name: event.target.value } : entry) }))}
+                  placeholder="Small"
+                  aria-label={`Size option ${index + 1} name`}
+                  className="min-w-0 rounded-lg border border-[#ebdccb] bg-white px-3 py-2 text-xs text-[#24211e] outline-none focus:border-[#ae002a]"
+                />
+                <input
+                  type="number"
+                  min="1"
+                  step="500"
+                  value={variant.price}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setForm((current) => ({
+                      ...current,
+                      price: index === 0 ? value : current.price,
+                      variants: current.variants.map((entry, entryIndex) => entryIndex === index ? { ...entry, price: value } : entry),
+                    }));
+                  }}
+                  placeholder="Price (TZS)"
+                  aria-label={`${variant.name || `Size option ${index + 1}`} price in TZS`}
+                  className="min-w-0 rounded-lg border border-[#ebdccb] bg-white px-3 py-2 text-xs text-[#24211e] outline-none focus:border-[#ae002a]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setForm((current) => {
+                    const variants = current.variants.filter((_, entryIndex) => entryIndex !== index);
+                    return { ...current, variants, price: variants[0]?.price || current.price };
+                  })}
+                  aria-label={`Remove ${variant.name || `size option ${index + 1}`}`}
+                  className="grid h-9 w-9 place-items-center rounded-lg border border-[#ebdccb] bg-white text-[#ae002a] hover:bg-[#fff0f0]"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div>
@@ -632,21 +759,24 @@ export default function MenuEditorPage() {
         )}
       </div>
 
-      <div className="flex gap-3 pt-2">
-        <Button
-          variant="secondary"
-          onClick={() => {
-            setEditItem(null);
-            setShowAdd(false);
-            resetForm();
-          }}
-          className="flex-1"
-        >
-          Cancel
-        </Button>
-        <Button onClick={onSave} className="flex-1 bg-[#ae002a] text-white hover:bg-[#920023]">
-          {saveLabel}
-        </Button>
+      <div className="space-y-2 pt-2">
+        {formError && <p className="rounded-lg border border-[#ae002a]/20 bg-[#fff5f5] px-3 py-2 text-xs text-[#ae002a]" role="alert">{formError}</p>}
+        <div className="flex gap-3">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setEditItem(null);
+              setShowAdd(false);
+              resetForm();
+            }}
+            className="flex-1"
+          >
+            Cancel
+          </Button>
+          <Button onClick={onSave} className="flex-1 bg-[#ae002a] text-white hover:bg-[#920023]">
+            {saveLabel}
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -1018,7 +1148,7 @@ export default function MenuEditorPage() {
                   <button type="button" onClick={() => { setCategoryEditSlug(cat); setNewCategoryName(categoryDisplayName(cat)); setShowNewCategoryModal(true); }} className="rounded p-0.5 text-[#ae002a] hover:bg-[#faeee2]" title="Edit category">
                     <Edit3 size={11} />
                   </button>
-                  <button type="button" onClick={async () => { await api.deleteMenuCategory(cat); await loadCategories(); await loadMenu(); }} className="rounded p-0.5 text-[#ae002a] hover:bg-[#ffe5e5]" title="Delete category">
+                  <button type="button" onClick={() => deleteCategory(cat)} className="rounded p-0.5 text-[#ae002a] hover:bg-[#ffe5e5]" title="Delete category">
                     <Trash2 size={11} />
                   </button>
                 </div>

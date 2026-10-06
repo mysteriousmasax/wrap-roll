@@ -11,6 +11,7 @@ const require = createRequire(import.meta.url);
 const PptxGenJS = require('pptxgenjs');
 import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
+import { calculateDailyStockSummary } from '../utils/dailyStockReport.js';
 import { getOrders } from '../utils/orders.js';
 import { generateOfflineAgentReply, generateOperationsReport, generateStaffAssistantReply } from '../utils/gemini.js';
 import { aiProvider, recordAiActivity } from '../utils/aiActivity.js';
@@ -18,6 +19,10 @@ import { broadcast } from '../ws.js';
 
 const router = Router();
 const logoPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public/wrap-roll-logo-lockup-transparent.png');
+
+function parseJson(value, fallback) {
+  try { return JSON.parse(value || ''); } catch { return fallback; }
+}
 
 router.get('/sales', authMiddleware, (req, res) => {
   res.json(getSeriesForRange('month'));
@@ -126,23 +131,50 @@ function getOperationalSummaries(requestedDate = '') {
   `).all(reportDate);
   const savedPetty = db.prepare("SELECT payload, checked_by_name, approved_by_name FROM operational_summaries WHERE summary_type = 'petty_cash' AND report_date = ?").get(reportDate);
   const savedDaily = db.prepare("SELECT payload, checked_by_name, approved_by_name FROM operational_summaries WHERE summary_type = 'daily_sales' AND report_date = ?").get(reportDate);
+  const savedStock = db.prepare("SELECT payload, checked_by_name, approved_by_name, checked_at, approved_at FROM operational_summaries WHERE summary_type = 'daily_stock' AND report_date = ?").get(reportDate);
   const parseSaved = (record) => { try { return record ? JSON.parse(record.payload || '{}') : null; } catch { return null; } };
   const pettyRows = parseSaved(savedPetty)?.rows;
+  const stockRows = db.prepare("SELECT inventory_counts_json FROM shift_handover_records WHERE shift_date = ?").all(reportDate).flatMap((row) => parseJson(row.inventory_counts_json, []));
+  const stockSummary = parseSaved(savedStock) || calculateDailyStockSummary(stockRows, { inventory: db.prepare('SELECT name, unit_cost FROM inventory WHERE deleted_at IS NULL').all() });
   const liveDailyRows = dailySales.map((row, index) => ({ id: `${reportDate}-${index}`, date: reportDate, item: row.item, quantity: Number(row.quantity || 0), openingStock: Number(row.openingStock || 0), closingStock: Number(row.closingStock || 0), price: Number(row.price || 0), difference: Number(row.openingStock || 0) - Number(row.closingStock || 0), total: Number(row.total || 0), checkedBy: row.checkedBy || 'System', remarks: 'Live order activity' }));
   return {
     pettyCash: pettyRows || pettyCash.map((row, index) => ({ id: row.id, item: row.item, rate: Number(row.total || 0), quantity: 1, total: Number(row.total || 0), date: row.date, remarks: row.remarks || row.paymentMethod || 'Cash expense', checkedBy: row.created_by || 'System', rowNumber: index + 1 })),
     dailySales: liveDailyRows,
+    dailyStock: stockSummary,
     pettyCashTotal: (pettyRows || pettyCash).reduce((sum, row) => sum + (Number(row.total) || (Number(row.rate) || 0) * (Number(row.quantity) || 0)), 0),
     dailySalesTotal: liveDailyRows.reduce((sum, row) => sum + Number(row.total || 0), 0),
     reportDate,
     dailySalesSavedAt: savedDaily?.updated_at || null,
     dailySalesSavedBy: savedDaily?.checked_by_name || null,
+    dailyStockSavedAt: savedStock?.checked_at || savedStock?.approved_at || null,
+    dailyStockSavedBy: savedStock?.checked_by_name || null,
+    dailyStockApprovedBy: savedStock?.approved_by_name || null,
     generatedAt: new Date().toISOString(),
   };
 }
 
+router.get('/operational-summary/:type/:date', authMiddleware, (req, res) => {
+  if (!['petty_cash', 'daily_sales', 'daily_stock'].includes(req.params.type)) {
+    return res.status(400).json({ error: 'Invalid summary type.' });
+  }
+
+  const row = db.prepare('SELECT * FROM operational_summaries WHERE summary_type = ? AND report_date = ?').get(req.params.type, req.params.date);
+  const payload = row ? (() => { try { return JSON.parse(row.payload || '{}'); } catch { return {}; } })() : {};
+
+  res.json({
+    summaryType: req.params.type,
+    reportDate: req.params.date,
+    payload,
+    checkedBy: row?.checked_by_name || null,
+    checkedAt: row?.checked_at || null,
+    approvedBy: row?.approved_by_name || null,
+    approvedAt: row?.approved_at || null,
+    updatedAt: row?.updated_at || null,
+  });
+});
+
 router.put('/operational-summary/:type/:date', authMiddleware, (req, res) => {
-  if (!['petty_cash', 'daily_sales'].includes(req.params.type)) return res.status(400).json({ error: 'Invalid summary type' });
+  if (!['petty_cash', 'daily_sales', 'daily_stock'].includes(req.params.type)) return res.status(400).json({ error: 'Invalid summary type' });
   const payload = JSON.stringify(req.body?.payload || {});
   const now = new Date().toISOString();
   db.prepare(`INSERT INTO operational_summaries (summary_type, report_date, payload, checked_by_id, checked_by_name, checked_at, updated_at)

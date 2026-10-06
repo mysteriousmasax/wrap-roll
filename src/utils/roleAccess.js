@@ -104,8 +104,7 @@ export function getRolePageAccess(input = {}) {
   const fallback = ROUTE_ACCESS[baseRole] || ROUTE_ACCESS.foh;
   const explicit = normalizePageAccess(candidate.pageAccess ?? candidate.page_access ?? []);
   if (explicit.length > 0) {
-    const filtered = explicit.filter((path) => fallback.includes(path));
-    return filtered.length > 0 ? expandImpliedPageAccess(filtered) : [...fallback];
+    return expandImpliedPageAccess(explicit);
   }
   return [...fallback];
 }
@@ -114,8 +113,7 @@ export function getUserPageAccess(user = {}) {
   const role = normalizeUserRole(user.role);
   const explicit = normalizePageAccess(user.pageAccess ?? user.page_access ?? []);
   if (explicit.length > 0) {
-    const allowed = explicit.filter((path) => (ROUTE_ACCESS[role] || ROUTE_ACCESS.foh).includes(path));
-    if (allowed.length > 0) return expandImpliedPageAccess(allowed);
+    return expandImpliedPageAccess(explicit);
   }
   return getRolePageAccess({ role, pageAccess: [] });
 }

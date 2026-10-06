@@ -1,9 +1,10 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle, Receipt, ArrowRight } from 'lucide-react';
+import { CheckCircle, Receipt } from 'lucide-react';
 import { formatCurrency, printFiscalInvoice } from '../../utils/format';
 import { api } from '../../api/client';
 import useSettingsStore from '../../store/useSettingsStore';
+import useCartStore from '../../store/useCartStore';
 import Button from '../../components/ui/Button';
 
 export default function PaymentSuccessPage() {
@@ -12,7 +13,9 @@ export default function PaymentSuccessPage() {
   const { order, orderId, total, method, awaitingConfirmation } = location.state || {};
   const [confirmedOrder, setConfirmedOrder] = useState(order || null);
   const printedOrderRef = useRef(null);
+  const clearedOrderRef = useRef(null);
   const settings = useSettingsStore((state) => state.settings);
+  const clearCart = useCartStore((state) => state.clearCart);
 
   useEffect(() => {
     if (!orderId || !awaitingConfirmation) return undefined;
@@ -33,6 +36,13 @@ export default function PaymentSuccessPage() {
     printFiscalInvoice(confirmedOrder, settings);
   }, [confirmedOrder?.paymentStatus, orderId, settings]);
 
+  useEffect(() => {
+    const confirmedOrderId = orderId || confirmedOrder?.id;
+    if (confirmedOrder?.paymentStatus !== 'paid' || !confirmedOrderId || clearedOrderRef.current === confirmedOrderId) return;
+    clearedOrderRef.current = confirmedOrderId;
+    clearCart();
+  }, [confirmedOrder?.paymentStatus, confirmedOrder?.id, orderId, clearCart]);
+
   if (!orderId && !order) {
     return (
       <div className="payment-page min-h-screen bg-surface flex items-center justify-center p-6">
@@ -52,8 +62,8 @@ export default function PaymentSuccessPage() {
         <div className="success-orbit w-24 h-24 rounded-full bg-success/10 flex items-center justify-center mx-auto mb-6">
           <CheckCircle size={56} className="text-success" />
         </div>
-        <h1 className="text-2xl font-display font-bold mb-2">{awaitingConfirmation ? 'Payment Submitted' : 'Payment Successful!'}</h1>
-        <p className="text-surface-on-variant mb-6">{awaitingConfirmation ? 'The kitchen will confirm your Lipa Namba payment before preparing the order.' : 'Transaction completed successfully'}</p>
+        <h1 className="text-2xl font-display font-bold mb-2">{awaitingConfirmation ? 'Order Confirmed' : 'Payment Successful!'}</h1>
+        <p className="text-surface-on-variant mb-6">{awaitingConfirmation ? 'Your payment reference was submitted. Payment verification is still pending.' : 'Transaction completed successfully'}</p>
 
         <div className="card text-left mb-6">
           <div className="space-y-3">
@@ -62,7 +72,7 @@ export default function PaymentSuccessPage() {
               <span className="font-bold">{orderId || receiptOrder.id}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-surface-on-variant">Amount Paid</span>
+                <span className="text-sm text-surface-on-variant">{awaitingConfirmation ? 'Order Total' : 'Amount Paid'}</span>
               <span className="font-bold text-primary text-lg">{formatCurrency(total ?? receiptOrder.total ?? 0)}</span>
             </div>
             <div className="flex justify-between">
@@ -73,6 +83,13 @@ export default function PaymentSuccessPage() {
               <span className="text-sm text-surface-on-variant">Time</span>
               <span className="font-semibold">{new Date().toLocaleTimeString()}</span>
             </div>
+            {receiptOrder.items?.length > 0 && <div className="border-t border-outline-variant pt-3">
+              <p className="mb-2 text-xs font-bold uppercase text-surface-on-variant">Order summary</p>
+              {receiptOrder.items.map((item, index) => <div className="flex justify-between gap-3 py-1 text-sm" key={`${item.name}-${index}`}>
+                <span>{item.qty || item.quantity}x {item.name}</span>
+                <span className="font-semibold">{formatCurrency(item.price * (item.qty || item.quantity || 1))}</span>
+              </div>)}
+            </div>}
           </div>
         </div>
 

@@ -34,6 +34,7 @@ import LipaPaymentModal from '../../components/public/LipaPaymentModal';
 import RotatingText from '../../components/ui/RotatingText';
 import DepthText from '../../components/ui/DepthText';
 import { reverseGoogleGeocode } from '../../lib/googleMaps';
+import { groupLegacyMenuVariants, isMenuVariantCategory } from '../../utils/menuProductVariants';
 
 const defaultCategories = [
   { key: 'allMenu', filter: 'all', label: 'All Menu' },
@@ -61,6 +62,7 @@ const brandFoodImages = [
   'https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=900&h=1100&fit=crop',
   'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=900&h=1100&fit=crop',
 ];
+const localCategoryImages = ['/hero-food.jpg', '/delivery-wraps.jpg', '/craft-story.jpg'];
 
 const restaurantLocation = {
   label: 'Wikicha Tower, Mwai Kibaki Road',
@@ -74,7 +76,7 @@ function OrderTrackingCard({ order, onOpenPayment, onPrintInvoice, now, settings
   const elapsedSeconds = Math.max(0, Math.floor((elapsedEnd - new Date(order.createdAt).getTime()) / 1000));
   const elapsedMinutes = Math.floor(elapsedSeconds / 60);
   const remainingSeconds = elapsedSeconds % 60;
-  const paymentLabel = order.paymentStatus === 'paid' ? 'Payment confirmed' : order.paymentStatus === 'manual_review' ? 'Payment submitted for review' : 'Waiting for payment';
+  const paymentLabel = order.paymentStatus === 'paid' ? 'Payment confirmed' : order.paymentStatus === 'manual_review' ? 'Payment submitted for review' : order.paymentStatus === 'failed' ? 'Payment not approved' : 'Waiting for payment';
   const kitchenLabel = order.status === 'confirmed' ? 'Confirmed and sent to kitchen' : order.status === 'preparing' ? 'Being prepared' : order.status === 'ready' ? 'Ready for collection' : order.status === 'completed' ? 'Completed' : 'Waiting for payment confirmation';
   const isPaid = order.paymentStatus === 'paid';
 
@@ -118,6 +120,12 @@ function OrderTrackingCard({ order, onOpenPayment, onPrintInvoice, now, settings
           <p><span className={isPaid ? 'status-dot status-dot-paid' : 'status-dot'} />{paymentLabel}</p>
           <p><span className={order.status === 'confirmed' || order.status === 'preparing' || order.status === 'ready' ? 'status-dot status-dot-paid' : 'status-dot'} />{kitchenLabel}</p>
         </div>
+        {order.paymentStatus === 'failed' && (
+          <div className="order-review-panel border-rose-200 bg-rose-50">
+            <strong className="text-rose-800">Payment not approved</strong>
+            <span className="text-rose-800">{order.paymentFailureReason || 'The restaurant could not verify this payment. Review the payment details or contact staff with your order reference.'}</span>
+          </div>
+        )}
         {order.status === 'completed' && reviewLinks.length > 0 && (
           <div className="order-review-panel">
             <strong>Rate your meal</strong>
@@ -159,13 +167,15 @@ export default function HomePage() {
     JSON.parse(localStorage.getItem('wraproll_public_cart') || '[]')
   );
   const [cartOpen, setCartOpen] = useState(false);
-  const [customerName, setCustomerName] = useState('');
+  const [customerName, setCustomerName] = useState(() => localStorage.getItem('wraproll_customer_name') || '');
   const [customerPhone, setCustomerPhone] = useState(
     () => localStorage.getItem('wraproll_customer_phone') || ''
   );
   const [customerEmail, setCustomerEmail] = useState(
     () => localStorage.getItem('wraproll_customer_email') || ''
   );
+  const [rememberedCustomer, setRememberedCustomer] = useState(null);
+  const [customerPointsLoading, setCustomerPointsLoading] = useState(false);
   const [customerType, setCustomerType] = useState('individual');
   const [companyName, setCompanyName] = useState('');
   const [customerTin, setCustomerTin] = useState('');
@@ -205,6 +215,7 @@ export default function HomePage() {
   const [menuLoading, setMenuLoading] = useState(true);
   const [tableContext, setTableContext] = useState(null);
   const [selectedMealItem, setSelectedMealItem] = useState(null);
+  const [selectedMealVariant, setSelectedMealVariant] = useState(null);
   const [mealQuantity, setMealQuantity] = useState(1);
   const [mealInstructions, setMealInstructions] = useState('');
   const [mealModifiers, setMealModifiers] = useState([]);
@@ -227,6 +238,7 @@ export default function HomePage() {
             ...current,
             paymentStatus: status.status,
             status: status.orderStatus,
+            paymentFailureReason: status.status === 'failed' ? status.notes || current.paymentFailureReason : current.paymentFailureReason,
             paidAt: status.paidAt,
             updatedAt: status.updatedAt || current.updatedAt,
             completedAt: status.orderStatus === 'completed' && current.status !== 'completed'
@@ -254,8 +266,8 @@ export default function HomePage() {
 
   const dynamicCategories = Array.from(new Set([
     ...defaultCategories.map((entry) => entry.filter),
-    ...menuCategories.map((entry) => String(entry.slug || entry.name || '').trim()).filter(Boolean),
-    ...publicMenu.flatMap((item) => Array.isArray(item.categories) ? item.categories : [item.category]).filter(Boolean),
+    ...menuCategories.map((entry) => String(entry.slug || entry.name || '').trim()).filter((category) => category && !isMenuVariantCategory(category)),
+    ...publicMenu.flatMap((item) => Array.isArray(item.categories) ? item.categories : [item.category]).filter((category) => category && !isMenuVariantCategory(category)),
   ])).map((filter) => {
     const match = [...defaultCategories, ...menuCategories.map((entry) => ({ filter: String(entry.slug || entry.name || '').trim(), label: entry.name || entry.slug || 'Menu' }))]
       .find((category) => category.filter === filter);
@@ -283,7 +295,7 @@ export default function HomePage() {
     const refreshMenu = () => Promise.allSettled([api.getPublicMenu(), api.getPublicModifiers(), api.getMenuCategories()])
       .then(([menuResult, modifiersResult, categoriesResult]) => {
         if (!active) return;
-        if (menuResult.status === 'fulfilled') setPublicMenu(menuResult.value || []);
+        if (menuResult.status === 'fulfilled') setPublicMenu(groupLegacyMenuVariants(menuResult.value || []));
         if (modifiersResult.status === 'fulfilled') setPublicModifiers(modifiersResult.value || []);
         if (categoriesResult.status === 'fulfilled') setMenuCategories(categoriesResult.value || []);
       })
@@ -301,7 +313,7 @@ export default function HomePage() {
     if (event !== 'menu:updated') return;
     Promise.allSettled([api.getPublicMenu(), api.getPublicModifiers(), api.getMenuCategories()])
       .then(([menuResult, modifiersResult, categoriesResult]) => {
-        if (menuResult.status === 'fulfilled') setPublicMenu(menuResult.value || []);
+        if (menuResult.status === 'fulfilled') setPublicMenu(groupLegacyMenuVariants(menuResult.value || []));
         if (modifiersResult.status === 'fulfilled') setPublicModifiers(modifiersResult.value || []);
         if (categoriesResult.status === 'fulfilled') setMenuCategories(categoriesResult.value || []);
       })
@@ -322,6 +334,9 @@ export default function HomePage() {
     localStorage.setItem('wraproll_public_cart', JSON.stringify(cartItems));
   }, [cartItems]);
   useEffect(() => {
+    localStorage.setItem('wraproll_customer_name', customerName);
+  }, [customerName]);
+  useEffect(() => {
     localStorage.setItem('wraproll_customer_phone', customerPhone);
   }, [customerPhone]);
   useEffect(() => {
@@ -333,6 +348,33 @@ export default function HomePage() {
   useEffect(() => {
     localStorage.setItem('wraproll_display_currency', displayCurrency);
   }, [displayCurrency]);
+
+  useEffect(() => {
+    const identifier = customerPhone.trim() || customerEmail.trim();
+    if (!identifier) {
+      setRememberedCustomer(null);
+      setCustomerPointsLoading(false);
+      return undefined;
+    }
+
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setCustomerPointsLoading(true);
+      try {
+        const customer = await api.getPublicCustomerPoints(identifier);
+        if (active) setRememberedCustomer(customer);
+      } catch {
+        if (active) setRememberedCustomer(null);
+      } finally {
+        if (active) setCustomerPointsLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [customerPhone, customerEmail, activePlacedOrder?.paymentStatus]);
 
   const scrollTo = (id) => {
     setMobileMenuOpen(false);
@@ -349,6 +391,7 @@ export default function HomePage() {
 
   const openMealCustomizer = (item) => {
     setSelectedMealItem(item);
+    setSelectedMealVariant(item.variants?.[0] || null);
     setMealQuantity(1);
     setMealInstructions('');
     setMealModifiers([]);
@@ -356,11 +399,17 @@ export default function HomePage() {
 
   const addCustomizedMealToCart = () => {
     if (!selectedMealItem) return;
+    if (selectedMealItem.variants?.length && !selectedMealVariant) return;
+    const variantName = selectedMealVariant?.name || '';
+    const selectedModifiersKey = JSON.stringify(mealModifiers.map((modifier) => modifier.id).sort());
     setCartItems((items) => {
-      const existing = items.find((cartItem) => cartItem.id === selectedMealItem.id);
+      const existing = items.find((cartItem) => cartItem.id === selectedMealItem.id
+        && (cartItem.variantName || '') === variantName
+        && JSON.stringify((cartItem.modifiers || []).map((modifier) => modifier.id).sort()) === selectedModifiersKey
+        && (cartItem.instructions || '') === mealInstructions);
       if (existing) {
         return items.map((cartItem) =>
-          cartItem.id === selectedMealItem.id
+          cartItem.cartId === existing.cartId
             ? { ...cartItem, qty: cartItem.qty + mealQuantity, instructions: mealInstructions }
             : cartItem
         );
@@ -369,10 +418,13 @@ export default function HomePage() {
         ...items,
         {
           id: selectedMealItem.id,
-          name: selectedMealItem.name,
+          cartId: `${selectedMealItem.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: selectedMealVariant ? `${selectedMealItem.name} (${selectedMealVariant.name})` : selectedMealItem.name,
           description: selectedMealItem.description,
           image: selectedMealItem.image,
-          price: selectedMealItem.price + mealModifiers.reduce((sum, modifier) => sum + Number(modifier.price || 0), 0),
+          price: (selectedMealVariant?.price ?? selectedMealItem.price) + mealModifiers.reduce((sum, modifier) => sum + Number(modifier.price || 0), 0),
+          variantName,
+          variantMenuItemId: selectedMealVariant?.menuItemId || null,
           qty: mealQuantity,
           modifiers: mealModifiers,
           instructions: mealInstructions,
@@ -384,6 +436,10 @@ export default function HomePage() {
   };
 
   const quickAddToCart = (item) => {
+    if (item.variants?.length) {
+      openMealCustomizer(item);
+      return;
+    }
     setCartItems((items) => {
       const existing = items.find((cartItem) => cartItem.id === item.id);
       if (existing) {
@@ -395,6 +451,7 @@ export default function HomePage() {
         ...items,
         {
           id: item.id,
+          cartId: `${item.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           name: item.name,
           description: item.description,
           image: item.image,
@@ -405,10 +462,10 @@ export default function HomePage() {
     });
   };
 
-  const changeQuantity = (itemId, quantity) => {
+  const changeQuantity = (cartId, quantity) => {
     setCartItems((items) =>
       items
-        .map((item) => (item.id === itemId ? { ...item, qty: quantity } : item))
+        .map((item) => ((item.cartId || item.id) === cartId ? { ...item, qty: quantity } : item))
         .filter((item) => item.qty > 0)
     );
   };
@@ -425,6 +482,7 @@ export default function HomePage() {
       const order = await api.createPublicOrder({
         items: cartItems.map((item) => ({
           menuItemId: item.id,
+          variantName: item.variantMenuItemId ? undefined : (item.variantName || undefined),
           qty: item.qty,
           specialInstructions: item.instructions || undefined,
         })),
@@ -647,9 +705,16 @@ export default function HomePage() {
       {/* Hero Section */}
       <section className="reference-home-hero hero-tablet w-full px-6 sm:px-12 flex items-center justify-start" id="home" style={{backgroundImage: 'linear-gradient(90deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.62) 43%, rgba(0,0,0,0.08) 82%), url(/hero-food.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'scroll'}}>
         <div className="hero-copy reference-hero-copy space-y-5 max-w-xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#fde8d7] text-[#ae002a] text-xs font-bold uppercase tracking-wider">
-            <Sparkles size={14} className="text-[#e6ac29]" /> Fresh, Fast &amp; Delicious
-          </div>
+          <a
+            href={customerPhone.trim() || customerEmail.trim() ? `/customer-rewards?identifier=${encodeURIComponent(customerPhone.trim() || customerEmail.trim())}` : '/customer-rewards'}
+            className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-[#fde8d7] px-3 py-1 text-xs font-bold uppercase tracking-wider text-[#ae002a] transition-colors hover:bg-white"
+            aria-label={rememberedCustomer ? `${rememberedCustomer.rollPoints} Roll Points. Open rewards.` : 'Fresh, fast and delicious. Open Roll Points rewards.'}
+          >
+            <Sparkles size={14} className="text-[#e6ac29]" />
+            <span>Fresh, Fast &amp; Delicious</span>
+            {rememberedCustomer && <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-black normal-case">{rememberedCustomer.rollPoints} Roll Points</span>}
+            {!rememberedCustomer && customerPointsLoading && <span className="text-[10px] font-semibold normal-case">Checking points...</span>}
+          </a>
           <h1 ref={heroHeadingRef} className="reference-hero-heading hero-heading-animation text-4xl sm:text-6xl font-bold font-display leading-[1.02] tracking-tight">
             <span className="hero-heading-line">Dine with Delight at</span>{' '}
             <DepthText text="Wrap & Roll" faceColor="#e00000" depthColor="#8f001c" fontWeight="800" className="reference-depth-accent" />
@@ -742,25 +807,42 @@ export default function HomePage() {
         </div>
 
         {/* Category Pills Bar */}
-        <div className="flex gap-2 overflow-x-auto pb-3 mb-8 no-scrollbar justify-start sm:justify-center">
-          {categories.map((cat) => (
-            <button
-              key={cat.filter}
-              onClick={() => setActiveCategory(cat.filter)}
-              className={
-                'px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ' +
-                (activeCategory === cat.filter
-                  ? 'bg-[#ae002a] text-white shadow-md'
-                  : 'bg-white border border-[#ebdccb] text-[#554e46] hover:bg-[#faeee2]')
-              }
-            >
-              {cat.label}
-            </button>
-          ))}
+        <div className="public-category-list flex gap-2 overflow-x-auto pb-3 mb-8 no-scrollbar justify-start sm:justify-center">
+          {categories.map((cat, index) => {
+            const categoryImage = cat.filter === 'all'
+              ? publicMenu[0]?.image || brandFoodImages[0]
+              : menuByCategory[cat.filter]?.items?.[0]?.image || brandFoodImages[index % brandFoodImages.length];
+
+            return (
+              <button
+                key={cat.filter}
+                type="button"
+                onClick={() => setActiveCategory(cat.filter)}
+                aria-pressed={activeCategory === cat.filter}
+                className={'public-category-tile' + (activeCategory === cat.filter ? ' is-active' : '')}
+              >
+                <img
+                  className="public-category-image"
+                  src={categoryImage}
+                  alt=""
+                  aria-hidden="true"
+                  onError={(event) => {
+                    if (!event.currentTarget.dataset.fallbackApplied) {
+                      event.currentTarget.dataset.fallbackApplied = 'true';
+                      event.currentTarget.src = localCategoryImages[index % localCategoryImages.length];
+                    } else {
+                      event.currentTarget.style.visibility = 'hidden';
+                    }
+                  }}
+                />
+                <span className="public-category-label">{cat.label}</span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Food Grid */}
-        <div className="food-grid grid grid-cols-1 sm:grid-cols-2 tablet:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+        <div className="public-menu-grid food-grid grid grid-cols-1 sm:grid-cols-2 tablet:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
           {menuLoading && Array.from({ length: 8 }, (_, index) => (
             <div key={`menu-skeleton-${index}`} className="public-menu-card animate-pulse overflow-hidden rounded-3xl border border-[#ebdccb] bg-white">
               <div className="aspect-[4/3] bg-[#faeee2]" />
@@ -774,14 +856,18 @@ export default function HomePage() {
               style={{ animationDelay: `${Math.min(0.45, (item.id % 8) * 0.045)}s` }}
               onClick={() => openMealCustomizer(item)}
             >
-              <div className="relative aspect-[4/5] overflow-hidden bg-[#faeee2]">
+              <div className="public-menu-media relative aspect-[4/5] overflow-hidden bg-[#faeee2]">
                 <img
                   src={item.image}
                   alt={item.name}
                   className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
                   onError={(e) => {
-                    e.currentTarget.src =
-                      'https://wrapandrolltz.com/uploads/photo_gallery/d706fc0ef56440dd131465fd75aae870.jpg';
+                    if (!e.currentTarget.dataset.fallbackApplied) {
+                      e.currentTarget.dataset.fallbackApplied = 'true';
+                      e.currentTarget.src = '/delivery-wraps.jpg';
+                    } else {
+                      e.currentTarget.style.visibility = 'hidden';
+                    }
                   }}
                 />
                 <span className="absolute top-3 left-3 px-2.5 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[10px] font-bold text-[#ae002a] uppercase tracking-wider shadow-sm">
@@ -789,7 +875,7 @@ export default function HomePage() {
                 </span>
               </div>
 
-              <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between space-y-3">
+              <div className="public-menu-details p-4 sm:p-5 flex-1 flex flex-col justify-between space-y-3">
                 <div>
                   <h3 className="font-display font-bold text-base text-[#1f1d1b] group-hover:text-[#ae002a] transition-colors">
                     {item.name}
@@ -801,7 +887,7 @@ export default function HomePage() {
 
                 <div className="flex items-center justify-between pt-2 border-t border-[#f3ebde]">
                   <strong className="text-sm sm:text-base font-bold text-[#ae002a]">
-                    {formatCurrency(item.price, displayCurrency)}
+                    {item.variants?.length ? 'From ' : ''}{formatCurrency(item.variants?.length ? Math.min(...item.variants.map((variant) => Number(variant.price))) : item.price, displayCurrency)}
                   </strong>
 
                   <div className="flex items-center gap-1">
@@ -848,7 +934,7 @@ export default function HomePage() {
                 <div>
                   <h3 className="font-display font-bold text-base text-[#1f1d1b]">{selectedMealItem.name}</h3>
                   <p className="text-xs font-bold text-[#ae002a]">
-                    {formatCurrency(selectedMealItem.price + mealModifiers.reduce((sum, modifier) => sum + Number(modifier.price || 0), 0), displayCurrency)}
+                    {formatCurrency((selectedMealVariant?.price ?? selectedMealItem.price) + mealModifiers.reduce((sum, modifier) => sum + Number(modifier.price || 0), 0), displayCurrency)}
                   </p>
                 </div>
               </div>
@@ -859,6 +945,29 @@ export default function HomePage() {
                 <X size={18} />
               </button>
             </div>
+
+            {selectedMealItem.variants?.length > 0 && (
+              <section aria-label="Choose a size" className="space-y-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#746e67]">Choose a size</h4>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {selectedMealItem.variants.map((variant) => {
+                    const selected = selectedMealVariant?.name === variant.name;
+                    return (
+                      <button
+                        key={variant.name}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => setSelectedMealVariant(variant)}
+                        className={'flex min-h-12 items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left ' + (selected ? 'border-[#ae002a] bg-[#fff3ec] text-[#ae002a]' : 'border-[#ebdccb] bg-white text-[#554e46]')}
+                      >
+                        <span className="text-xs font-bold">{variant.name}</span>
+                        <span className="text-xs font-semibold">{formatCurrency(variant.price, displayCurrency)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
             {/* Quantity Selector for Bulk / Family Orders */}
             <div className="p-3.5 bg-[#fbf6ee] border border-[#ebdccb] rounded-2xl space-y-2">
@@ -940,10 +1049,11 @@ export default function HomePage() {
 
             <div className="pt-2 flex items-center justify-between">
               <span className="font-bold text-sm text-[#ae002a]">
-                Total: {formatCurrency((selectedMealItem.price + mealModifiers.reduce((sum, modifier) => sum + Number(modifier.price || 0), 0)) * mealQuantity, displayCurrency)}
+                Total: {formatCurrency(((selectedMealVariant?.price ?? selectedMealItem.price) + mealModifiers.reduce((sum, modifier) => sum + Number(modifier.price || 0), 0)) * mealQuantity, displayCurrency)}
               </span>
               <button
                 onClick={addCustomizedMealToCart}
+                disabled={Boolean(selectedMealItem.variants?.length && !selectedMealVariant)}
                 className="px-5 py-2.5 rounded-xl bg-[#ae002a] text-white font-bold text-xs shadow-md hover:bg-[#920023]"
               >
                 Add to Cart
@@ -955,7 +1065,7 @@ export default function HomePage() {
 
       {/* Location / Visit Section */}
       <section className="visit-section py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-[#eee4d5]" id="visit">
-        <div className="grid grid-cols-1 tablet:grid-cols-2 lg:grid-cols-2 gap-10 items-center">
+        <div className="visit-content">
           <div className="map-copy space-y-4">
             <p className="text-xs font-bold uppercase tracking-wider text-[#ae002a]">Dine In &amp; Takeaway</p>
             <h2 className="text-3xl sm:text-4xl font-bold font-display text-[#1f1d1b]">Visit Our Restaurant</h2>
@@ -1010,7 +1120,7 @@ export default function HomePage() {
               <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
                 {cartItems.length ? (
                   cartItems.map((item) => (
-                    <div key={item.id} className="p-3 bg-white border border-[#ebdccb] rounded-2xl shadow-sm flex items-center justify-between gap-3">
+                    <div key={item.cartId || item.id} className="p-3 bg-white border border-[#ebdccb] rounded-2xl shadow-sm flex items-center justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="font-bold text-xs text-[#1f1d1b] truncate">{item.name}</p>
                         {item.instructions && <p className="text-[10px] text-[#746e67] italic truncate">{item.instructions}</p>}
@@ -1018,9 +1128,9 @@ export default function HomePage() {
                       </div>
 
                       <div className="flex items-center gap-1.5 border border-[#d9cdb7] rounded-xl px-2 py-1 bg-[#fbf6ee]">
-                        <button onClick={() => changeQuantity(item.id, item.qty - 1)} className="text-xs font-bold text-[#746e67] hover:text-[#ae002a]">-</button>
+                        <button onClick={() => changeQuantity(item.cartId || item.id, item.qty - 1)} className="text-xs font-bold text-[#746e67] hover:text-[#ae002a]">-</button>
                         <span className="text-xs font-bold min-w-4 text-center">{item.qty}</span>
-                        <button onClick={() => changeQuantity(item.id, item.qty + 1)} className="text-xs font-bold text-[#746e67] hover:text-[#ae002a]">+</button>
+                        <button onClick={() => changeQuantity(item.cartId || item.id, item.qty + 1)} className="text-xs font-bold text-[#746e67] hover:text-[#ae002a]">+</button>
                       </div>
                     </div>
                   ))

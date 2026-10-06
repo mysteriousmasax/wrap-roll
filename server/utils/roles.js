@@ -123,8 +123,7 @@ export function getRolePageAccess(input) {
   const fallback = ROUTE_ACCESS[baseRole] || ROUTE_ACCESS.foh;
 
   if (explicit.length > 0) {
-    const allowed = explicit.filter((path) => fallback.includes(path));
-    return allowed.length ? expandImpliedPageAccess(allowed) : [...fallback];
+    return expandImpliedPageAccess(explicit);
   }
 
   return [...fallback];

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
+import { releaseExpiredCleaningTables } from '../utils/tableAvailability.js';
 
 const router = Router();
 
@@ -25,10 +26,12 @@ function mapTable(row) {
 }
 
 router.get('/', authMiddleware, (req, res) => {
+  releaseExpiredCleaningTables(db).forEach((table) => broadcast('table:updated', mapTable(table)));
   res.json(db.prepare('SELECT * FROM tables ORDER BY number').all().map(mapTable));
 });
 
 router.get('/public/:tagId', (req, res) => {
+  releaseExpiredCleaningTables(db).forEach((table) => broadcast('table:updated', mapTable(table)));
   const table = db.prepare('SELECT * FROM tables WHERE tag_id = ?').get(req.params.tagId);
   if (!table) return res.status(404).json({ error: 'Table tag not found' });
   if (['occupied', 'reserved', 'cleaning'].includes(table.status)) return res.status(409).json({ error: 'This table is not currently available' });
@@ -52,20 +55,27 @@ router.patch('/:id', authMiddleware, (req, res) => {
   const existing = db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Table not found' });
   const { number, seats, status, reservation, currentOrderId, tagId, imageUrl, zone, note } = req.body;
+  const nextStatus = status ?? existing.status;
+  const cleaningStartedAt = nextStatus === 'cleaning'
+    ? existing.status === 'cleaning' && existing.cleaning_started_at
+      ? existing.cleaning_started_at
+      : new Date().toISOString()
+    : null;
   try {
     db.prepare(
-      'UPDATE tables SET number = ?, seats = ?, status = ?, reservation = ?, current_order_id = ?, tag_id = ?, image_url = ?, zone = ?, note = ? WHERE id = ?'
+      'UPDATE tables SET number = ?, seats = ?, status = ?, reservation = ?, current_order_id = ?, tag_id = ?, image_url = ?, zone = ?, note = ?, cleaning_started_at = ? WHERE id = ?'
     ).run(
       number ?? existing.number,
       seats ?? existing.seats,
-    status ?? existing.status,
-    reservation !== undefined ? reservation : existing.reservation,
-    currentOrderId !== undefined ? currentOrderId : existing.current_order_id,
-    tagId !== undefined ? tagId : existing.tag_id,
-    imageUrl !== undefined ? imageUrl : existing.image_url,
-    zone !== undefined ? zone : existing.zone,
-    note !== undefined ? note : existing.note,
-    req.params.id
+      nextStatus,
+      reservation !== undefined ? reservation : existing.reservation,
+      currentOrderId !== undefined ? currentOrderId : existing.current_order_id,
+      tagId !== undefined ? tagId : existing.tag_id,
+      imageUrl !== undefined ? imageUrl : existing.image_url,
+      zone !== undefined ? zone : existing.zone,
+      note !== undefined ? note : existing.note,
+      cleaningStartedAt,
+      req.params.id
     );
     const table = mapTable(db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id));
     broadcast('table:updated', table);

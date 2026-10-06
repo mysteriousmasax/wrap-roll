@@ -5,6 +5,7 @@ import { formatCurrency } from '../../utils/format';
 import useCartStore from '../../store/useCartStore';
 import useOrderStore from '../../store/useOrderStore';
 import useSettingsStore from '../../store/useSettingsStore';
+import { api } from '../../api/client';
 import Button from '../../components/ui/Button';
 import LipaPaymentModal from '../../components/public/LipaPaymentModal';
 
@@ -19,10 +20,14 @@ export default function PaymentPage() {
   const [billingAddress, setBillingAddress] = useState('');
   const [selectedMethod, setSelectedMethod] = useState('lipa_namba');
   const [paymentOrder, setPaymentOrder] = useState(null);
+  const [availableTables, setAvailableTables] = useState([]);
+  const [alternateTable, setAlternateTable] = useState('');
+  const [showAlternateTables, setShowAlternateTables] = useState(false);
   const location = useLocation();
 
   const { items, getSubtotal, getTax, getTotal, orderType, tableNumber, customerName, customerPhone: cartCustomerPhone, deliveryAddress, deliveryLatitude, deliveryLongitude, orderSource, clearCart } = useCartStore();
   const setItems = useCartStore((state) => state.setItems);
+  const setTableNumber = useCartStore((state) => state.setTableNumber);
   const createOrder = useOrderStore((s) => s.createOrder);
   const taxRate = useSettingsStore((s) => s.settings.tax_rate);
   const currency = useSettingsStore((s) => s.settings.currency || 'TZS');
@@ -36,7 +41,7 @@ export default function PaymentPage() {
     if (cartCustomerPhone) setCustomerPhone(cartCustomerPhone);
   }, [cartCustomerPhone]);
 
-  const handlePayment = async () => {
+  const handlePayment = async (selectedTableNumber = tableNumber) => {
     setProcessing(true);
     setError('');
 
@@ -44,11 +49,12 @@ export default function PaymentPage() {
       // Create order first
       const order = await createOrder({
         items: items.map((i) => ({
-          menuItemId: i.id,
+          menuItemId: i.variantMenuItemId || i.id,
           isCustom: i.isCustom === true,
           name: i.name,
           qty: i.quantity,
           price: i.price,
+          variantName: i.variantMenuItemId ? undefined : (i.variantName || undefined),
           modifiers: i.modifiers,
           specialInstructions: i.specialInstructions,
         })),
@@ -56,7 +62,7 @@ export default function PaymentPage() {
         tax: getTax(),
         total: getTotal(),
         orderType,
-        tableNumber: tableNumber ? Number(tableNumber) : null,
+        tableNumber: selectedTableNumber ? Number(selectedTableNumber) : null,
         customerName: customerName || 'Guest',
         customerPhone,
         customerEmail,
@@ -81,8 +87,8 @@ export default function PaymentPage() {
         return;
       }
 
-      clearCart();
       if (selectedMethod === 'cash') {
+        clearCart();
         navigate('/pos/success', {
           state: { order, orderId: order.id, total: order.total, method: 'cash' },
         });
@@ -91,6 +97,16 @@ export default function PaymentPage() {
       }
     } catch (err) {
       setError(err.message || 'Payment failed. Please try again.');
+      if (orderType === 'dine-in' && /table is not available/i.test(err.message || '')) {
+        setShowAlternateTables(true);
+        setAlternateTable('');
+        try {
+          const tables = await api.getTables();
+          setAvailableTables((tables || []).filter((table) => table.status === 'available'));
+        } catch {
+          setAvailableTables([]);
+        }
+      }
       setProcessing(false);
     }
   };
@@ -149,6 +165,43 @@ export default function PaymentPage() {
             <div>
               <h4 className="font-semibold text-red-900">Error</h4>
               <p className="text-sm text-red-800 mt-1">{error}</p>
+              {showAlternateTables && (
+                <div className="mt-4 space-y-2">
+                  <label htmlFor="alternate-table" className="block text-xs font-semibold text-red-900">Select another available table</label>
+                  {availableTables.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      <select
+                        id="alternate-table"
+                        value={alternateTable}
+                        onChange={(event) => setAlternateTable(event.target.value)}
+                        className="min-w-0 flex-1 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-[#24211e]"
+                      >
+                        <option value="">Choose a table</option>
+                        {availableTables.map((table) => (
+                          <option key={table.id} value={table.number}>
+                            Table {table.number}{table.zone ? ` · ${table.zone}` : ''} · {table.seats} seats
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={!alternateTable || processing}
+                        onClick={() => {
+                          const nextTableNumber = Number(alternateTable);
+                          setTableNumber(nextTableNumber);
+                          setShowAlternateTables(false);
+                          handlePayment(nextTableNumber);
+                        }}
+                        className="rounded-lg bg-primary px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Use table
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-red-800">No other tables are currently available.</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -245,7 +298,7 @@ export default function PaymentPage() {
         onClose={() => setPaymentOrder(null)}
         onSuccess={(submittedOrder) => {
           setPaymentOrder(null);
-          navigate('/pos/success', { state: { orderId: submittedOrder.id, total: submittedOrder.total, method: 'lipa_namba', paymentReference: submittedOrder.paymentReference, awaitingConfirmation: true } });
+          navigate('/pos/success', { state: { order: submittedOrder, orderId: submittedOrder.id, total: submittedOrder.total, method: 'lipa_namba', paymentReference: submittedOrder.paymentReference, awaitingConfirmation: true } });
         }}
       />
     </div>

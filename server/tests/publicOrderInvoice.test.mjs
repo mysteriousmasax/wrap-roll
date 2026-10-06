@@ -22,10 +22,12 @@ test('public company orders require and persist invoice TIN and queue order emai
       .run('Invoice Test Roll', '', 10000, 'wraps').lastInsertRowid;
 
     const { default: ordersRouter } = await import(`../routes/orders.js?public-order-test=${Date.now()}`);
+    const { default: menuRouter } = await import(`../routes/menu.js?public-order-test=${Date.now()}`);
     routeDb = (await import('../db/database.js')).default;
     const app = express();
     app.use(express.json());
     app.use('/api/orders', ordersRouter);
+    app.use('/api/menu', menuRouter);
     server = app.listen(0, '127.0.0.1');
     await once(server, 'listening');
     const baseUrl = `http://127.0.0.1:${server.address().port}/api/orders/public`;
@@ -55,6 +57,41 @@ test('public company orders require and persist invoice TIN and queue order emai
     assert.equal(order.companyName, 'Amina Foods Ltd');
     assert.equal(order.customerTin, '123456789');
     assert.equal(routeDb.prepare('SELECT email_type FROM order_email_outbox WHERE order_id = ?').get(order.id).email_type, 'order_received');
+
+    const variantMenuItemId = testDb.prepare('INSERT INTO menu_items (name, description, price, variants, category, active) VALUES (?, ?, ?, ?, ?, 1)')
+      .run('Size Test Pizza', '', 8000, JSON.stringify([{ name: 'Small', price: 8000 }, { name: 'Large', price: 14000 }]), 'pizzas').lastInsertRowid;
+    const publicMenuResponse = await fetch(`http://127.0.0.1:${server.address().port}/api/menu/public`);
+    const publicMenu = await publicMenuResponse.json();
+    assert.deepEqual(publicMenu.find((item) => item.id === variantMenuItemId).variants, [
+      { name: 'Small', price: 8000 },
+      { name: 'Large', price: 14000 },
+    ]);
+    const variantResponse = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...payload,
+        customerType: 'individual',
+        items: [{ menuItemId: variantMenuItemId, variantName: 'Large', qty: 1, price: 1 }],
+      }),
+    });
+    assert.equal(variantResponse.status, 201);
+    const variantOrder = await variantResponse.json();
+    const savedVariantLine = routeDb.prepare('SELECT name, price FROM order_items WHERE order_id = ?').get(variantOrder.id);
+    assert.equal(savedVariantLine.name, 'Size Test Pizza (Large)');
+    assert.equal(savedVariantLine.price, 14000);
+
+    const missingVariantResponse = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...payload,
+        customerType: 'individual',
+        items: [{ menuItemId: variantMenuItemId, qty: 1 }],
+      }),
+    });
+    assert.equal(missingVariantResponse.status, 400);
+    assert.match((await missingVariantResponse.json()).error, /choose an available size/i);
   } finally {
     if (server) await new Promise((resolve) => server.close(resolve));
     routeDb?.close();

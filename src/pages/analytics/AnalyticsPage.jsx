@@ -76,6 +76,9 @@ export default function AnalyticsPage() {
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [dayOrders, setDayOrders] = useState(null);
   const [dayOrdersLoading, setDayOrdersLoading] = useState(false);
+  const [shiftHandovers, setShiftHandovers] = useState({ morning: null, evening: null });
+  const [shiftSummaryLoading, setShiftSummaryLoading] = useState(false);
+  const [shiftSummaryError, setShiftSummaryError] = useState('');
   const refreshTimerRef = useRef(null);
 
   const exportAnalytics = async (format) => {
@@ -100,9 +103,8 @@ export default function AnalyticsPage() {
     }
   };
 
-  // When "day" is selected, load that day's completed orders for the drill-down preview.
+  // Load the selected day's completed orders for both the summary and drill-down preview.
   useEffect(() => {
-    if (reportRange !== 'day') { setDayOrders(null); return; }
     let cancelled = false;
     setDayOrdersLoading(true);
     api.getOrdersByDay(selectedDate)
@@ -110,7 +112,24 @@ export default function AnalyticsPage() {
       .catch(() => { if (!cancelled) setDayOrders(null); })
       .finally(() => { if (!cancelled) setDayOrdersLoading(false); });
     return () => { cancelled = true; };
-  }, [reportRange, selectedDate]);
+  }, [selectedDate]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setShiftSummaryLoading(true);
+    setShiftSummaryError('');
+    Promise.all(['morning', 'evening'].map((shift) => api.getShiftHandover(selectedDate, shift)))
+      .then(([morning, evening]) => {
+        if (!cancelled) setShiftHandovers({ morning, evening });
+      })
+      .catch((error) => {
+        if (!cancelled) setShiftSummaryError(error.message || 'Unable to load shift summaries.');
+      })
+      .finally(() => {
+        if (!cancelled) setShiftSummaryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedDate]);
 
   const loadAnalytics = async (showLoader = false) => {
     if (showLoader) setRefreshing(true);
@@ -118,7 +137,7 @@ export default function AnalyticsPage() {
       const [sales, categories, sum, orders] = await Promise.all([
         api.getSales(),
         api.getCategorySales(),
-        api.getAnalyticsSummary(new Date().toISOString().slice(0, 10)),
+        api.getAnalyticsSummary(selectedDate),
         api.getOrders(),
       ]);
       setSalesData(sales || []);
@@ -139,7 +158,7 @@ export default function AnalyticsPage() {
     loadAnalytics();
     const refreshTimer = window.setInterval(() => loadAnalytics(), 30000);
     return () => window.clearInterval(refreshTimer);
-  }, []);
+  }, [selectedDate]);
 
   useWebSocket((event) => {
     if (['order:created', 'order:updated', 'order:deleted', 'order:confirmed', 'payment:confirmed', 'payment:manual_review', 'payment:rejected', 'business:updated', 'staff:updated', 'inventory:updated', 'customer:updated', 'menu:updated', 'table:updated', 'settings:updated'].includes(event)) {
@@ -162,6 +181,21 @@ export default function AnalyticsPage() {
   const rangeData = (summary?.ranges && summary.ranges[reportRange]) || [];
   const pettyCashTotal = summary?.operational?.pettyCashTotal ?? pettyCashRows.reduce((sum, row) => sum + (Number(row.rate) || 0) * (Number(row.quantity) || 0), 0);
   const dailySalesTotal = summary?.operational?.dailySalesTotal ?? salesSummaryRows.reduce((sum, row) => sum + (Number(row.quantity) || 0) * (Number(row.price) || 0), 0);
+  const dailyStockRows = ['morning', 'evening'].flatMap((shift) => {
+    const handover = shiftHandovers[shift];
+    return handover?.id || handover?.updated_at ? (handover.inventoryCounts || []) : [];
+  });
+  const dailyStockItems = new Map();
+  dailyStockRows.forEach((row) => {
+    const itemName = String(row.item || 'Stock item').trim();
+    const key = itemName.toLowerCase();
+    const item = dailyStockItems.get(key) || { counted: false, needsAttention: false };
+    item.counted ||= ['opening', 'added', 'closing'].some((field) => row[field] !== '' && row[field] !== null && row[field] !== undefined);
+    item.needsAttention ||= ['restock', 'prep', 'low'].includes(row.status) || (row.closing !== '' && row.closing !== null && row.closing !== undefined && Number(row.closing) <= 0);
+    dailyStockItems.set(key, item);
+  });
+  const dailyStockItemsCounted = [...dailyStockItems.values()].filter((item) => item.counted).length;
+  const dailyStockAttentionCount = [...dailyStockItems.values()].filter((item) => item.needsAttention).length;
   const dailyDifference = (row) => (Number(row.openingStock) || 0) - (Number(row.closingStock) || 0);
   const updatePettyCashRow = (id, field, value) => setPettyCashRows((rows) => rows.map((row) => row.id === id ? { ...row, [field]: value } : row));
   const updateSalesSummaryRow = (id, field, value) => setSalesSummaryRows((rows) => rows.map((row) => row.id === id ? { ...row, [field]: value } : row));
@@ -557,6 +591,93 @@ export default function AnalyticsPage() {
       </Card>
 
       <section className="space-y-4" aria-label="Daily operational summaries">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#ae002a]">Business close · daily and per shift</p>
+            <h2 className="mt-1 font-display text-xl font-bold text-[#1f1d1b]">Daily &amp; Shift Summary</h2>
+            <p className="mt-1 text-xs text-[#746e67]">Completed sales are live; shift figures come from saved handover counts.</p>
+          </div>
+          <label className="text-xs font-semibold text-[#554e46]">
+            Summary date
+            <input
+              type="date"
+              value={selectedDate}
+              max={new Date().toISOString().slice(0, 10)}
+              onChange={(event) => setSelectedDate(event.target.value)}
+              className="mt-1 block rounded-xl border border-[#ebdccb] bg-white px-3 py-2 text-xs font-semibold focus:border-[#ae002a] focus:outline-none"
+              aria-label="Daily and shift summary date"
+            />
+          </label>
+        </div>
+
+        {shiftSummaryError && <p role="alert" className="text-sm text-red-700">{shiftSummaryError}</p>}
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            ['Completed sales', dayOrdersLoading ? 'Loading…' : formatCurrency(dayOrders?.totalRevenue ?? 0)],
+            ['Paid orders', dayOrdersLoading ? 'Loading…' : (dayOrders?.count ?? 0)],
+            ['Items counted', shiftSummaryLoading ? 'Loading…' : dailyStockItemsCounted],
+            ['Stock attention', shiftSummaryLoading ? 'Loading…' : dailyStockAttentionCount],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-2xl border border-[#ebdccb] bg-white p-4 shadow-sm">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#746e67]">{label}</p>
+              <p className="mt-2 font-display text-xl font-bold text-[#1f1d1b]">{value}</p>
+              <p className="mt-1 text-[10px] text-[#746e67]">{selectedDate}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          {['morning', 'evening'].map((shift) => {
+            const handover = shiftHandovers[shift];
+            const reconciliationRows = Object.entries(handover?.reconciliation || {}).filter(([channel]) => channel !== 'cashFloat');
+            const expectedRows = reconciliationRows.filter(([, row]) => row.expected !== '' && Number.isFinite(Number(row.expected)));
+            const actualRows = reconciliationRows.filter(([, row]) => row.actual !== '' && Number.isFinite(Number(row.actual)));
+            const expectedTotal = expectedRows.reduce((total, [, row]) => total + Number(row.expected), 0);
+            const actualTotal = actualRows.reduce((total, [, row]) => total + Number(row.actual), 0);
+            const inventoryCounts = Array.isArray(handover?.inventoryCounts) ? handover.inventoryCounts : [];
+            const countedItems = inventoryCounts.filter((row) => ['opening', 'added', 'closing'].some((field) => row[field] !== '' && Number.isFinite(Number(row[field])))).length;
+            const lowStockItems = inventoryCounts.filter((row) => ['restock', 'prep', 'low'].includes(row.status) || (row.closing !== '' && Number(row.closing) <= 0)).length;
+            const isSaved = Boolean(handover?.id || handover?.updated_at);
+
+            return (
+              <Card key={shift} className="border border-[#ebdccb] bg-white p-4 shadow-sm sm:p-5">
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#ae002a]">{shift} shift</p>
+                    <h3 className="mt-1 font-display text-lg font-bold text-[#1f1d1b]">{shift === 'morning' ? 'Morning' : 'Evening'} Handover</h3>
+                  </div>
+                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${isSaved ? 'bg-[#f0f9f3] text-[#227653]' : 'bg-[#fbf6ee] text-[#746e67]'}`}>
+                    {shiftSummaryLoading ? 'Loading' : isSaved ? `Saved by ${handover.created_by || handover.manager_out || 'staff'}` : 'Not submitted'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div className="rounded-xl bg-[#fbf6ee] p-3">
+                    <p className="text-[9px] font-bold uppercase text-[#746e67]">Expected takings</p>
+                    <p className="mt-1 text-sm font-bold text-[#1f1d1b]">{expectedRows.length ? formatCurrency(expectedTotal) : '—'}</p>
+                  </div>
+                  <div className="rounded-xl bg-[#fbf6ee] p-3">
+                    <p className="text-[9px] font-bold uppercase text-[#746e67]">Counted takings</p>
+                    <p className="mt-1 text-sm font-bold text-[#1f1d1b]">{actualRows.length ? formatCurrency(actualTotal) : '—'}</p>
+                  </div>
+                  <div className="rounded-xl bg-[#fbf6ee] p-3">
+                    <p className="text-[9px] font-bold uppercase text-[#746e67]">Variance</p>
+                    <p className={`mt-1 text-sm font-bold ${expectedRows.length && actualRows.length ? (actualTotal - expectedTotal === 0 ? 'text-[#227653]' : 'text-[#ae002a]') : 'text-[#746e67]'}`}>
+                      {expectedRows.length && actualRows.length ? formatCurrency(actualTotal - expectedTotal) : '—'}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-[#fbf6ee] p-3">
+                    <p className="text-[9px] font-bold uppercase text-[#746e67]">Stock check</p>
+                    <p className="mt-1 text-sm font-bold text-[#1f1d1b]">{countedItems} counted · {lowStockItems} attention</p>
+                  </div>
+                </div>
+                <p className="mt-3 text-[10px] text-[#746e67]">{handover?.updated_at ? `Last saved ${new Date(handover.updated_at).toLocaleString()}` : 'Shift sales are not inferred from order timestamps; enter and save reconciliation in Shift Handover.'}</p>
+              </Card>
+            );
+          })}
+        </div>
+
         <div className="flex items-end justify-between gap-4">
           <div><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#ae002a]">Cash control · live</p><h2 className="mt-1 font-display text-xl font-bold text-[#1f1d1b]">Petty Cash Summary</h2><p className="mt-1 text-xs text-[#746e67]">Automatically calculated from approved cash expenses.</p></div>
           <WalletCards size={24} className="text-[#ae002a]" />

@@ -82,6 +82,7 @@ export const api = {
   getPublicOrder: (id, phone) => request(`/orders/public/${encodeURIComponent(id)}?phone=${encodeURIComponent(phone)}`),
   updateOrderStatus: (id, status) => request(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   updateOrderPaymentStatus: (id, paymentStatus, notes) => request(`/orders/${id}/payment-status`, { method: 'PATCH', body: JSON.stringify({ paymentStatus, notes }) }),
+  updateOrderCustomer: (id, data) => request(`/orders/${encodeURIComponent(id)}/customer`, { method: 'PATCH', body: JSON.stringify(data) }),
   sendOrderInvoice: (id, email) => request(`/orders/${encodeURIComponent(id)}/send-invoice`, { method: 'POST', body: JSON.stringify(email ? { email } : {}) }),
   deleteOrder: (id) => request(`/orders/${id}`, { method: 'DELETE' }),
   getDeletionAudit: () => request('/business/deletion-audit'),
@@ -240,6 +241,7 @@ export const api = {
     return { blob: await response.blob(), filename };
   },
   getOrdersByDay: (date) => request(`/analytics/orders-by-day${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  getOperationalSummary: (type, date) => request(`/analytics/operational-summary/${encodeURIComponent(type)}/${encodeURIComponent(date)}`),
   saveOperationalSummary: (type, date, payload) => request(`/analytics/operational-summary/${encodeURIComponent(type)}/${encodeURIComponent(date)}`, { method: 'PUT', body: JSON.stringify({ payload }) }),
   approveOperationalSummary: (type, date) => request(`/analytics/operational-summary/${encodeURIComponent(type)}/${encodeURIComponent(date)}/approve`, { method: 'PATCH' }),
   getCategorySales: () => request('/analytics/categories'),
@@ -279,6 +281,9 @@ export const api = {
   updateBusinessExpenseStatus: (id, status) => request(`/business/expenses/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   getOperationalChecklists: (date) => request(`/business/checklists?date=${encodeURIComponent(date)}`),
   updateOperationalChecklistTask: (date, phase, taskKey, completed) => request(`/business/checklists/${encodeURIComponent(date)}/${encodeURIComponent(phase)}/${encodeURIComponent(taskKey)}`, { method: 'PUT', body: JSON.stringify({ completed }) }),
+  createOperationalChecklistTask: (phaseId, label) => request('/business/checklists/tasks', { method: 'POST', body: JSON.stringify({ phaseId, label }) }),
+  updateOperationalChecklistTaskLabel: (taskKey, label) => request(`/business/checklists/tasks/${encodeURIComponent(taskKey)}`, { method: 'PUT', body: JSON.stringify({ label }) }),
+  deleteOperationalChecklistTask: (taskKey) => request(`/business/checklists/tasks/${encodeURIComponent(taskKey)}`, { method: 'DELETE' }),
   getShiftHandover: (date, shift) => request(`/business/shift-handover?date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}`),
   saveShiftHandover: (data) => request('/business/shift-handover', { method: 'PUT', body: JSON.stringify(data) }),
 };

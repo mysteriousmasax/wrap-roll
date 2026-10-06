@@ -5,24 +5,27 @@ import Button from '../../components/ui/Button';
 
 const quickQuantities = [1, 2, 5, 10, 20, 50];
 
-export default function ItemCustomization({ isOpen, item, modifiers: allModifiers = [], kitchenLoad = 0, onClose, onAdd }) {
+export default function ItemCustomization({ isOpen, item, modifiers: allModifiers = [], initialModifiers = [], initialVariantName = '', initialQuantity = 1, selectionKey = 'new', kitchenLoad = 0, onClose, onAdd }) {
   const [selectedModifiers, setSelectedModifiers] = useState([]);
+  const [selectedVariantName, setSelectedVariantName] = useState('');
   const [specialInstructions, setSpecialInstructions] = useState('');
   const [quantity, setQuantity] = useState(1);
 
   useEffect(() => {
-    setSelectedModifiers([]);
+    setSelectedModifiers(allModifiers.filter((modifier) => initialModifiers.includes(modifier.name)));
+    setSelectedVariantName(initialVariantName || item?.variants?.[0]?.name || '');
     setSpecialInstructions('');
-    setQuantity(1);
-  }, [item?.id]);
+    setQuantity(initialQuantity);
+  }, [item?.id, selectionKey]);
 
 
   if (!isOpen || !item) return null;
 
   const addModifiers = allModifiers.filter((m) => m.type === 'add');
   const removeModifiers = allModifiers.filter((m) => m.type === 'remove');
+  const selectedVariant = (item.variants || []).find((variant) => variant.name === selectedVariantName) || null;
   const modifierTotal = selectedModifiers.reduce((sum, m) => sum + (m.price || 0), 0);
-  const singleItemPrice = (item.price || 0) + modifierTotal;
+  const singleItemPrice = (selectedVariant?.price ?? item.price ?? 0) + modifierTotal;
   const itemTotal = singleItemPrice * quantity;
   const basePrepMinutes = Number(item.prep_time_minutes || 8);
   const queueMinutes = Math.min(30, kitchenLoad * 2);
@@ -38,7 +41,8 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
   };
 
   const handleAdd = () => {
-    onAdd(item, selectedModifiers, specialInstructions, quantity);
+    if (item.variants?.length && !selectedVariant) return;
+    onAdd(item, selectedModifiers, specialInstructions, quantity, selectedVariant);
     setSelectedModifiers([]);
     setSpecialInstructions('');
     setQuantity(1);
@@ -84,6 +88,28 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
 
         {/* Scrollable Customization Content */}
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
+          {item.variants?.length > 0 && (
+            <section aria-label="Choose a size">
+              <h3 className="mb-2.5 text-xs font-bold uppercase tracking-wider text-[#746e67]">Choose a size</h3>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {item.variants.map((variant) => {
+                  const selected = selectedVariantName === variant.name;
+                  return (
+                    <button
+                      key={variant.name}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setSelectedVariantName(variant.name)}
+                      className={'flex min-h-14 items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-colors ' + (selected ? 'border-[#ae002a] bg-[#fff3ec] text-[#ae002a]' : 'border-[#ebdccb] bg-white text-[#554e46] hover:bg-[#faeee2]')}
+                    >
+                      <span className="text-xs font-bold">{variant.name}</span>
+                      <span className="text-xs font-semibold">{formatCurrency(variant.price)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
           {/* Quantity comes first because it directly affects production time. */}
           <div className="bg-[#fbf6ee] border border-[#ebdccb] rounded-2xl p-4">
             <div className="flex items-center justify-between mb-2.5">
@@ -272,7 +298,7 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
             >
               Cancel
             </button>
-            <Button onClick={handleAdd} size="md" className="px-6 py-2.5 text-xs sm:text-sm font-bold shadow-md">
+            <Button onClick={handleAdd} disabled={Boolean(item.variants?.length && !selectedVariant)} size="md" className="px-6 py-2.5 text-xs sm:text-sm font-bold shadow-md">
               Add to Order &middot; {formatCurrency(itemTotal)}
             </Button>
           </div>

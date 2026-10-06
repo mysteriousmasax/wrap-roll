@@ -9,6 +9,7 @@ import EmailAutomationsPanel from './EmailAutomationsPanel';
 import EmailTemplatesPanel from './EmailTemplatesPanel';
 import EmailDeliveriesPanel from './EmailDeliveriesPanel';
 import EmailSetupPanel from './EmailSetupPanel';
+import useAuthStore from '../../../store/useAuthStore';
 
 const tabs = [
   { id: 'overview', label: 'Overview', Icon: Activity },
@@ -61,6 +62,7 @@ function Overview({ overview, campaigns, onNavigate }) {
 }
 
 export default function EmailMarketingWorkspace() {
+  const currentUser = useAuthStore((state) => state.currentUser);
   const [activeTab, setActiveTab] = useState('overview');
   const [overview, setOverview] = useState({});
   const [campaigns, setCampaigns] = useState([]);
@@ -72,11 +74,34 @@ export default function EmailMarketingWorkspace() {
   const report = (type, text) => { setNotice({ type, text }); refresh(); };
 
   useEffect(() => {
-    Promise.all([api.getEmailMarketingOverview(), api.getEmailCampaigns()])
-      .then(([summary, rows]) => { setOverview(summary); setCampaigns(rows); })
-      .catch((error) => setNotice({ type: 'error', text: error.message || 'Unable to load email marketing.' }))
-      .finally(() => setLoading(false));
-  }, [refreshKey]);
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [summary, rows] = await Promise.all([api.getEmailMarketingOverview(), api.getEmailCampaigns()]);
+        if (!cancelled) {
+          setOverview(summary);
+          setCampaigns(rows);
+          setNotice(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setNotice({ type: 'error', text: error.message || 'Unable to load email marketing.' });
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    if (currentUser) {
+      load();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id, refreshKey]);
 
   if (loading) return <div className="p-6 text-sm text-surface-on-variant">Loading email marketing...</div>;
 

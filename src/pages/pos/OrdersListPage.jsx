@@ -189,7 +189,59 @@ function OrderDetails({ order, onClose }) {
   );
 }
 
-function OrderCard({ order, now, onSelect, onDelete, onEmailInvoice, emailInvoiceState, canDelete, settings }) {
+function CustomerEditModal({ order, onClose, onSave }) {
+  const [form, setForm] = useState({
+    customerName: order?.customer || '',
+    customerPhone: order?.customerPhone || '',
+    customerEmail: order?.customerEmail || '',
+    customerType: order?.customerType || 'individual',
+    companyName: order?.companyName || '',
+    customerTin: order?.customerTin || '',
+    billingAddress: order?.billingAddress || '',
+  });
+
+  useEffect(() => {
+    if (!order) return;
+    setForm({
+      customerName: order.customer || '',
+      customerPhone: order.customerPhone || '',
+      customerEmail: order.customerEmail || '',
+      customerType: order.customerType || 'individual',
+      companyName: order.companyName || '',
+      customerTin: order.customerTin || '',
+      billingAddress: order.billingAddress || '',
+    });
+  }, [order]);
+
+  if (!order) return null;
+
+  return (
+    <Modal isOpen={Boolean(order)} onClose={onClose} title={`Edit customer for ${order.id}`}>
+      <div className="space-y-3">
+        <input value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} placeholder="Customer name" className="input-field w-full" />
+        <input value={form.customerPhone} onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))} placeholder="Phone" className="input-field w-full" />
+        <input value={form.customerEmail} onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))} placeholder="Email" className="input-field w-full" />
+        <select value={form.customerType} onChange={(event) => setForm((current) => ({ ...current, customerType: event.target.value }))} className="input-field w-full">
+          <option value="individual">Individual</option>
+          <option value="company">Company</option>
+        </select>
+        {form.customerType === 'company' && (
+          <>
+            <input value={form.companyName} onChange={(event) => setForm((current) => ({ ...current, companyName: event.target.value }))} placeholder="Company name" className="input-field w-full" />
+            <input value={form.customerTin} onChange={(event) => setForm((current) => ({ ...current, customerTin: event.target.value }))} placeholder="TIN" className="input-field w-full" />
+          </>
+        )}
+        <input value={form.billingAddress} onChange={(event) => setForm((current) => ({ ...current, billingAddress: event.target.value }))} placeholder="Billing address" className="input-field w-full" />
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-surface-on">Cancel</button>
+          <button type="button" onClick={() => onSave(form)} className="rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-white">Save customer</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function OrderCard({ order, now, onSelect, onDelete, onEmailInvoice, onEditCustomer, emailInvoiceState, canDelete, settings }) {
   const itemCount = order.items?.reduce((sum, item) => sum + item.qty, 0) || 0;
   const emailStatus = {
     queued: { label: 'Invoice email queued', color: 'text-amber-700' },
@@ -201,7 +253,7 @@ function OrderCard({ order, now, onSelect, onDelete, onEmailInvoice, emailInvoic
     <div className="mt-4 flex items-start gap-2"><span className="mt-0.5 text-primary"><OrderTypeIcon type={order.type} /></span><div className="min-w-0"><p className="truncate text-sm font-semibold">{order.customer || 'Walk-in customer'}</p><p className="mt-1 text-xs capitalize text-surface-on-variant">{order.type}{order.table ? ` · Table ${order.table}` : ''}</p>{order.deliveryAddress && <p className="mt-1 truncate text-[10px] text-surface-on-variant">{order.deliveryAddress}</p>}{emailStatus && <p className={`mt-2 inline-flex items-center gap-1 text-[10px] font-bold ${emailStatus.color}`} role="status"><Mail size={12} />{emailStatus.label}</p>}</div></div>
     <div className="mt-4 flex-1 rounded-xl bg-surface-container-low p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-surface-on-variant">Items</p>{order.items?.length ? <p className="mt-1 line-clamp-3 text-xs text-surface-on">{order.items.map((item) => `${item.qty}x ${item.name}`).join(', ')}</p> : <p className="mt-1 text-xs text-surface-on-variant">No item details recorded</p>}</div>
     <div className="mt-4 flex items-end justify-between gap-3"><div><p className="text-[10px] text-surface-on-variant">Placed</p><p className="mt-1 text-xs font-semibold">{new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p><p className="mt-1 text-[10px] text-surface-on-variant">{new Date(order.createdAt).toLocaleDateString()}</p></div><div className="text-right"><p className="text-lg font-bold text-primary">{formatCurrency(order.total || 0)}</p><p className="mt-1 text-[10px] font-semibold text-warning">{getCountdownText(order, now)}</p></div></div>
-    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2"><button onClick={() => onSelect(order)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5">View details <ChevronRight size={14} /></button>{order.paymentStatus === 'paid' && <button onClick={() => printFiscalInvoice(order, settings)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5"><Printer size={14} /> Invoice</button>}{order.paymentStatus === 'paid' && <button onClick={() => onEmailInvoice(order)} disabled={emailInvoiceState === 'sending'} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-[#227653] hover:bg-[#f0f9f3] disabled:opacity-50"><Mail size={14} /> {emailInvoiceState === 'sending' ? 'Sending…' : 'Email invoice'}</button>}{canDelete && <button onClick={() => onDelete(order)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"><Trash2 size={14} /> Delete</button>}</div>
+    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2"><button onClick={() => onSelect(order)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5">View details <ChevronRight size={14} /></button>{order.status === 'completed' && <button onClick={() => onEditCustomer(order)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-surface-on hover:bg-surface-container-low">Edit customer</button>}{order.paymentStatus === 'paid' && <button onClick={() => printFiscalInvoice(order, settings)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5"><Printer size={14} /> Invoice</button>}{order.paymentStatus === 'paid' && <button onClick={() => onEmailInvoice(order)} disabled={emailInvoiceState === 'sending'} className="flex w-full items-center justify-center gap-1 rounded-xl border border-outline-variant px-3 py-2 text-xs font-semibold text-[#227653] hover:bg-[#f0f9f3] disabled:opacity-50"><Mail size={14} /> {emailInvoiceState === 'sending' ? 'Sending…' : 'Email invoice'}</button>}{canDelete && <button onClick={() => onDelete(order)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"><Trash2 size={14} /> Delete</button>}</div>
   </article>;
 }
 
@@ -212,6 +264,7 @@ export default function OrdersListPage() {
   const [activeFilter, setActiveFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [editingCustomerOrder, setEditingCustomerOrder] = useState(null);
   const [now, setNow] = useState(Date.now());
   const [actionError, setActionError] = useState('');
   const [invoiceSending, setInvoiceSending] = useState({});
@@ -276,6 +329,21 @@ export default function OrdersListPage() {
     }
   };
 
+  const updateCustomerInfo = async (payload) => {
+    if (!editingCustomerOrder) return;
+    setActionError('');
+    setActionNotice('');
+    try {
+      const updatedOrder = await api.updateOrderCustomer(editingCustomerOrder.id, payload);
+      await fetchOrders();
+      setSelectedOrder(updatedOrder);
+      setEditingCustomerOrder(null);
+      setActionNotice(`Customer information updated for ${updatedOrder.id}.`);
+    } catch (error) {
+      setActionError(error.message || 'Unable to update the customer details.');
+    }
+  };
+
   return (
     <div className="orders-page p-4 sm:p-6">
       <PageHeader title="All Orders" subtitle="Track every order from the website, FOH, and delivery channel" />
@@ -294,12 +362,13 @@ export default function OrdersListPage() {
               <p className="shrink-0 text-xs text-surface-on-variant">{group.orders.length} order{group.orders.length === 1 ? '' : 's'} · {formatCurrency(group.total)}</p>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {group.orders.map((order) => <OrderCard key={order.id} order={order} now={now} onSelect={setSelectedOrder} onDelete={deleteOrder} onEmailInvoice={emailInvoice} emailInvoiceState={invoiceSending[order.id]} canDelete={canDelete} settings={settings} />)}
+              {group.orders.map((order) => <OrderCard key={order.id} order={order} now={now} onSelect={setSelectedOrder} onDelete={deleteOrder} onEditCustomer={setEditingCustomerOrder} onEmailInvoice={emailInvoice} emailInvoiceState={invoiceSending[order.id]} canDelete={canDelete} settings={settings} />)}
             </div>
           </section>
         ))}
       </div>
       <OrderDetails order={selectedOrder} onClose={() => setSelectedOrder(null)} />
+      <CustomerEditModal order={editingCustomerOrder} onClose={() => setEditingCustomerOrder(null)} onSave={updateCustomerInfo} />
     </div>
   );
 }
