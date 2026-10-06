@@ -1208,6 +1208,8 @@
   .public-site .customer-chat-panel { bottom: 150px; }
 }
 
+.customer-chat-trigger.has-floating-cart { bottom: 84px; }
+
 @media (prefers-reduced-motion: reduce) {
   .gallery-track { animation: none; }
 }

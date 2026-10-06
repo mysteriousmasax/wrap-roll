@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { reverseGoogleGeocode } from '../../lib/googleMaps';
 
-export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', onOpenCart }) {
+export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', onOpenCart, hasFloatingCart = false }) {
   const [open, setOpen] = useState(false);
   const [profile, setProfile] = useState(() => ({
     name: localStorage.getItem('wraproll_customer_name') || '',
@@ -207,7 +207,7 @@ export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', 
 
   return (
     <>
-      <button ref={triggerRef} className="customer-chat-trigger" onClick={() => setOpen(true)} aria-label={t('chatTitle')}><MessageCircle size={22} /></button>
+      <button ref={triggerRef} className={`customer-chat-trigger${hasFloatingCart ? ' has-floating-cart' : ''}`} onClick={() => setOpen(true)} aria-label={t('chatTitle')}><MessageCircle size={22} /></button>
       {open && <aside ref={panelRef} className="customer-chat-panel" aria-label={t('chatTitle')}>
         <header><div><strong>{t('chatTitle')}</strong><span>Online</span></div><button onClick={() => setOpen(false)} aria-label="Close chat"><X size={18} /></button></header>
         {!hasProfile ? <form className="customer-chat-profile" onSubmit={saveProfile}>

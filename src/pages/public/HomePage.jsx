@@ -1227,7 +1227,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <CustomerChat t={t} />
+      <CustomerChat t={t} hasFloatingCart={cartCount > 0 && !cartOpen} />
 
       {/* Cart Drawer Modal */}
       {cartOpen && (
