@@ -1010,7 +1010,13 @@ export default function POSPage() {
       <OrderTypeSelector
         isOpen={showOrderType}
         onClose={() => setShowOrderType(false)}
-        onComplete={() => navigate('/pos/payment', { state: { checkoutItems: useCartStore.getState().items } })}
+        onComplete={(nextOrderType, selectedTableNumber) => navigate('/pos/payment', {
+          state: {
+            checkoutItems: useCartStore.getState().items,
+            orderType: nextOrderType,
+            tableNumber: nextOrderType === 'dine-in' ? selectedTableNumber : null,
+          },
+        })}
       />
       <CustomItemModal
         isOpen={showCustomItemModal}

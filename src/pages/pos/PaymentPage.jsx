@@ -33,6 +33,8 @@ export default function PaymentPage() {
   const taxRate = useSettingsStore((s) => s.settings.tax_rate);
   const currency = useSettingsStore((s) => s.settings.currency || 'TZS');
   const navigate = useNavigate();
+  const checkoutOrderType = location.state?.orderType ?? orderType;
+  const checkoutTableNumber = location.state?.tableNumber ?? tableNumber;
 
   useEffect(() => {
     if (items.length === 0 && location.state?.checkoutItems?.length) setItems(location.state.checkoutItems);
@@ -42,7 +44,7 @@ export default function PaymentPage() {
     if (cartCustomerPhone) setCustomerPhone(cartCustomerPhone);
   }, [cartCustomerPhone]);
 
-  const handlePayment = async (selectedTableNumber = tableNumber) => {
+  const handlePayment = async (selectedTableNumber = checkoutTableNumber) => {
     setProcessing(true);
     setError('');
 
@@ -62,7 +64,7 @@ export default function PaymentPage() {
         subtotal: getSubtotal(),
         tax: getTax(),
         total: getTotal(),
-        orderType,
+        orderType: checkoutOrderType,
         tableNumber: selectedTableNumber ? Number(selectedTableNumber) : null,
         customerName: customerName || 'Guest',
         customerPhone,
@@ -104,7 +106,7 @@ export default function PaymentPage() {
       }
     } catch (err) {
       setError(err.message || 'Payment failed. Please try again.');
-      if (orderType === 'dine-in' && /table is not available/i.test(err.message || '')) {
+      if (checkoutOrderType === 'dine-in' && /table is not available/i.test(err.message || '')) {
         setShowAlternateTables(true);
         setAlternateTable('');
         try {
