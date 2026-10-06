@@ -356,6 +356,7 @@ export async function initDatabase() {
       order_number TEXT,
       order_type TEXT NOT NULL,
       table_number INTEGER,
+      customer_id INTEGER,
       customer_name TEXT,
       customer_phone TEXT,
       customer_email TEXT,
@@ -374,6 +375,13 @@ export async function initDatabase() {
       payment_status TEXT DEFAULT 'pending',
       order_source TEXT DEFAULT 'foh',
       payment_reference TEXT,
+      fulfillment_mode TEXT NOT NULL DEFAULT 'standard',
+      reservation_status TEXT NOT NULL DEFAULT 'none',
+      payment_terms TEXT NOT NULL DEFAULT 'prepaid',
+      scheduled_release_at TEXT,
+      kitchen_released_at TEXT,
+      fulfillment_effects_applied_at TEXT,
+      customer_value_applied_at TEXT,
       status TEXT DEFAULT 'pending',
       paid_at TEXT,
       created_at TEXT NOT NULL,
@@ -414,6 +422,57 @@ export async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events(order_id, occurred_at ASC);
     CREATE INDEX IF NOT EXISTS idx_order_events_actor ON order_events(actor_user_id, occurred_at DESC);
 
+    CREATE TABLE IF NOT EXISTS company_order_terms (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      credit_limit REAL NOT NULL DEFAULT 0,
+      approved_by INTEGER,
+      approved_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+      FOREIGN KEY (approved_by) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS roadside_trips (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id TEXT NOT NULL UNIQUE,
+      access_token_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'awaiting_customer',
+      consented_at TEXT,
+      started_at TEXT,
+      ended_at TEXT,
+      last_latitude REAL,
+      last_longitude REAL,
+      last_accuracy REAL,
+      last_heading REAL,
+      last_speed REAL,
+      last_location_at TEXT,
+      runner_user_id INTEGER,
+      rating INTEGER,
+      rating_comment TEXT,
+      rated_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (runner_user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_roadside_trips_status ON roadside_trips(status, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS roadside_location_points (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trip_id INTEGER NOT NULL,
+      latitude REAL NOT NULL,
+      longitude REAL NOT NULL,
+      accuracy REAL,
+      heading REAL,
+      speed REAL,
+      recorded_at TEXT NOT NULL,
+      FOREIGN KEY (trip_id) REFERENCES roadside_trips(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_roadside_points_trip ON roadside_location_points(trip_id, recorded_at ASC);
+
     CREATE TABLE IF NOT EXISTS order_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id TEXT NOT NULL,
@@ -424,6 +483,7 @@ export async function initDatabase() {
       prep_time_minutes INTEGER DEFAULT 8,
       modifiers TEXT DEFAULT '[]',
       special_instructions TEXT,
+      ingredients TEXT DEFAULT '[]',
       FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
     );
 
@@ -1140,6 +1200,7 @@ function migrateSchema(db) {
   if (!customerCols.some((col) => col.name === 'tin')) db.exec('ALTER TABLE customers ADD COLUMN tin TEXT');
   if (!customerCols.some((col) => col.name === 'billing_address')) db.exec('ALTER TABLE customers ADD COLUMN billing_address TEXT');
   if (!orderCols.some((col) => col.name === 'order_number')) db.exec('ALTER TABLE orders ADD COLUMN order_number TEXT');
+  if (!orderCols.some((col) => col.name === 'customer_id')) db.exec('ALTER TABLE orders ADD COLUMN customer_id INTEGER');
   if (!orderCols.some((col) => col.name === 'customer_phone')) db.exec('ALTER TABLE orders ADD COLUMN customer_phone TEXT');
   if (!orderCols.some((col) => col.name === 'customer_email')) db.exec('ALTER TABLE orders ADD COLUMN customer_email TEXT');
   if (!orderCols.some((col) => col.name === 'customer_type')) db.exec("ALTER TABLE orders ADD COLUMN customer_type TEXT NOT NULL DEFAULT 'individual'");
@@ -1153,6 +1214,15 @@ function migrateSchema(db) {
   if (!orderCols.some((c) => c.name === 'order_source')) db.exec("ALTER TABLE orders ADD COLUMN order_source TEXT DEFAULT 'foh'");
   if (!orderCols.some((c) => c.name === 'payment_reference')) db.exec('ALTER TABLE orders ADD COLUMN payment_reference TEXT');
   if (!orderCols.some((c) => c.name === 'paid_at')) db.exec('ALTER TABLE orders ADD COLUMN paid_at TEXT');
+  if (!orderCols.some((c) => c.name === 'fulfillment_mode')) db.exec("ALTER TABLE orders ADD COLUMN fulfillment_mode TEXT NOT NULL DEFAULT 'standard'");
+  if (!orderCols.some((c) => c.name === 'reservation_status')) db.exec("ALTER TABLE orders ADD COLUMN reservation_status TEXT NOT NULL DEFAULT 'none'");
+  if (!orderCols.some((c) => c.name === 'payment_terms')) db.exec("ALTER TABLE orders ADD COLUMN payment_terms TEXT NOT NULL DEFAULT 'prepaid'");
+  if (!orderCols.some((c) => c.name === 'scheduled_release_at')) db.exec('ALTER TABLE orders ADD COLUMN scheduled_release_at TEXT');
+  if (!orderCols.some((c) => c.name === 'kitchen_released_at')) db.exec('ALTER TABLE orders ADD COLUMN kitchen_released_at TEXT');
+  if (!orderCols.some((c) => c.name === 'fulfillment_effects_applied_at')) db.exec('ALTER TABLE orders ADD COLUMN fulfillment_effects_applied_at TEXT');
+  if (!orderCols.some((c) => c.name === 'customer_value_applied_at')) db.exec('ALTER TABLE orders ADD COLUMN customer_value_applied_at TEXT');
+  const orderItemMigrationCols = db.prepare('PRAGMA table_info(order_items)').all();
+  if (!orderItemMigrationCols.some((c) => c.name === 'ingredients')) db.exec("ALTER TABLE order_items ADD COLUMN ingredients TEXT DEFAULT '[]'");
 
   const paymentCols = db.prepare('PRAGMA table_info(payments)').all();
   if (paymentCols.length > 0) {

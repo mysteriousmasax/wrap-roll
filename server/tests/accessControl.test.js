@@ -1,12 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ROUTE_ACCESS as SERVER_ROUTE_ACCESS,
   normalizeRoleName,
   normalizePageAccess,
   getRolePageAccess,
   normalizeCustomRole,
   expandImpliedPageAccess,
 } from '../utils/roles.js';
+import { ROUTE_ACCESS as CLIENT_ROUTE_ACCESS } from '../../src/utils/roleAccess.js';
+
+test('server and client role route access stay in sync', () => {
+  assert.deepEqual(SERVER_ROUTE_ACCESS, CLIENT_ROUTE_ACCESS);
+});
 
 test('normalizeRoleName handles aliases and custom labels consistently', () => {
   assert.equal(normalizeRoleName('Manager'), 'manager');

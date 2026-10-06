@@ -58,6 +58,11 @@ test('public company orders require and persist invoice TIN and queue order emai
     assert.equal(order.customerTin, '123456789');
     assert.equal(routeDb.prepare('SELECT email_type FROM order_email_outbox WHERE order_id = ?').get(order.id).email_type, 'order_received');
 
+    const privateOrderLookup = await fetch(`http://127.0.0.1:${server.address().port}/api/orders/public/${encodeURIComponent(order.id)}`);
+    assert.equal(privateOrderLookup.status, 404);
+    const verifiedOrderLookup = await fetch(`http://127.0.0.1:${server.address().port}/api/orders/public/${encodeURIComponent(order.id)}?phone=${encodeURIComponent(payload.customerPhone)}`);
+    assert.equal(verifiedOrderLookup.status, 200);
+
     const variantMenuItemId = testDb.prepare('INSERT INTO menu_items (name, description, price, variants, category, active) VALUES (?, ?, ?, ?, ?, 1)')
       .run('Size Test Pizza', '', 8000, JSON.stringify([{ name: 'Small', price: 8000 }, { name: 'Large', price: 14000 }]), 'pizzas').lastInsertRowid;
     const publicMenuResponse = await fetch(`http://127.0.0.1:${server.address().port}/api/menu/public`);

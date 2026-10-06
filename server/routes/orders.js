@@ -9,6 +9,8 @@ import { PAYMENT_STATUSES, ORDER_STATUSES } from '../utils/paymentProviders.js';
 import { enqueueOrderEmail } from '../utils/orderEmailService.js';
 import { releaseExpiredCleaningTables } from '../utils/tableAvailability.js';
 import { parseMenuVariants } from '../utils/menuVariants.js';
+import { applyOrderFulfillmentEffects } from '../utils/orderFulfillment.js';
+import { createRoadsideAccessToken, hashRoadsideAccessToken } from '../utils/roadsideAccess.js';
 
 const router = Router();
 
@@ -23,48 +25,6 @@ function parseMenuIngredients(value) {
     }
   }
   return [];
-}
-
-function deductRecipeInventory(menuItemId, qty, inventoryUsage = []) {
-  const menuItem = db.prepare('SELECT id, name, ingredients, cooking_instructions FROM menu_items WHERE id = ?').get(menuItemId);
-  if (!menuItem) return;
-  const ingredientRows = parseMenuIngredients(menuItem.ingredients);
-  const usage = Array.isArray(inventoryUsage) && inventoryUsage.length ? inventoryUsage : ingredientRows;
-
-  for (const ingredient of usage) {
-    if (!ingredient || typeof ingredient !== 'object') continue;
-    const inventoryId = ingredient.inventoryId ?? ingredient.inventory_id ?? ingredient.id ?? null;
-    const name = String(ingredient.inventoryName || ingredient.inventory_name || ingredient.name || ingredient.item || '').trim();
-    const amount = Number(ingredient.quantity ?? ingredient.amount ?? 0);
-    if (!Number.isFinite(amount) || amount <= 0) continue;
-
-    let item = null;
-    if (inventoryId) {
-      item = db.prepare('SELECT * FROM inventory WHERE id = ?').get(Number(inventoryId));
-    }
-    if (!item && name) {
-      item = db.prepare('SELECT * FROM inventory WHERE lower(trim(name)) = lower(trim(?)) ORDER BY id DESC LIMIT 1').get(name);
-    }
-    if (!item) continue;
-
-    const nextQty = Number(item.quantity) - (Number(amount) * qty);
-    if (nextQty < 0) {
-      // Do not block a paying customer's order over a stock-counting gap.
-      // Record the shortfall so staff can reconcile, clamp inventory at 0, and keep selling.
-      console.warn(`[inventory] ${item.name} stock shortfall for ${menuItem.name}: needed ${amount * qty}, had ${item.quantity}. Order allowed; inventory clamped to 0.`);
-      db.prepare('INSERT INTO notifications (type, title, message, read, created_at, audience_role) VALUES (?, ?, ?, 0, ?, ?)')
-        .run('warning', `Low stock: ${item.name}`, `${item.name} ran out while preparing ${menuItem.name}. Reconcile inventory.`, new Date().toISOString(), 'manager');
-      db.prepare('UPDATE inventory SET quantity = 0 WHERE id = ?').run(item.id);
-      db.prepare('INSERT INTO inventory_audit (inventory_id, action, changed_by_id, changed_by_name, changed_by_role, changes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(item.id, 'updated', null, 'System', 'system', JSON.stringify({ quantity: { from: item.quantity, to: 0 }, reason: { from: null, to: `Order deduction (shortfall) for ${menuItem.name}` } }), new Date().toISOString());
-      broadcast('inventory:updated', { itemId: item.id, action: 'order-deducted', shortfall: true });
-      continue;
-    }
-    db.prepare('UPDATE inventory SET quantity = ? WHERE id = ?').run(nextQty, item.id);
-    db.prepare('INSERT INTO inventory_audit (inventory_id, action, changed_by_id, changed_by_name, changed_by_role, changes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(item.id, 'updated', null, 'System', 'system', JSON.stringify({ quantity: { from: item.quantity, to: nextQty }, reason: { from: null, to: `Order deduction for ${menuItem.name}` } }), new Date().toISOString());
-    broadcast('inventory:updated', { itemId: item.id, action: 'order-deducted' });
-  }
 }
 
 function priceOrderItems(items, { allowCustom = false } = {}) {
@@ -136,6 +96,8 @@ function createOrderRecord(
     deliveryLongitude,
     paymentMethod = 'lipa_namba',
     scheduledFor,
+    fulfillmentMode = 'standard',
+    paymentTerms = 'prepaid',
     paymentTiming = 'pay-now',
     orderSource = 'website',
     paymentReference = null,
@@ -156,6 +118,32 @@ function createOrderRecord(
   const taxRate = Number.isFinite(taxRateValue) && taxRateValue > 0 ? taxRateValue / 100 : 0;
   const tax = subtotal * taxRate;
   const total = subtotal + tax;
+  const normalizedFulfillmentMode = String(fulfillmentMode || 'standard');
+  if (!['standard', 'roadside_handoff'].includes(normalizedFulfillmentMode)) throw new Error('Choose a valid fulfillment option');
+  const scheduledDate = scheduledFor ? new Date(scheduledFor) : null;
+  if (scheduledFor && (!scheduledDate || Number.isNaN(scheduledDate.getTime()) || scheduledDate <= new Date())) {
+    throw new Error('Choose a future pickup or delivery time');
+  }
+  if (scheduledDate && scheduledDate.getTime() > Date.now() + 14 * 24 * 60 * 60 * 1000) {
+    throw new Error('Orders can only be scheduled up to 14 days ahead');
+  }
+  const normalizedPaymentTerms = String(paymentTerms || 'prepaid');
+  if (!['prepaid', 'invoice'].includes(normalizedPaymentTerms)) throw new Error('Choose valid payment terms');
+  let approvedInvoiceTerms = null;
+  if (normalizedPaymentTerms === 'invoice') {
+    if (normalizedCustomerType !== 'company') throw new Error('Invoice terms are available only to approved company accounts');
+    approvedInvoiceTerms = db.prepare(`SELECT t.customer_id FROM company_order_terms t
+      JOIN customers c ON c.id = t.customer_id
+      WHERE t.status = 'approved' AND lower(trim(c.tin)) = lower(trim(?))
+        AND lower(trim(c.company_name)) = lower(trim(?)) AND t.credit_limit >= ?`)
+      .get(normalizedCustomerTin, normalizedCompanyName, total);
+    if (!approvedInvoiceTerms) throw new Error('This company account is not approved for invoice terms or the order exceeds its credit limit');
+    const outstanding = Number(db.prepare(`SELECT COALESCE(SUM(total), 0) AS amount FROM orders
+      WHERE customer_id = ? AND payment_terms = 'invoice' AND payment_status NOT IN ('paid', 'completed') AND status != 'cancelled'`)
+      .get(approvedInvoiceTerms.customer_id)?.amount || 0);
+    const creditLimit = Number(db.prepare('SELECT credit_limit FROM company_order_terms WHERE customer_id = ?').get(approvedInvoiceTerms.customer_id)?.credit_limit || 0);
+    if (outstanding + total > creditLimit) throw new Error('This order exceeds the company account’s remaining credit limit');
+  }
   if (orderType === 'dine-in') {
     if (!tableNumber) throw new Error('A table number is required for dine-in orders');
     releaseExpiredCleaningTables(db);
@@ -171,22 +159,32 @@ function createOrderRecord(
   // Determine initial status based on payment and source
   const isStaffCashImmediate = staffId && (paymentMethod === 'cash' || paymentTiming === 'paid-cash');
   const initialPaymentStatus = isStaffCashImmediate ? PAYMENT_STATUSES.PAID : PAYMENT_STATUSES.PENDING;
-  const initialOrderStatus = isStaffCashImmediate ? ORDER_STATUSES.CONFIRMED : ORDER_STATUSES.PENDING_PAYMENT;
+  const isInvoiceTerms = Boolean(approvedInvoiceTerms);
+  const initialOrderStatus = isStaffCashImmediate || isInvoiceTerms ? ORDER_STATUSES.CONFIRMED : ORDER_STATUSES.PENDING_PAYMENT;
   const paidAt = isStaffCashImmediate ? now : null;
+  const reservationStatus = scheduledDate || normalizedFulfillmentMode === 'roadside_handoff'
+    ? (isStaffCashImmediate || isInvoiceTerms ? 'confirmed' : 'awaiting_payment')
+    : 'none';
+  const maxPrepMinutes = Math.max(...priced.items.map((item) => item.prepTimeMinutes || 8));
+  const scheduledReleaseAt = scheduledDate
+    ? new Date(scheduledDate.getTime() - (maxPrepMinutes + 5) * 60 * 1000).toISOString()
+    : null;
+  const roadsideAccessToken = normalizedFulfillmentMode === 'roadside_handoff' ? createRoadsideAccessToken(id) : null;
 
   const insertOrder = db.prepare(`
     INSERT INTO orders (
-      id, order_number, order_type, table_number, customer_name, customer_phone, customer_email,
+      id, order_number, order_type, table_number, customer_id, customer_name, customer_phone, customer_email,
       customer_type, company_name, customer_tin, billing_address,
       delivery_address, delivery_latitude, delivery_longitude, delivery_scheduled_for,
       subtotal, tax, total, payment_method, payment_status, order_source, payment_reference,
+      fulfillment_mode, reservation_status, payment_terms, scheduled_release_at,
       status, paid_at, created_at, updated_at, staff_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertItem = db.prepare(`
-    INSERT INTO order_items (order_id, menu_item_id, name, qty, price, prep_time_minutes, modifiers, special_instructions)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO order_items (order_id, menu_item_id, name, qty, price, prep_time_minutes, modifiers, special_instructions, ingredients)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertPayment = db.prepare(`
@@ -218,14 +216,11 @@ function createOrderRecord(
       if (existingCustomer) {
         resolvedCustomerId = existingCustomer.id;
         db.prepare(
-          'UPDATE customers SET name = ?, phone = COALESCE(NULLIF(?, \'\'), phone), email = COALESCE(NULLIF(?, \'\'), email), last_visit = ?, visits = visits + 1, lifetime_value = lifetime_value + ?, favorite_items = ?, customer_type = ?, company_name = ?, tin = COALESCE(NULLIF(?, \'\'), tin), billing_address = ? WHERE id = ?'
+          'UPDATE customers SET name = ?, phone = COALESCE(NULLIF(?, \'\'), phone), email = COALESCE(NULLIF(?, \'\'), email), customer_type = ?, company_name = ?, tin = COALESCE(NULLIF(?, \'\'), tin), billing_address = ? WHERE id = ?'
         ).run(
           (customerName || existingCustomer.name || 'Customer').trim(),
           normalizedPhone,
           normalizedEmail,
-          now.slice(0, 10),
-          total,
-          JSON.stringify(priced.items.map((item) => item.name)),
           normalizedCustomerType,
           normalizedCustomerType === 'company' ? normalizedCompanyName : (existingCustomer.company_name || ''),
           normalizedCustomerTin,
@@ -234,14 +229,11 @@ function createOrderRecord(
         );
       } else {
         const result = db.prepare(
-          'INSERT INTO customers (name, phone, email, favorite_items, lifetime_value, last_visit, visits, customer_segment, preferred_channel, customer_type, company_name, tin, billing_address) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO customers (name, phone, email, favorite_items, lifetime_value, last_visit, visits, customer_segment, preferred_channel, customer_type, company_name, tin, billing_address) VALUES (?, ?, ?, \'[]\', 0, NULL, 0, ?, ?, ?, ?, ?, ?)'
         ).run(
           (customerName || 'Customer').trim(),
           normalizedPhone,
           normalizedEmail,
-          JSON.stringify(priced.items.map((item) => item.name)),
-          total,
-          now.slice(0, 10),
           'first_order',
           orderSource || 'pos',
           normalizedCustomerType,
@@ -258,6 +250,7 @@ function createOrderRecord(
       id,
       orderType || 'delivery',
       tableNumber || null,
+      resolvedCustomerId,
       customerName || null,
       customerPhone || null,
       customerEmail || null,
@@ -276,6 +269,10 @@ function createOrderRecord(
       initialPaymentStatus,
       orderSource,
       paymentRef,
+      normalizedFulfillmentMode,
+      reservationStatus,
+      normalizedPaymentTerms,
+      scheduledReleaseAt,
       initialOrderStatus,
       paidAt,
       now,
@@ -292,12 +289,19 @@ function createOrderRecord(
         item.price,
         item.prepTimeMinutes || 8,
         JSON.stringify(item.modifiers),
-        item.specialInstructions
+        item.specialInstructions,
+        JSON.stringify(item.ingredients || [])
       );
     }
 
+    if (roadsideAccessToken) {
+      db.prepare(`INSERT INTO roadside_trips (order_id, access_token_hash, status, created_at, updated_at)
+        VALUES (?, ?, 'awaiting_customer', ?, ?)`)
+        .run(id, hashRoadsideAccessToken(roadsideAccessToken), now, now);
+    }
+
     const autoPrint = db.prepare("SELECT value FROM settings WHERE key = 'printer_auto_print'").get()?.value !== 'false';
-    if (staffId && autoPrint) {
+    if (staffId && autoPrint && initialPaymentStatus === PAYMENT_STATUSES.PAID && !scheduledDate) {
       const branchCode = db.prepare("SELECT value FROM settings WHERE key = 'branch_code'").get()?.value || 'MAIN';
       db.prepare('INSERT OR IGNORE INTO printer_jobs (order_id, branch_code, created_at) VALUES (?, ?, ?)')
         .run(id, branchCode, now);
@@ -333,20 +337,20 @@ function createOrderRecord(
       })
     );
 
-    for (const line of priced.items) {
-      deductRecipeInventory(line.menuItemId, line.qty, line.ingredients);
-    }
-
-    if (tableNumber) {
+    if (tableNumber && !scheduledDate) {
       db.prepare('UPDATE tables SET status = ?, current_order_id = ?, cleaning_started_at = NULL WHERE number = ?').run('occupied', id, tableNumber);
     }
   });
 
   tx();
+  if (initialPaymentStatus === PAYMENT_STATUSES.PAID) applyOrderFulfillmentEffects(id);
   const order = getOrderById(id);
   if (order?.customerEmail) {
     try {
-      enqueueOrderEmail(order.id, order.paymentStatus === PAYMENT_STATUSES.PAID ? 'paid_invoice' : 'order_received');
+      const emailType = order.paymentTerms === 'invoice'
+        ? 'company_invoice'
+        : order.paymentStatus === PAYMENT_STATUSES.PAID ? 'paid_invoice' : 'order_received';
+      enqueueOrderEmail(order.id, emailType);
     } catch (error) {
       console.error(`Could not queue customer email for order ${order.id}:`, error.message);
     }
@@ -405,7 +409,7 @@ function createOrderRecord(
     broadcast('notification:created', { type: 'success', title: `Order confirmed (${notifyChannel})` });
   }
 
-  return order;
+  return roadsideAccessToken ? { ...order, roadsideAccessToken } : order;
 }
 
 /**
@@ -428,6 +432,8 @@ router.post('/public', (req, res) => {
     orderType,
     tableNumber,
     scheduledFor,
+    fulfillmentMode,
+    paymentTerms,
     orderSource,
     paymentReference,
     paymentMethod = 'lipa_namba',
@@ -436,7 +442,7 @@ router.post('/public', (req, res) => {
   if (!items?.length) return res.status(400).json({ error: 'Order must have items' });
   if (!customerName?.trim()) return res.status(400).json({ error: 'Customer name is required' });
   if (orderType === 'dine-in' && !tableNumber) return res.status(400).json({ error: 'A table number is required' });
-  if (orderType !== 'dine-in' && !deliveryAddress?.trim()) return res.status(400).json({ error: 'Delivery address is required' });
+  if (orderType !== 'dine-in' && fulfillmentMode !== 'roadside_handoff' && !deliveryAddress?.trim()) return res.status(400).json({ error: 'Delivery address is required' });
 
   try {
     const order = createOrderRecord({
@@ -454,6 +460,8 @@ router.post('/public', (req, res) => {
       deliveryLatitude,
       deliveryLongitude,
       scheduledFor,
+      fulfillmentMode,
+      paymentTerms,
       paymentTiming: 'pay-now',
       orderSource: orderSource || (tableNumber ? 'nfc' : 'website'),
       paymentReference,
@@ -474,7 +482,53 @@ router.post('/public', (req, res) => {
 router.get('/public/:idOrRef', (req, res) => {
   const order = getOrderById(req.params.idOrRef);
   if (!order) return res.status(404).json({ error: 'Order not found' });
+  const suppliedPhone = String(req.query.phone || '').replace(/\D/g, '');
+  const orderPhone = String(order.customerPhone || '').replace(/\D/g, '');
+  if (!suppliedPhone || suppliedPhone !== orderPhone) return res.status(404).json({ error: 'Order not found' });
   res.json(order);
+});
+
+router.get('/reservations', authMiddleware, requireRole('admin', 'manager', 'foh'), (_req, res) => {
+  res.json(getOrders({}, { includeInvoiceEmailStatus: true }).filter((order) => order.reservationStatus !== 'none'));
+});
+
+router.get('/company-terms', authMiddleware, requireRole('admin', 'manager'), (_req, res) => {
+  const rows = db.prepare(`SELECT c.id AS customer_id, c.name, c.phone, c.email, c.company_name, c.tin,
+      COALESCE(t.status, 'pending') AS status, COALESCE(t.credit_limit, 0) AS credit_limit,
+      t.approved_at, u.name AS approved_by_name
+    FROM customers c LEFT JOIN company_order_terms t ON t.customer_id = c.id
+    LEFT JOIN users u ON u.id = t.approved_by
+    WHERE c.customer_type = 'company' ORDER BY c.company_name, c.name`).all();
+  res.json(rows.map((row) => ({
+    customerId: row.customer_id,
+    name: row.name,
+    phone: row.phone,
+    email: row.email,
+    companyName: row.company_name,
+    tin: row.tin,
+    status: row.status,
+    creditLimit: Number(row.credit_limit),
+    approvedAt: row.approved_at,
+    approvedBy: row.approved_by_name,
+  })));
+});
+
+router.patch('/company-terms/:customerId', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
+  const customerId = Number(req.params.customerId);
+  const customer = db.prepare("SELECT id FROM customers WHERE id = ? AND customer_type = 'company'").get(customerId);
+  if (!customer) return res.status(404).json({ error: 'Company customer not found.' });
+  const status = String(req.body?.status || '');
+  const creditLimit = Number(req.body?.creditLimit);
+  if (!['approved', 'revoked', 'pending'].includes(status)) return res.status(400).json({ error: 'Choose approved, revoked, or pending.' });
+  if (status === 'approved' && (!Number.isFinite(creditLimit) || creditLimit <= 0)) return res.status(400).json({ error: 'Approved invoice terms require a positive credit limit.' });
+  const now = new Date().toISOString();
+  db.prepare(`INSERT INTO company_order_terms (customer_id, status, credit_limit, approved_by, approved_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(customer_id) DO UPDATE SET status = excluded.status, credit_limit = excluded.credit_limit,
+      approved_by = excluded.approved_by, approved_at = excluded.approved_at, updated_at = excluded.updated_at`)
+    .run(customerId, status, status === 'approved' ? creditLimit : 0,
+      status === 'approved' ? req.user.id : null, status === 'approved' ? now : null, now, now);
+  res.json({ ok: true, customerId, status, creditLimit: status === 'approved' ? creditLimit : 0 });
 });
 
 /**
@@ -528,15 +582,21 @@ router.patch('/:id/status', authMiddleware, (req, res) => {
   if (
     ['preparing', 'ready'].includes(status) &&
     existing.payment_status !== PAYMENT_STATUSES.PAID &&
-    existing.order_type !== 'dine-in-postpay'
+    existing.order_type !== 'dine-in-postpay' &&
+    !(existing.payment_terms === 'invoice' && ['confirmed', 'released'].includes(existing.reservation_status))
   ) {
     return res.status(409).json({
       error: 'Cannot prepare order: Payment must be verified (PAID) before kitchen starts cooking.',
     });
   }
 
+  if (status === 'preparing' && existing.scheduled_release_at && new Date(existing.scheduled_release_at) > new Date()) {
+    return res.status(409).json({ error: 'This scheduled order is not due for kitchen preparation yet.' });
+  }
+
   const now = new Date().toISOString();
   db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(status, now, req.params.id);
+  if (status === 'preparing') applyOrderFulfillmentEffects(req.params.id, { allowInvoiceTerms: true });
   db.prepare('INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata) VALUES (?, ?, ?, ?, ?, ?)')
     .run(req.params.id, 'status_changed', status, req.user.id, now, JSON.stringify({ previousStatus: existing.status }));
 
@@ -546,6 +606,66 @@ router.patch('/:id/status', authMiddleware, (req, res) => {
   }
 
   const order = getOrderById(req.params.id);
+  broadcast('order:updated', order);
+  res.json(order);
+});
+
+router.patch('/:id/reservation', authMiddleware, requireRole('admin', 'manager', 'foh'), (req, res) => {
+  const existing = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
+  if (!existing || existing.reservation_status === 'none') return res.status(404).json({ error: 'Reservation not found.' });
+  const action = String(req.body?.action || '');
+  const now = new Date().toISOString();
+  let nextStatus = existing.reservation_status;
+  let scheduledFor = existing.delivery_scheduled_for;
+  if (action === 'confirm') {
+    if (existing.payment_status !== PAYMENT_STATUSES.PAID && !(existing.payment_terms === 'invoice' && existing.reservation_status === 'confirmed')) {
+      return res.status(409).json({ error: 'Verify payment before confirming this reservation.' });
+    }
+    nextStatus = 'confirmed';
+  } else if (action === 'cancel') {
+    nextStatus = 'cancelled';
+  } else if (action === 'reschedule') {
+    const date = new Date(req.body?.scheduledFor);
+    if (!req.body?.scheduledFor || Number.isNaN(date.getTime()) || date <= new Date()) {
+      return res.status(400).json({ error: 'Choose a future time.' });
+    }
+    scheduledFor = date.toISOString();
+  } else {
+    return res.status(400).json({ error: 'Choose confirm, cancel, or reschedule.' });
+  }
+  let releaseAt = existing.scheduled_release_at;
+  if (action === 'reschedule') {
+    const prepTime = Number(db.prepare('SELECT COALESCE(MAX(prep_time_minutes), 8) AS minutes FROM order_items WHERE order_id = ?').get(existing.id)?.minutes || 8);
+    releaseAt = new Date(new Date(scheduledFor).getTime() - (prepTime + 5) * 60000).toISOString();
+  }
+  db.prepare(`UPDATE orders SET reservation_status = ?, delivery_scheduled_for = ?, scheduled_release_at = ?,
+    status = CASE WHEN ? = 'cancel' THEN 'cancelled' ELSE status END, updated_at = ? WHERE id = ?`)
+    .run(nextStatus, scheduledFor, releaseAt, action, now, existing.id);
+  if (action === 'cancel') {
+    db.prepare(`UPDATE roadside_trips SET status = 'cancelled', ended_at = COALESCE(ended_at, ?), updated_at = ?
+      WHERE order_id = ? AND status NOT IN ('completed', 'cancelled')`).run(now, now, existing.id);
+  }
+  db.prepare(`INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata)
+    VALUES (?, 'reservation_changed', ?, ?, ?, ?)`)
+    .run(existing.id, nextStatus, req.user.id, now, JSON.stringify({
+      action,
+      scheduledFor,
+      refundFollowUpRequired: action === 'cancel' && ['paid', 'completed'].includes(existing.payment_status),
+    }));
+  if (action === 'cancel' && ['paid', 'completed'].includes(existing.payment_status)) {
+    db.prepare(`INSERT INTO notifications (type, title, message, read, created_at, audience_role)
+      VALUES ('warning', ?, ?, 0, ?, 'manager')`)
+      .run(`Refund follow-up: ${existing.order_number || existing.id}`, `Paid order ${existing.order_number || existing.id} was cancelled. Arrange and record any agreed refund separately.`, now);
+  }
+  const order = getOrderById(existing.id, { includeInvoiceEmailStatus: true });
+  if (order.customerEmail) {
+    try {
+      enqueueOrderEmail(order.id, `reservation_update:${Date.now()}`);
+    } catch (error) {
+      console.error(`Could not queue reservation update email for ${order.id}:`, error.message);
+    }
+  }
+  if (action === 'cancel') broadcast('roadside:updated', { orderId: existing.id, status: 'cancelled' });
   broadcast('order:updated', order);
   res.json(order);
 });
@@ -607,8 +727,11 @@ router.patch('/:id/payment-status', authMiddleware, (req, res) => {
   const newOrderStatus = paymentStatus === PAYMENT_STATUSES.PAID ? ORDER_STATUSES.CONFIRMED : existing.status;
   const paidAt = paymentStatus === PAYMENT_STATUSES.PAID ? now : existing.paid_at;
 
-  db.prepare('UPDATE orders SET payment_status = ?, status = ?, paid_at = ?, updated_at = ? WHERE id = ?')
-    .run(paymentStatus, newOrderStatus, paidAt, now, req.params.id);
+  db.prepare(`UPDATE orders SET payment_status = ?, status = ?,
+    reservation_status = CASE WHEN ? = 'paid' AND reservation_status = 'awaiting_payment' THEN 'confirmed' ELSE reservation_status END,
+    paid_at = ?, updated_at = ? WHERE id = ?`)
+    .run(paymentStatus, newOrderStatus, paymentStatus, paidAt, now, req.params.id);
+  if (paymentStatus === PAYMENT_STATUSES.PAID) applyOrderFulfillmentEffects(req.params.id);
 
   db.prepare(`
     UPDATE payments SET

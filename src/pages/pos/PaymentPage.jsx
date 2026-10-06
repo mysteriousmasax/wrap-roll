@@ -25,7 +25,7 @@ export default function PaymentPage() {
   const [showAlternateTables, setShowAlternateTables] = useState(false);
   const location = useLocation();
 
-  const { items, getSubtotal, getTax, getTotal, orderType, tableNumber, customerName, customerPhone: cartCustomerPhone, deliveryAddress, deliveryLatitude, deliveryLongitude, orderSource, clearCart } = useCartStore();
+  const { items, getSubtotal, getTax, getTotal, orderType, tableNumber, customerName, customerPhone: cartCustomerPhone, deliveryAddress, deliveryLatitude, deliveryLongitude, orderSource, fulfillmentMode, scheduledFor, clearCart } = useCartStore();
   const setItems = useCartStore((state) => state.setItems);
   const setTableNumber = useCartStore((state) => state.setTableNumber);
   const createOrder = useOrderStore((s) => s.createOrder);
@@ -73,8 +73,11 @@ export default function PaymentPage() {
         deliveryAddress: deliveryAddress || null,
         deliveryLatitude,
         deliveryLongitude,
-        paymentMethod: selectedMethod,
-        paymentTiming: selectedMethod === 'cash' ? 'paid-cash' : 'pay-later',
+        paymentMethod: customerType === 'company' && paymentTerms === 'invoice' ? 'invoice' : selectedMethod,
+        paymentTiming: paymentTerms === 'invoice' ? 'pay-later' : selectedMethod === 'cash' ? 'paid-cash' : 'pay-later',
+        paymentTerms: customerType === 'company' ? paymentTerms : 'prepaid',
+        fulfillmentMode,
+        scheduledFor: scheduledFor || undefined,
         orderSource,
       });
 
@@ -87,7 +90,10 @@ export default function PaymentPage() {
         return;
       }
 
-      if (selectedMethod === 'cash') {
+      if (paymentTerms === 'invoice' && customerType === 'company') {
+        clearCart();
+        navigate('/orders', { replace: true, state: { companyOrderCreated: order.id } });
+      } else if (selectedMethod === 'cash') {
         clearCart();
         navigate('/pos/success', {
           state: { order, orderId: order.id, total: order.total, method: 'cash' },
@@ -238,6 +244,7 @@ export default function PaymentPage() {
             {customerType === 'company' && <input required value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Company name" className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />}
             <input required={customerType === 'company'} value={customerTin} onChange={(event) => setCustomerTin(event.target.value)} placeholder={customerType === 'company' ? 'Company TIN (Required)' : 'Customer TIN (Optional)'} className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
             {customerType === 'company' && <input value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} placeholder="Billing address (Optional)" className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />}
+            {customerType === 'company' && <label className="flex items-start gap-2 rounded-lg border border-outline-variant bg-surface-container-low p-3 text-xs text-surface-on-variant"><input type="checkbox" checked={paymentTerms === 'invoice'} onChange={(event) => setPaymentTerms(event.target.checked ? 'invoice' : 'prepaid')} className="mt-0.5" /><span><strong className="text-surface-on">Use approved company invoice terms</strong><br />Only registered company accounts with available credit are eligible. Otherwise, complete payment now.</span></label>}
           </div>
         </div>
 
@@ -281,7 +288,7 @@ export default function PaymentPage() {
             disabled={processing}
             className="flex-1"
           >
-            {processing ? 'Creating order...' : selectedMethod === 'cash' ? 'Complete cash order' : 'Continue to Lipa Namba'}
+            {processing ? 'Creating order...' : paymentTerms === 'invoice' && customerType === 'company' ? 'Place company invoice order' : selectedMethod === 'cash' ? 'Complete cash order' : 'Continue to Lipa Namba'}
           </Button>
         </div>
 

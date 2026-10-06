@@ -12,6 +12,7 @@ import PaymentPage from './pages/pos/PaymentPage';
 import PaymentSuccessPage from './pages/pos/PaymentSuccessPage';
 import TableManagementPage from './pages/pos/TableManagementPage';
 import OrdersListPage from './pages/pos/OrdersListPage';
+import RoadsideOperationsPage from './pages/pos/RoadsideOperationsPage';
 import KDSPage from './pages/kds/KDSPage';
 import CRMPage from './pages/crm/CRMPage';
 import WhatsAppPage from './pages/crm/WhatsAppPage';
@@ -29,6 +30,7 @@ import PaymentVerificationPage from './pages/management/PaymentVerificationPage'
 import PeopleHubPage from './pages/management/PeopleHubPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
 import HomePage from './pages/public/HomePage';
+import RoadsideTrackingPage from './pages/public/RoadsideTrackingPage';
 import PrivacyPolicyPage from './pages/public/PrivacyPolicyPage';
 import CustomerRewardsPage from './pages/public/CustomerRewardsPage';
 import BranchSetupPage from './pages/desktop/BranchSetupPage';
@@ -41,6 +43,7 @@ const ROUTE_ROLES = {
   '/pos/success': ['admin', 'foh'],
   '/pos/tables': ['admin', 'foh'],
   '/orders': ['admin', 'foh', 'manager'],
+  '/roadside': ['admin', 'manager', 'foh'],
   '/management/payments': ['admin', 'manager', 'foh'],
   '/kds': ['admin', 'kitchen'],
   '/crm': ['admin', 'manager', 'executive'],
@@ -118,6 +121,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/table/:tagId" element={<HomePage />} />
+      <Route path="/roadside-track/:orderId" element={<RoadsideTrackingPage />} />
       <Route path="/customer-rewards" element={<CustomerRewardsPage />} />
       <Route path="/rewards" element={<CustomerRewardsPage />} />
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
@@ -136,6 +140,7 @@ function AppRoutes() {
         <Route path="/pos/success" element={<RoleRoute path="/pos/success"><PaymentSuccessPage /></RoleRoute>} />
         <Route path="/pos/tables" element={<RoleRoute path="/pos/tables"><TableManagementPage /></RoleRoute>} />
         <Route path="/orders" element={<RoleRoute path="/orders"><OrdersListPage /></RoleRoute>} />
+        <Route path="/roadside" element={<RoleRoute path="/roadside"><RoadsideOperationsPage /></RoleRoute>} />
         <Route path="/management/payments" element={<RoleRoute path="/management/payments"><PaymentVerificationPage /></RoleRoute>} />
         <Route path="/kds" element={<RoleRoute path="/kds"><KDSPage /></RoleRoute>} />
         <Route path="/crm" element={<RoleRoute path="/crm"><CRMPage /></RoleRoute>} />

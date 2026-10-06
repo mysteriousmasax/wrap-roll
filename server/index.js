@@ -9,6 +9,7 @@ import { broadcast, initWebSocket } from './ws.js';
 import authRoutes from './routes/auth.js';
 import menuRoutes from './routes/menu.js';
 import orderRoutes from './routes/orders.js';
+import roadsideRoutes from './routes/roadside.js';
 import tableRoutes from './routes/tables.js';
 import customerRoutes from './routes/customers.js';
 import staffRoutes from './routes/staff.js';
@@ -75,6 +76,7 @@ app.get('/api/health/postgres', async (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/roadside', roadsideRoutes);
 app.use('/api/tables', tableRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/staff', staffRoutes);

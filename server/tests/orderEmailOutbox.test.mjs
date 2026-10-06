@@ -22,7 +22,7 @@ test('paid company order creates one invoice record and sends one branded invoic
     testDb = database.default;
     await database.ensureDatabase();
     serviceDb = (await import('../db/database.js')).default;
-    const now = new Date().toISOString();
+    const now = '2026-10-03T12:00:00.000Z';
     testDb.prepare(`INSERT INTO customers (name, phone, email, customer_type, company_name, tin, billing_address)
       VALUES (?, ?, ?, 'company', ?, ?, ?)`).run('Amina Buyer', '+255700000001', 'amina@example.com', 'Amina Foods Ltd', '123456789', 'Dar es Salaam').lastInsertRowid;
     testDb.prepare(`INSERT INTO orders (id, order_number, order_type, customer_name, customer_phone, customer_email, customer_type,

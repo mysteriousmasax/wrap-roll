@@ -4,7 +4,7 @@ import { CircleMarker, MapContainer, TileLayer, useMap, useMapEvents } from 'rea
 import 'leaflet/dist/leaflet.css';
 import { formatGooglePlace, hasGoogleMapsKey, loadGoogleMaps, reverseGoogleGeocode } from '../../lib/googleMaps';
 
-const DEFAULT_CENTER = { lat: -6.7924, lng: 39.2083 };
+const DEFAULT_CENTER = { lat: -6.7594617, lng: 39.2517226 };
 
 function FallbackMap({ selectedPoint, onSelect }) {
   function ClickHandler() {

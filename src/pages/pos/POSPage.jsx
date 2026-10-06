@@ -738,6 +738,8 @@ export default function POSPage() {
         deliveryLatitude: cart.deliveryLatitude,
         deliveryLongitude: cart.deliveryLongitude,
         orderSource: cart.orderSource,
+        fulfillmentMode: cart.fulfillmentMode,
+        scheduledFor: cart.scheduledFor,
         paymentReference: cart.paymentReference,
         orderNotes: cart.orderNotes,
         discountPercent: cart.discountPercent,

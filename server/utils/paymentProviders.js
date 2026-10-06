@@ -8,6 +8,7 @@
 import crypto from 'crypto';
 import db from '../db/database.js';
 import { awardRollPoints } from './rollPoints.js';
+import { applyOrderFulfillmentEffects } from './orderFulfillment.js';
 
 export const PAYMENT_STATUSES = {
   PENDING: 'pending',
@@ -297,10 +298,12 @@ export class ManualLipaProvider extends BasePaymentProvider {
       UPDATE orders SET
         payment_status = ?,
         status = ?,
+        reservation_status = CASE WHEN reservation_status = 'awaiting_payment' THEN 'confirmed' ELSE reservation_status END,
         paid_at = ?,
         updated_at = ?
       WHERE id = ? OR payment_reference = ?
     `).run(PAYMENT_STATUSES.PAID, ORDER_STATUSES.CONFIRMED, now, now, payment.order_id, paymentReference);
+    applyOrderFulfillmentEffects(payment.order_id);
     awardRollPoints(payment.order_id);
 
     // Add order audit event
@@ -579,10 +582,12 @@ export class GenericWebhookProvider extends BasePaymentProvider {
       UPDATE orders SET
         payment_status = ?,
         status = ?,
+        reservation_status = CASE WHEN reservation_status = 'awaiting_payment' THEN 'confirmed' ELSE reservation_status END,
         paid_at = ?,
         updated_at = ?
       WHERE id = ?
     `).run(PAYMENT_STATUSES.PAID, ORDER_STATUSES.CONFIRMED, now, now, payment.order_id);
+    applyOrderFulfillmentEffects(payment.order_id);
 
     db.prepare(`
       INSERT INTO order_events (order_id, event_type, status, occurred_at, metadata)

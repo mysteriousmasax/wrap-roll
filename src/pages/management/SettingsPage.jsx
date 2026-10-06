@@ -323,6 +323,9 @@ export default function SettingsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input label="Restaurant Name" value={form.restaurant_name || ''} onChange={(e) => update('restaurant_name', e.target.value)} />
                 <Input label="Branch Location" value={form.branch_location || ''} onChange={(e) => update('branch_location', e.target.value)} />
+                <Input label="Roadside pickup latitude" type="number" step="0.000001" value={form.roadside_pickup_latitude || ''} onChange={(e) => update('roadside_pickup_latitude', e.target.value)} />
+                <Input label="Roadside pickup longitude" type="number" step="0.000001" value={form.roadside_pickup_longitude || ''} onChange={(e) => update('roadside_pickup_longitude', e.target.value)} />
+                <Input label="Automatic kitchen-release radius (meters)" type="number" min="50" max="1000" step="10" value={form.roadside_arrival_radius_meters || '250'} onChange={(e) => update('roadside_arrival_radius_meters', e.target.value)} />
                 <Input label="Google Maps URL" value={form.google_maps_url || ''} onChange={(e) => update('google_maps_url', e.target.value)} />
                 <Input label="Google Maps Embed URL" value={form.google_maps_embed_url || ''} onChange={(e) => update('google_maps_embed_url', e.target.value)} />
                 <Input label="Phone Number" value={form.phone || ''} onChange={(e) => update('phone', e.target.value)} />

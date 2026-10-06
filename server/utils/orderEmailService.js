@@ -1,19 +1,25 @@
 import db from '../db/database.js';
 import { getOrderById } from './orders.js';
 import { isEmailDeliveryConfigured, publicEmailUrl, sendEmail } from './emailDelivery.js';
-import { buildOrderReceivedEmail, buildPaidInvoiceEmail } from './orderEmailContent.js';
+import { buildCompanyInvoiceEmail, buildOrderReceivedEmail, buildPaidInvoiceEmail, buildReservationUpdateEmail, buildRoadsideCompleteEmail } from './orderEmailContent.js';
 import { buildInvoicePdfBuffer } from './invoicePdf.js';
+import { createRoadsideAccessToken } from './roadsideAccess.js';
 
-const emailTypes = new Set(['order_received', 'paid_invoice']);
+const emailTypes = new Set(['order_received', 'paid_invoice', 'company_invoice']);
+
+function isSupportedEmailType(emailType) {
+  return emailTypes.has(emailType) || /^reservation_update:\d+$/.test(emailType) || /^roadside_handoff:\d+$/.test(emailType);
+}
 const maxAttempts = 5;
 const retryDelayMs = 5 * 60 * 1000;
 
 export function enqueueOrderEmail(orderId, emailType) {
-  if (!emailTypes.has(emailType)) throw new Error('Unsupported order email type.');
-  const order = db.prepare('SELECT customer_email, payment_status FROM orders WHERE id = ?').get(orderId);
+  if (!isSupportedEmailType(emailType)) throw new Error('Unsupported order email type.');
+  const order = db.prepare('SELECT customer_email, payment_status, payment_terms FROM orders WHERE id = ?').get(orderId);
   const recipient = String(order?.customer_email || '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return false;
   if (emailType === 'paid_invoice' && !['paid', 'completed'].includes(order.payment_status)) return false;
+  if (emailType === 'company_invoice' && order.payment_terms !== 'invoice') return false;
 
   const now = new Date().toISOString();
   const inserted = db.prepare(`INSERT OR IGNORE INTO order_email_outbox
@@ -79,16 +85,26 @@ export async function processOrderEmailOutbox() {
     try {
       const order = getOrderById(event.order_id);
       if (!order) throw new Error('Order no longer exists.');
+      if (order.fulfillmentMode === 'roadside_handoff') {
+        const baseUrl = publicEmailUrl(`/roadside-track/${encodeURIComponent(order.id)}`);
+        order.roadsideTrackingUrl = `${baseUrl}#${createRoadsideAccessToken(order.id)}`;
+      }
       if (event.email_type === 'paid_invoice' && !['paid', 'completed'].includes(order.paymentStatus)) {
         throw new Error('Order payment is not confirmed.');
       }
       const settings = readSettings();
-      if (event.email_type === 'paid_invoice') order.invoiceNumber = ensureInvoiceRecord(order);
+      if (['paid_invoice', 'company_invoice'].includes(event.email_type)) order.invoiceNumber = ensureInvoiceRecord(order);
       const content = event.email_type === 'paid_invoice'
         ? buildPaidInvoiceEmail(order, settings, publicEmailUrl('/wrap-roll-logo-lockup-transparent.png'))
-        : buildOrderReceivedEmail(order, publicEmailUrl('/wrap-roll-logo-lockup-transparent.png'));
+        : event.email_type === 'company_invoice'
+          ? buildCompanyInvoiceEmail(order, publicEmailUrl('/wrap-roll-logo-lockup-transparent.png'))
+          : event.email_type.startsWith('reservation_update:')
+            ? buildReservationUpdateEmail(order, publicEmailUrl('/wrap-roll-logo-lockup-transparent.png'))
+            : event.email_type.startsWith('roadside_handoff:')
+              ? buildRoadsideCompleteEmail(order, publicEmailUrl('/wrap-roll-logo-lockup-transparent.png'))
+              : buildOrderReceivedEmail(order, publicEmailUrl('/wrap-roll-logo-lockup-transparent.png'));
       const attachments = [];
-      if (event.email_type === 'paid_invoice') {
+      if (['paid_invoice', 'company_invoice'].includes(event.email_type)) {
         const invoicePdf = await buildInvoicePdfBuffer(order, settings);
         attachments.push({
           filename: `${order.invoiceNumber || order.id || 'invoice'}.pdf`,

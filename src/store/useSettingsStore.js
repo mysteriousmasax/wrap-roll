@@ -4,6 +4,9 @@ import { api } from '../api/client';
 const defaults = {
   restaurant_name: 'Wrap & Roll',
   branch_location: 'Mwai Kibaki Rd, Mikocheni (Wikicha Tower), Dar es Salaam',
+  roadside_pickup_latitude: '-6.7594617',
+  roadside_pickup_longitude: '39.2517226',
+  roadside_arrival_radius_meters: '250',
   google_maps_url: 'https://maps.app.goo.gl/gZqwfknocNK6FYNAA',
   google_maps_embed_url: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3962.0852270366922!2d39.251722599999994!3d-6.7594617!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x185c4d08cb7bb7f1%3A0x2fca94e306e228d4!2sWrap%20%26%20Roll!5e0!3m2!1sen!2stz!4v1787495167004!5m2!1sen!2stz',
   phone: '+255 746 222 889',

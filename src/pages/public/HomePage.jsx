@@ -31,6 +31,7 @@ import useSettingsStore from '../../store/useSettingsStore';
 import useTranslation from '../../i18n/useTranslation';
 import CustomerChat from '../../components/public/CustomerChat';
 import LipaPaymentModal from '../../components/public/LipaPaymentModal';
+import RoadsideTrackingPanel from '../../components/public/RoadsideTrackingPanel';
 import RotatingText from '../../components/ui/RotatingText';
 import DepthText from '../../components/ui/DepthText';
 import { reverseGoogleGeocode } from '../../lib/googleMaps';
@@ -181,6 +182,7 @@ export default function HomePage() {
   const [customerTin, setCustomerTin] = useState('');
   const [billingAddress, setBillingAddress] = useState('');
   const [emailMarketingConsent, setEmailMarketingConsent] = useState(false);
+  const [companyInvoiceTerms, setCompanyInvoiceTerms] = useState(false);
 
   useEffect(() => {
     const targets = [heroHeadingRef.current, menuHeadingRef.current].filter(Boolean);
@@ -204,6 +206,9 @@ export default function HomePage() {
   const [paymentReference, setPaymentReference] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryCoordinates, setDeliveryCoordinates] = useState({ latitude: null, longitude: null });
+  const [fulfillmentMode, setFulfillmentMode] = useState('standard');
+  const [scheduledFor, setScheduledFor] = useState('');
+  const [roadsideAccessToken, setRoadsideAccessToken] = useState('');
   const [locating, setLocating] = useState(false);
   const [orderStatus, setOrderStatus] = useState('');
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -475,7 +480,7 @@ export default function HomePage() {
     if (!cartItems.length) return setOrderStatus('Add a dish before checking out.');
     if (!customerName.trim()) return setOrderStatus('Please enter your full name.');
     if (!customerPhone.trim()) return setOrderStatus('Please enter your phone number so we can confirm your order.');
-    if (!tableContext && !deliveryAddress.trim()) return setOrderStatus('Please enter a delivery address or table number.');
+    if (!tableContext && fulfillmentMode !== 'roadside_handoff' && !deliveryAddress.trim()) return setOrderStatus('Please enter a delivery address or table number.');
     if (customerType === 'company' && (!companyName.trim() || !customerTin.trim())) return setOrderStatus('Company name and TIN are required for a company invoice.');
     setOrderStatus('Sending your order...');
     try {
@@ -493,17 +498,23 @@ export default function HomePage() {
         companyName,
         customerTin,
         billingAddress,
-        deliveryAddress: tableContext ? '' : deliveryAddress,
+        deliveryAddress: tableContext || fulfillmentMode === 'roadside_handoff' ? '' : deliveryAddress,
         deliveryLatitude: tableContext ? null : deliveryCoordinates.latitude,
         deliveryLongitude: tableContext ? null : deliveryCoordinates.longitude,
-        orderType: tableContext ? 'dine-in' : 'delivery',
+        orderType: tableContext ? 'dine-in' : fulfillmentMode === 'roadside_handoff' ? 'takeout' : 'delivery',
         tableNumber: tableContext?.number || null,
+        fulfillmentMode: tableContext ? 'standard' : fulfillmentMode,
+        scheduledFor: scheduledFor ? new Date(scheduledFor).toISOString() : undefined,
+        paymentTerms: customerType === 'company' && companyInvoiceTerms ? 'invoice' : 'prepaid',
         orderSource: tableContext ? 'nfc' : 'website',
         paymentReference: paymentReference || undefined,
       });
+      setRoadsideAccessToken(order.roadsideAccessToken || '');
+      if (order.roadsideAccessToken) sessionStorage.setItem(`wraproll_roadside_access_${order.id}`, order.roadsideAccessToken);
       const subscribeForEmailUpdates = emailMarketingConsent && customerEmail.trim();
       setActivePlacedOrder(order);
-      setPaymentModalOpen(true);
+      const companyInvoiceOrder = order.paymentTerms === 'invoice' && order.reservationStatus === 'confirmed';
+      setPaymentModalOpen(!companyInvoiceOrder);
       // Clear the cart (state + persisted copy) so ordered items never linger.
       setCartItems([]);
       localStorage.removeItem('wraproll_public_cart');
@@ -513,7 +524,11 @@ export default function HomePage() {
       setCompanyName('');
       setCustomerTin('');
       setBillingAddress('');
+      setCompanyInvoiceTerms(false);
+      setFulfillmentMode('standard');
+      setScheduledFor('');
       setOrderStatus('');
+      if (companyInvoiceOrder) setOrderStatus('Company order received. We will email the invoice and fulfillment updates.');
       if (subscribeForEmailUpdates) {
         api.subscribeToEmailMarketing({
             email: customerEmail,
@@ -1149,15 +1164,18 @@ export default function HomePage() {
                   {customerType === 'company' && <input required value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Company name" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />}
                   <input required={customerType === 'company'} value={customerTin} onChange={(event) => setCustomerTin(event.target.value)} placeholder={customerType === 'company' ? 'Company TIN (Required)' : 'Customer TIN (Optional)'} className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
                   {customerType === 'company' && <input value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} placeholder="Billing address (Optional)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />}
+                  {customerType === 'company' && <label className="flex items-start gap-2 rounded-xl border border-[#ebdccb] bg-[#fbf6ee] p-3 text-[11px] leading-4 text-[#746e67]"><input type="checkbox" checked={companyInvoiceTerms} onChange={(event) => setCompanyInvoiceTerms(event.target.checked)} className="mt-0.5" /><span><strong className="text-[#24211e]">Use approved company invoice terms</strong><br />Available only to registered company accounts within their approved credit limit. Otherwise, pay now.</span></label>}
                   <label className="flex items-start gap-2 px-1 text-[11px] leading-4 text-[#746e67]"><input type="checkbox" checked={emailMarketingConsent} onChange={(event) => setEmailMarketingConsent(event.target.checked)} disabled={!customerEmail.trim()} className="mt-0.5" /><span>Email me restaurant news and offers. I’ll confirm my subscription from my inbox.</span></label>
                   {!customerEmail.trim() && <p className="px-1 text-[10px] italic text-[#a09a92]">Enter your email above to enable news &amp; offers signup.</p>}
 
-                  <div className="flex gap-2">
-                    <input required value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder="Delivery Address or Table Number" className="flex-1 px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
-                    <button type="button" onClick={useCustomerLocation} disabled={locating} className="px-3 py-2 rounded-xl bg-[#faeee2] text-[#ae002a] text-xs font-bold flex items-center gap-1 border border-[#ebdccb]">
+                  {!tableContext && <label className="block text-[11px] font-semibold text-[#746e67]">Fulfillment<select value={fulfillmentMode} onChange={(event) => setFulfillmentMode(event.target.value)} className="mt-1 w-full rounded-xl border border-[#ebdccb] bg-white px-3.5 py-2.5 text-xs"><option value="standard">Delivery to an address</option><option value="roadside_handoff">Roadside handoff · Mwai Kibaki Road</option></select></label>}
+                  <label className="block text-[11px] font-semibold text-[#746e67]">Pickup / handoff time (optional)<input type="datetime-local" value={scheduledFor} min={new Date(Date.now() + 5 * 60 * 1000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} onChange={(event) => setScheduledFor(event.target.value)} className="mt-1 w-full rounded-xl border border-[#ebdccb] bg-white px-3.5 py-2.5 text-xs" /></label>
+                  {fulfillmentMode !== 'roadside_handoff' && <div className="flex gap-2">
+                    <input required={!tableContext} value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder="Delivery Address or Table Number" className="flex-1 rounded-xl border border-[#ebdccb] bg-white px-3.5 py-2.5 text-xs focus:outline-none focus:border-[#ae002a]" />
+                    <button type="button" onClick={useCustomerLocation} disabled={locating} className="flex items-center gap-1 rounded-xl border border-[#ebdccb] bg-[#faeee2] px-3 py-2 text-xs font-bold text-[#ae002a]">
                       <MapPin size={13} /> {locating ? '...' : 'GPS'}
                     </button>
-                  </div>
+                  </div>}
 
                   <div className="pt-2 flex justify-between text-xs font-bold text-[#1f1d1b]">
                     <span>Total (Inc. Tax)</span>
@@ -1165,7 +1183,7 @@ export default function HomePage() {
                   </div>
 
                   <button type="submit" disabled={!cartItems.length} className="w-full py-3 rounded-2xl bg-[#ae002a] text-white font-bold text-xs sm:text-sm shadow-md hover:bg-[#920023] transition-colors">
-                    Place Order Now &rarr;
+                    {companyInvoiceTerms && customerType === 'company' ? 'Place Company Order' : 'Continue to Payment'} &rarr;
                   </button>
                   {orderStatus && <p className="text-xs font-bold text-[#ae002a] text-center pt-1">{orderStatus}</p>}
                 </form>
@@ -1196,8 +1214,12 @@ export default function HomePage() {
           className="fixed bottom-6 left-6 z-40 rounded-full border border-[#ebdccb] bg-[#fffdfa] px-4 py-3 text-left text-xs font-bold text-[#ae002a] shadow-xl transition hover:-translate-y-0.5"
         >
           <span className="block text-[10px] uppercase tracking-wider text-[#746e67]">Order {activePlacedOrder.orderNumber || activePlacedOrder.id}</span>
-          <span>{activePlacedOrder.paymentStatus === 'paid' ? 'Payment confirmed' : 'Payment status: checking'}</span>
+          <span>{activePlacedOrder.paymentTerms === 'invoice' ? 'Company invoice confirmed' : activePlacedOrder.paymentStatus === 'paid' ? 'Payment confirmed' : 'Payment status: checking'}</span>
         </button>
+      )}
+
+      {activePlacedOrder?.fulfillmentMode === 'roadside_handoff' && (activePlacedOrder.paymentStatus === 'paid' || (activePlacedOrder.paymentTerms === 'invoice' && activePlacedOrder.reservationStatus === 'confirmed')) && roadsideAccessToken && (
+        <RoadsideTrackingPanel order={activePlacedOrder} accessToken={roadsideAccessToken} />
       )}
 
       {/* Floating Cart Button */}

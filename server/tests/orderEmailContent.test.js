@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildOrderReceivedEmail, buildPaidInvoiceEmail } from '../utils/orderEmailContent.js';
+import { buildOrderReceivedEmail, buildPaidInvoiceEmail, buildRoadsideCompleteEmail } from '../utils/orderEmailContent.js';
 import { buildInvoicePdfBuffer } from '../utils/invoicePdf.js';
 
 const order = {
@@ -76,4 +76,16 @@ test('invoice PDF buffer is generated for email attachments', async () => {
   assert.ok(Buffer.isBuffer(pdf));
   assert.match(pdf.toString('latin1'), /PDF/);
   assert.ok(pdf.length > 150);
+});
+
+test('roadside completion email links back to the private order rating page', () => {
+  const email = buildRoadsideCompleteEmail({
+    ...order,
+    roadsideTrackingUrl: 'https://wrapandrolltz.com/roadside-track/WR-1001#secret-token',
+  }, 'https://wrapandrolltz.com/logo.png');
+
+  assert.match(email.subject, /Rate your roadside handoff/);
+  assert.match(email.html, /Rate your handoff/);
+  assert.match(email.html, /roadside-track\/WR-1001#secret-token/);
+  assert.match(email.text, /location-sharing session has ended/);
 });

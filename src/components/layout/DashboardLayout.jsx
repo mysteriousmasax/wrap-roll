@@ -18,6 +18,7 @@ const pageTitles = {
   '/pos/success': 'Payment Success',
   '/kds': 'Kitchen Display',
   '/orders': 'All Orders',
+  '/roadside': 'Roadside & Reservations',
   '/crm': 'CRM & Loyalty',
   '/crm/whatsapp': 'WhatsApp',
   '/analytics': 'Analytics Dashboard',

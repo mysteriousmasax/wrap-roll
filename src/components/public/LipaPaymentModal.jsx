@@ -188,6 +188,7 @@ export default function LipaPaymentModal({
   if (!isOpen || !liveOrder) return null;
 
   const isPaid = liveOrder.paymentStatus === 'paid';
+  const isCompanyInvoice = liveOrder.paymentTerms === 'invoice' && liveOrder.reservationStatus === 'confirmed';
   const isManualReview = liveOrder.paymentStatus === 'manual_review';
   const isFailed = liveOrder.paymentStatus === 'failed';
 
@@ -223,7 +224,7 @@ export default function LipaPaymentModal({
         <div className="bg-[#faeee2] border-b border-[#ebdccb] px-6 py-4 flex items-center justify-between flex-wrap gap-2">
           <div>
             <span className="text-[11px] text-[#746e67] uppercase font-bold tracking-wider">
-              Amount Due
+              {isCompanyInvoice ? 'Amount under company terms' : 'Amount Due'}
             </span>
             <p className="text-2xl font-black text-[#ae002a]">
               {formatCurrency(liveOrder.total, currency)}
@@ -235,7 +236,9 @@ export default function LipaPaymentModal({
               Payment Status
             </span>
             <div className="mt-0.5">
-              {isPaid ? (
+              {isCompanyInvoice ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">INVOICE TERMS CONFIRMED</span>
+              ) : isPaid ? (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-black shadow-sm">
                   <Check size={14} className="stroke-[3]" /> PAID &amp; CONFIRMED
                 </span>
@@ -266,7 +269,14 @@ export default function LipaPaymentModal({
             </div>
           )}
           {/* If Paid: Show Success Celebration Screen */}
-          {isPaid ? (
+          {isCompanyInvoice ? (
+            <div className="space-y-4 py-4 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Check size={34} /></div>
+              <div><h3 className="text-xl font-bold text-[#1f1d1b]">Company order confirmed</h3><p className="mx-auto mt-2 max-w-sm text-xs leading-5 text-[#746e67]">This order is covered by your approved invoice terms. We’ve sent the invoice and order details to your email.</p></div>
+              <div className="mx-auto max-w-sm rounded-xl border border-[#ebdccb] bg-[#fbf6ee] p-4 text-left text-xs"><p><strong>Order:</strong> {liveOrder.orderNumber || liveOrder.id}</p><p className="mt-2"><strong>Fulfillment:</strong> {liveOrder.scheduledFor ? new Date(liveOrder.scheduledFor).toLocaleString() : 'To be arranged'}</p><p className="mt-2"><strong>Amount due:</strong> {formatCurrency(liveOrder.total, currency)}</p></div>
+              <button onClick={onClose} className="rounded-xl bg-[#ae002a] px-6 py-3 text-xs font-bold text-white">Continue</button>
+            </div>
+          ) : isPaid ? (
             <div className="text-center py-6 space-y-4">
               <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
                 <Check size={36} className="stroke-[3]" />

@@ -252,7 +252,13 @@ export default function KDSPage() {
     }
   });
 
-  const active = orders.filter((o) => ['confirmed', 'pending', 'pending_payment', 'preparing', 'ready'].includes(o.status));
+  const active = orders.filter((order) => {
+    if (!['confirmed', 'pending', 'pending_payment', 'preparing', 'ready'].includes(order.status)) return false;
+    if (order.reservationStatus === 'awaiting_payment') return false;
+    if (order.fulfillmentMode === 'roadside_handoff' && !order.kitchenReleasedAt && !['preparing', 'ready'].includes(order.status)) return false;
+    if (order.scheduledReleaseAt && new Date(order.scheduledReleaseAt).getTime() > now) return false;
+    return true;
+  });
 
   // Sound alert check on new confirmed/paid orders
   useEffect(() => {
@@ -267,7 +273,7 @@ export default function KDSPage() {
 
   // Filter orders by station if selected
   const filteredOrders = active.filter((order) => {
-    const isPaid = order.paymentStatus === 'paid' || order.orderType === 'dine-in-postpay';
+    const isPaid = order.paymentStatus === 'paid' || order.orderType === 'dine-in-postpay' || order.paymentTerms === 'invoice';
 
     if (activeStation === 'unpaid') {
       return !isPaid;
