@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { Activity, CheckCircle2, ClipboardCheck, Copy, Edit3, PackageCheck, Plus, Printer, Save, ShieldAlert, Trash2, Utensils } from 'lucide-react';
+import { Activity, CheckCircle2, ClipboardCheck, Copy, PackageCheck, Printer, Save, ShieldAlert, Utensils } from 'lucide-react';
 import PageHeader from '../../components/layout/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
@@ -55,8 +55,8 @@ const roleTabs = {
   admin: allTabs,
   manager: allTabs,
   executive: allTabs,
-  foh: [allTabs[0], allTabs[1], allTabs[2], allTabs[4]],
-  kitchen: [allTabs[0], allTabs[1], allTabs[4]],
+  foh: [allTabs[0], allTabs[2], allTabs[3]],
+  kitchen: [allTabs[0], allTabs[2], allTabs[3]],
 };
 
 const roleChecklistPhases = {
@@ -138,7 +138,7 @@ export default function StaffPlaybookPage() {
   const currentUser = useAuthStore((state) => state.currentUser);
   const role = currentUser?.role || 'manager';
   const tabs = useMemo(() => roleTabs[role] || allTabs, [role]);
-  const [activeTab, setActiveTab] = useState(tabs[0]?.id || 'checklists');
+  const [activeTab, setActiveTab] = useState(tabs[0]?.id || 'workspace');
   const [date, setDate] = useState(today());
   const [checklist, setChecklist] = useState(null);
   const [checklistLoading, setChecklistLoading] = useState(true);
@@ -152,8 +152,6 @@ export default function StaffPlaybookPage() {
   const [stockReportError, setStockReportError] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
-  const [taskEditor, setTaskEditor] = useState(null);
-  const [taskSaving, setTaskSaving] = useState(false);
 
   const loadDailyStockReport = async (reportDate = date) => {
     setStockReportLoading(true);
@@ -300,36 +298,6 @@ export default function StaffPlaybookPage() {
     }
   };
 
-  const saveChecklistTask = async (event) => {
-    event.preventDefault();
-    const label = taskEditor?.label.trim();
-    if (!label) return;
-    setTaskSaving(true);
-    setChecklistError('');
-    try {
-      if (taskEditor.key) await api.updateOperationalChecklistTaskLabel(taskEditor.key, label);
-      else await api.createOperationalChecklistTask(taskEditor.phaseId, label);
-      setChecklist(await api.getOperationalChecklists(date));
-      setTaskEditor(null);
-    } catch (error) {
-      setChecklistError(error.message || 'Unable to save checklist item.');
-    } finally {
-      setTaskSaving(false);
-    }
-  };
-
-  const deleteChecklistTask = async (task) => {
-    if (!window.confirm(`Delete checklist item "${task.label}"?`)) return;
-    setChecklistError('');
-    try {
-      await api.deleteOperationalChecklistTask(task.key);
-      setChecklist(await api.getOperationalChecklists(date));
-      if (taskEditor?.key === task.key) setTaskEditor(null);
-    } catch (error) {
-      setChecklistError(error.message || 'Unable to delete checklist item.');
-    }
-  };
-
   const updateReconciliation = (key, field, value) => setHandover((current) => ({
     ...current,
     reconciliation: { ...current.reconciliation, [key]: { ...current.reconciliation[key], [field]: value, ...(field === 'expected' ? { expectedSource: 'manual' } : {}) } },
@@ -349,16 +317,6 @@ export default function StaffPlaybookPage() {
         opening: match ? String(match.quantity ?? '') : row.opening,
       };
     }),
-  }));
-
-  const addInventoryCount = () => setHandover((current) => ({
-    ...current,
-    inventoryCounts: [...(current.inventoryCounts || []), { clientKey: `new-${Date.now()}-${Math.random()}`, item: '', inventoryId: '', unit: 'units', opening: '', added: '', closing: '', status: 'ok' }],
-  }));
-
-  const removeInventoryCount = (index) => setHandover((current) => ({
-    ...current,
-    inventoryCounts: (current.inventoryCounts || []).filter((_, rowIndex) => rowIndex !== index),
   }));
 
   const saveHandover = async (event) => {
@@ -397,7 +355,6 @@ export default function StaffPlaybookPage() {
   };
 
   const allowedPhaseIds = roleChecklistPhases[role] || roleChecklistPhases.manager;
-  const canManageChecklist = ['admin', 'manager', 'executive'].includes(role);
   const visiblePhases = (checklist?.phases || []).filter((phase) => (
     allowedPhaseIds.includes(phase.id) && shiftChecklistPhases[shift].includes(phase.id)
   ));
@@ -501,32 +458,6 @@ export default function StaffPlaybookPage() {
                   </span>
                 </div>
                 <div className="space-y-2">
-                  {canManageChecklist && (
-                    <div className="mb-3">
-                      <Button type="button" size="sm" variant="secondary" onClick={() => setTaskEditor({ phaseId: phase.id, key: '', label: '' })}>
-                        <Plus size={14} /> Add checklist item
-                      </Button>
-                      {taskEditor?.phaseId === phase.id && (
-                        <form onSubmit={saveChecklistTask} className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-outline-variant p-3">
-                          <label className="min-w-[220px] flex-1 text-xs font-semibold">
-                            Checklist item
-                            <input
-                              autoFocus
-                              maxLength={240}
-                              value={taskEditor.label}
-                              onChange={(event) => setTaskEditor((current) => ({ ...current, label: event.target.value }))}
-                              className="input-field mt-1 w-full"
-                              placeholder="Enter a checklist step"
-                            />
-                          </label>
-                          <Button type="button" size="sm" variant="secondary" onClick={() => setTaskEditor(null)}>Cancel</Button>
-                          <Button type="submit" size="sm" disabled={taskSaving || !taskEditor.label.trim()}>
-                            <Save size={14} /> {taskSaving ? 'Saving…' : taskEditor.key ? 'Save item' : 'Add item'}
-                          </Button>
-                        </form>
-                      )}
-                    </div>
-                  )}
                   {phase.tasks.map((task) => (
                     <div key={task.key} className="flex items-start gap-2 rounded-lg border border-outline-variant/70 p-3 text-sm">
                       <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
@@ -537,12 +468,6 @@ export default function StaffPlaybookPage() {
                         </span>
                         {task.completed && <CheckCircle2 size={16} className="shrink-0 text-green-700" />}
                       </label>
-                      {canManageChecklist && (
-                        <div className="flex shrink-0 items-center gap-1">
-                          <button type="button" onClick={() => setTaskEditor({ phaseId: phase.id, key: task.key, label: task.label })} className="rounded p-1.5 text-surface-on-variant hover:bg-surface-container-low" title="Edit checklist item" aria-label={`Edit checklist item: ${task.label}`}><Edit3 size={14} /></button>
-                          <button type="button" onClick={() => deleteChecklistTask(task)} className="rounded p-1.5 text-error hover:bg-error/10" title="Delete checklist item" aria-label={`Delete checklist item: ${task.label}`}><Trash2 size={14} /></button>
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
@@ -661,7 +586,6 @@ export default function StaffPlaybookPage() {
               <Card className="min-w-0 p-4 sm:p-5">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div><h2 className="font-display font-bold">Stock count</h2><p className="text-xs text-surface-on-variant">Enter a closing count to reconcile live inventory and low-stock alerts.</p></div>
-                  <Button type="button" variant="secondary" size="sm" onClick={addInventoryCount}><Plus size={14} /> Add item</Button>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[760px] text-left text-xs">
@@ -673,14 +597,13 @@ export default function StaffPlaybookPage() {
                         <th className="py-2">Added prep</th>
                         <th className="py-2">Closing</th>
                         <th className="py-2">Status / requisition</th>
-                        <th className="py-2 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {(handover.inventoryCounts || []).map((row, index) => (
                         <tr key={row.clientKey || index} className="border-b border-outline-variant/50">
-                          <td className="py-2 font-semibold"><input list="handover-inventory-items" value={row.item || ''} onChange={(event) => updateInventoryCount(index, 'item', event.target.value)} placeholder="Choose inventory item" className="input-field w-full min-w-[180px]" />{row.closing !== '' && !row.inventoryId && <span className="mt-1 block text-[10px] font-medium text-error">Add this item to inventory before saving its count.</span>}</td>
-                          <td className="py-2"><input value={row.unit || ''} onChange={(event) => updateInventoryCount(index, 'unit', event.target.value)} className="input-field w-20" /></td>
+                          <td className="py-2 font-semibold">{row.item || 'Stock item'}</td>
+                          <td className="py-2">{row.unit || 'units'}</td>
                           {['opening', 'added', 'closing'].map((field) => (
                             <td key={field} className="py-2"><input type="number" min="0" value={row[field] ?? ''} onChange={(event) => updateInventoryCount(index, field, event.target.value)} className="input-field w-24" /></td>
                           ))}
@@ -691,13 +614,11 @@ export default function StaffPlaybookPage() {
                               <option value="prep">Needs prep</option>
                             </select>
                           </td>
-                          <td className="py-2 text-right"><button type="button" onClick={() => removeInventoryCount(index)} className="rounded-lg p-2 text-red-600 hover:bg-red-50" aria-label={`Remove ${row.item || 'stock item'}`}><Trash2 size={14} /></button></td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                <datalist id="handover-inventory-items">{inventoryItems.map((item) => <option key={item.id} value={item.name} />)}</datalist>
               </Card>
 
               <Card className="min-w-0 p-4 sm:p-5">

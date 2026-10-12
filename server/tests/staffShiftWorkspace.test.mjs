@@ -95,13 +95,26 @@ test('staff workspace clocks shifts, reports assigned POS totals, and permits sc
     assert.equal(handover.reconciliation.mobileMoney.expected, 35000);
     assert.equal(handover.reconciliation.cashSales.expectedSource, 'transactions');
 
+    const alteredRosterResponse = await fetch(`${base}/business/shift-handover`, {
+      method: 'PUT', headers: staffHeaders,
+      body: JSON.stringify({ date: businessDate, shift: 'morning', reconciliation: handover.reconciliation, inventoryCounts: [...handover.inventoryCounts, { item: 'Unapproved stock row', unit: 'units', opening: '', added: '', closing: '', status: 'ok' }] }),
+    });
+    assert.equal(alteredRosterResponse.status, 403);
+
+    const staffCountEdits = handover.inventoryCounts.map((row, index) => index === 0 ? { ...row, added: '4' } : row);
+    const staffCountResponse = await fetch(`${base}/business/shift-handover`, {
+      method: 'PUT', headers: staffHeaders,
+      body: JSON.stringify({ date: businessDate, shift: 'morning', reconciliation: handover.reconciliation, inventoryCounts: staffCountEdits }),
+    });
+    assert.equal(staffCountResponse.status, 200);
+
     const manualReconciliation = {
       ...handover.reconciliation,
       cashSales: { ...handover.reconciliation.cashSales, expected: 28000, expectedSource: 'manual' },
     };
     const saveHandoverResponse = await fetch(`${base}/business/shift-handover`, {
       method: 'PUT', headers: staffHeaders,
-      body: JSON.stringify({ date: businessDate, shift: 'morning', reconciliation: manualReconciliation, inventoryCounts: [] }),
+      body: JSON.stringify({ date: businessDate, shift: 'morning', reconciliation: manualReconciliation, inventoryCounts: staffCountEdits }),
     });
     assert.equal(saveHandoverResponse.status, 200);
     const refreshedHandover = await fetch(`${base}/business/shift-handover?date=${businessDate}&shift=morning`, { headers: staffHeaders });

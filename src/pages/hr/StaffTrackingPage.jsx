@@ -5,7 +5,7 @@ import StatCard from '../../components/ui/StatCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Button from '../../components/ui/Button';
 import { api } from '../../api/client';
-import { Users, Clock, AlertTriangle, UserCheck, Trash2, LogIn, LogOut } from 'lucide-react';
+import { Users, Clock, AlertTriangle, UserCheck, Trash2, LogIn, LogOut, ClipboardCheck, Edit3, Plus, Save, X } from 'lucide-react';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import useAuthStore from '../../store/useAuthStore';
 
@@ -22,12 +22,20 @@ export default function StaffTrackingPage({ embedded = false }) {
   const [loading, setLoading] = useState(true);
   const [taskForm, setTaskForm] = useState({ staffId: '', title: '', dueDate: '' });
   const [attendanceEdits, setAttendanceEdits] = useState({});
+  const [checklist, setChecklist] = useState(null);
+  const [checklistForm, setChecklistForm] = useState({ phaseId: '', label: '' });
+  const [checklistEditor, setChecklistEditor] = useState(null);
+  const [checklistSaving, setChecklistSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const currentUser = useAuthStore((state) => state.currentUser);
 
   const load = () => api.getStaffTracking().then(setTracking).catch((requestError) => setError(requestError.message || 'Unable to load staff tracking.')).finally(() => setLoading(false));
+  const loadChecklistDefinitions = () => api.getOperationalChecklists(new Date().toLocaleDateString('en-CA'))
+    .then(setChecklist)
+    .catch((requestError) => setError(requestError.message || 'Unable to load checklist definitions.'));
   useEffect(() => { load(); }, []);
+  useEffect(() => { loadChecklistDefinitions(); }, []);
   useWebSocket((event) => {
     if (event === 'staff:updated') load();
   });
@@ -79,6 +87,45 @@ export default function StaffTrackingPage({ embedded = false }) {
       setError(requestError.message || 'Unable to correct attendance.');
     }
   };
+  const saveChecklistItem = async (event) => {
+    event.preventDefault();
+    const phaseId = checklistForm.phaseId || checklist?.phases?.[0]?.id;
+    const label = checklistForm.label.trim();
+    if (!phaseId || !label) return;
+    setChecklistSaving(true);
+    try {
+      await api.createOperationalChecklistTask(phaseId, label);
+      setChecklistForm({ phaseId, label: '' });
+      await loadChecklistDefinitions();
+    } catch (requestError) {
+      setError(requestError.message || 'Unable to add checklist item.');
+    } finally {
+      setChecklistSaving(false);
+    }
+  };
+  const saveChecklistLabel = async (event) => {
+    event.preventDefault();
+    if (!checklistEditor?.label.trim()) return;
+    setChecklistSaving(true);
+    try {
+      await api.updateOperationalChecklistTaskLabel(checklistEditor.key, checklistEditor.label.trim());
+      setChecklistEditor(null);
+      await loadChecklistDefinitions();
+    } catch (requestError) {
+      setError(requestError.message || 'Unable to update checklist item.');
+    } finally {
+      setChecklistSaving(false);
+    }
+  };
+  const removeChecklistItem = async (task) => {
+    if (!window.confirm(`Delete checklist item "${task.label}"?`)) return;
+    try {
+      await api.deleteOperationalChecklistTask(task.key);
+      await loadChecklistDefinitions();
+    } catch (requestError) {
+      setError(requestError.message || 'Unable to delete checklist item.');
+    }
+  };
   const removeStaff = async (staff) => {
     if (currentUser?.role !== 'admin' || !window.confirm(`Remove ${staff.name} from active staff?`)) return;
     try {
@@ -108,6 +155,24 @@ export default function StaffTrackingPage({ embedded = false }) {
         <StatCard title="Off Clock" value={staffMembers.filter((s) => s.status === 'off-clock').length} icon={Clock} />
         <StatCard title="No Show" value={staffMembers.filter((s) => s.status === 'no-show').length} icon={AlertTriangle} iconColor="red" />
       </div>
+
+      {['admin', 'manager', 'executive'].includes(currentUser?.role) && (
+        <Card className="mb-6">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div><h3 className="flex items-center gap-2 font-display text-sm font-bold"><ClipboardCheck size={16} className="text-primary" />Daily checklist definitions</h3><p className="mt-1 text-xs text-surface-on-variant">Add, rename, or remove shared checklist items here. Staff only record completion in My Shift.</p></div>
+          </div>
+          <form onSubmit={saveChecklistItem} className="mb-4 grid gap-2 sm:grid-cols-[minmax(150px,0.8fr)_1.8fr_auto]">
+            <select aria-label="Checklist phase" required value={checklistForm.phaseId || checklist?.phases?.[0]?.id || ''} onChange={(event) => setChecklistForm({ ...checklistForm, phaseId: event.target.value })} className="input-field"><option value="" disabled>Select phase</option>{(checklist?.phases || []).map((phase) => <option key={phase.id} value={phase.id}>{phase.title}</option>)}</select>
+            <input aria-label="New checklist item" required maxLength={240} value={checklistForm.label} onChange={(event) => setChecklistForm({ ...checklistForm, label: event.target.value })} placeholder="Add a checklist step" className="input-field" />
+            <Button type="submit" size="sm" disabled={checklistSaving || !checklist?.phases?.length}><Plus size={14} />Add item</Button>
+          </form>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {(checklist?.phases || []).map((phase) => <section key={phase.id} className="rounded-lg border border-outline-variant p-3"><h4 className="mb-2 text-xs font-bold">{phase.title}<span className="ml-2 font-normal text-surface-on-variant">{phase.time}</span></h4><div className="space-y-2">{phase.tasks.map((task) => checklistEditor?.key === task.key ? (
+              <form key={task.key} onSubmit={saveChecklistLabel} className="flex items-center gap-2"><input autoFocus required maxLength={240} aria-label="Edit checklist item" value={checklistEditor.label} onChange={(event) => setChecklistEditor({ ...checklistEditor, label: event.target.value })} className="input-field min-w-0 flex-1" /><Button type="submit" size="sm" disabled={checklistSaving} aria-label="Save checklist item"><Save size={14} /></Button><Button type="button" size="sm" variant="secondary" onClick={() => setChecklistEditor(null)} aria-label="Cancel edit"><X size={14} /></Button></form>
+            ) : <div key={task.key} className="flex items-start justify-between gap-2 rounded-md bg-surface-container-low px-2 py-1.5 text-xs"><span className="min-w-0 flex-1">{task.label}</span><div className="flex shrink-0 items-center"><button type="button" onClick={() => setChecklistEditor({ key: task.key, label: task.label })} className="rounded p-1 text-surface-on-variant hover:bg-white" aria-label={`Edit ${task.label}`}><Edit3 size={13} /></button><button type="button" onClick={() => removeChecklistItem(task)} className="rounded p-1 text-error hover:bg-white" aria-label={`Delete ${task.label}`}><Trash2 size={13} /></button></div></div>)}</div></section>)}
+          </div>
+        </Card>
+      )}
 
       <Card>
         <h3 className="font-display font-bold text-sm mb-4">Shift Timeline - Today</h3>

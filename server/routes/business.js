@@ -82,6 +82,15 @@ function parseJson(value, fallback) {
   try { return JSON.parse(value || ''); } catch { return fallback; }
 }
 
+const DEFAULT_HANDOVER_COUNTS = [
+  { item: 'White Bread Rolls', unit: 'loaves', opening: '', added: '', closing: '', status: 'ok' },
+  { item: 'Cheese & Herbs Rolls', unit: 'loaves', opening: '', added: '', closing: '', status: 'ok' },
+  { item: 'Chicken Tandoori Prep', unit: 'kg', opening: '', added: '', closing: '', status: 'ok' },
+  { item: 'House Steak Prep', unit: 'kg', opening: '', added: '', closing: '', status: 'ok' },
+  { item: 'Jute Pouches & Coasters', unit: 'units', opening: '', added: '', closing: '', status: 'ok' },
+  { item: 'NFC Loyalty Tags / Cards', unit: 'cards', opening: '', added: '', closing: '', status: 'ok' },
+];
+
 function getShiftTransactionTotals(date, shift) {
   const { start, end } = restaurantDateBounds(date);
   const shiftName = shift === 'evening' ? '%evening%' : '%morning%';
@@ -268,14 +277,7 @@ router.get('/shift-handover', authMiddleware, (req, res) => {
       mobileMoney: { expected: '', actual: '' },
       nfc: { expected: '', actual: '' },
     },
-    inventoryCounts: [
-      { item: 'White Bread Rolls', unit: 'loaves', opening: '', added: '', closing: '', status: 'ok' },
-      { item: 'Cheese & Herbs Rolls', unit: 'loaves', opening: '', added: '', closing: '', status: 'ok' },
-      { item: 'Chicken Tandoori Prep', unit: 'kg', opening: '', added: '', closing: '', status: 'ok' },
-      { item: 'House Steak Prep', unit: 'kg', opening: '', added: '', closing: '', status: 'ok' },
-      { item: 'Jute Pouches & Coasters', unit: 'units', opening: '', added: '', closing: '', status: 'ok' },
-      { item: 'NFC Loyalty Tags / Cards', unit: 'cards', opening: '', added: '', closing: '', status: 'ok' },
-    ],
+    inventoryCounts: DEFAULT_HANDOVER_COUNTS.map((item) => ({ ...item })),
     notes: '',
   };
   handover.reconciliation = mergeTransactionExpectations(handover.reconciliation, getShiftTransactionTotals(date, shift));
@@ -301,6 +303,15 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
     inventoryId: row?.inventoryId ? Number(row.inventoryId) : null,
     closing: row?.closing === '' || row?.closing == null ? '' : Number(row.closing),
   }));
+  if (!['admin', 'manager', 'executive'].includes(req.user?.role)) {
+    const savedRecord = db.prepare('SELECT inventory_counts_json FROM shift_handover_records WHERE shift_date = ? AND shift = ?').get(date, shift);
+    const existingCounts = savedRecord ? parseJson(savedRecord.inventory_counts_json, DEFAULT_HANDOVER_COUNTS) : DEFAULT_HANDOVER_COUNTS;
+    const rosterUnchanged = normalizedCounts.length === existingCounts.length && normalizedCounts.every((row, index) => (
+      row.item.toLowerCase() === String(existingCounts[index]?.item || '').trim().toLowerCase()
+      && row.unit.toLowerCase() === String(existingCounts[index]?.unit || '').trim().toLowerCase()
+    ));
+    if (!rosterUnchanged) return res.status(403).json({ error: 'Only managers can change the stock count item list.' });
+  }
   if (normalizedCounts.some((row) => row.closing !== '' && (!row.item || !Number.isFinite(row.closing) || row.closing < 0))) {
     return res.status(400).json({ error: 'Closing stock counts need an item and a valid non-negative quantity.' });
   }
