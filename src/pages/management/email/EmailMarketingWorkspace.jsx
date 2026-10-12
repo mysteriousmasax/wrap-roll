@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, FileText, Mail, Send, Settings2, Users, Workflow } from 'lucide-react';
+import { Activity, BarChart3, FileText, Mail, Send, Settings2, Users, Workflow } from 'lucide-react';
 import PageHeader from '../../../components/layout/PageHeader';
 import Card from '../../../components/ui/Card';
 import { api } from '../../../api/client';
@@ -9,10 +9,12 @@ import EmailAutomationsPanel from './EmailAutomationsPanel';
 import EmailTemplatesPanel from './EmailTemplatesPanel';
 import EmailDeliveriesPanel from './EmailDeliveriesPanel';
 import EmailSetupPanel from './EmailSetupPanel';
+import TeamEmailDigestPanel from '../TeamEmailDigestPanel';
 import useAuthStore from '../../../store/useAuthStore';
 
 const tabs = [
   { id: 'overview', label: 'Overview', Icon: Activity },
+  { id: 'reports', label: 'Staff reports', Icon: BarChart3 },
   { id: 'campaigns', label: 'Campaigns', Icon: Send },
   { id: 'audience', label: 'Audience', Icon: Users },
   { id: 'automations', label: 'Automations', Icon: Workflow },
@@ -117,6 +119,7 @@ export default function EmailMarketingWorkspace() {
         {tabs.map(({ id, label, Icon }) => <button key={id} onClick={() => setActiveTab(id)} className={`flex min-w-0 items-center justify-center gap-2 border-b-2 px-2 py-3 text-[11px] font-bold sm:shrink-0 sm:justify-start sm:px-3 sm:text-xs ${activeTab === id ? 'border-primary text-primary' : 'border-transparent text-surface-on-variant hover:text-surface-on'}`}><Icon size={15} />{label}</button>)}
       </nav>
       {activeTab === 'overview' && <Overview overview={overview} campaigns={campaigns} onNavigate={setActiveTab} />}
+      {activeTab === 'reports' && <TeamEmailDigestPanel />}
       {activeTab === 'campaigns' && <EmailCampaignsPanel campaigns={campaigns} onReport={report} />}
       {activeTab === 'audience' && <EmailAudiencePanel onReport={report} />}
       {activeTab === 'automations' && <EmailAutomationsPanel onReport={report} />}

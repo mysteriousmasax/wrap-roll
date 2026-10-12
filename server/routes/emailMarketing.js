@@ -7,6 +7,7 @@ import { buildCampaignBody, buildCampaignSubject, plainTextToHtml, selectAudienc
 import { getEmailProvider, isEmailDeliveryConfigured, isResendConfigured, publicEmailUrl, sendEmail, senderSummary, verifyEmailToken, verifyEmailDelivery } from '../utils/emailDelivery.js';
 import { enrollSubscriberForAutomations } from '../utils/emailAutomationWorker.js';
 import { processEmailCampaign, sendCampaignTest } from '../utils/emailCampaignService.js';
+import { buildTeamDigestReport, getTeamDigestConfig, getTeamDigestStaff, saveTeamDigestConfig, sendTeamDigest } from '../utils/teamEmailDigest.js';
 
 const router = Router();
 const adminRoles = ['admin', 'manager', 'executive'];
@@ -316,6 +317,37 @@ router.get('/overview', authMiddleware, requireRole(...adminRoles), (req, res) =
     delivery: { sent: Number(delivery.sent || 0), opened: Number(delivery.opened || 0), clicked: Number(delivery.clicked || 0), failed: Number(delivery.failed || 0) },
     ...senderSummary(),
   });
+});
+
+router.get('/team-digest', authMiddleware, requireRole(...adminRoles), (req, res) => {
+  const frequency = String(req.query.frequency || 'daily');
+  try {
+    res.json({
+      config: getTeamDigestConfig(),
+      staff: getTeamDigestStaff(),
+      report: buildTeamDigestReport(frequency),
+      smtpConfigured: isEmailDeliveryConfigured(),
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to build the team report preview.' });
+  }
+});
+
+router.put('/team-digest', authMiddleware, requireRole(...adminRoles), (req, res) => {
+  try {
+    res.json({ config: saveTeamDigestConfig(req.body || {}) });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to save team report settings.' });
+  }
+});
+
+router.post('/team-digest/send', authMiddleware, requireRole(...adminRoles), async (req, res) => {
+  try {
+    const result = await sendTeamDigest(String(req.body?.frequency || ''), { force: true });
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to send the team report.' });
+  }
 });
 
 router.get('/subscribers', authMiddleware, requireRole(...adminRoles), (req, res) => {

@@ -101,6 +101,38 @@ function getCurrentPeriodRevenue(start, end) {
   return db.prepare("SELECT COALESCE(SUM(total), 0) AS revenue, COUNT(*) AS orders FROM orders WHERE created_at >= ? AND created_at < ? AND status = 'completed' AND payment_status IN ('paid', 'completed')").get(start, end);
 }
 
+function getIngredientUsage(reportDate) {
+  const fulfilledItems = db.prepare(`
+    SELECT oi.name AS menuItem, oi.qty, oi.ingredients, o.order_type
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    WHERE substr(o.fulfillment_effects_applied_at, 1, 10) = ?
+  `).all(reportDate);
+  const usage = new Map();
+
+  for (const orderItem of fulfilledItems) {
+    for (const ingredient of parseJson(orderItem.ingredients, [])) {
+      if (!ingredient || typeof ingredient !== 'object') continue;
+      if (ingredient.takeoutOnly && !['takeout', 'delivery'].includes(orderItem.order_type)) continue;
+      const inventoryId = Number(ingredient.inventoryId ?? ingredient.inventory_id ?? ingredient.id ?? 0);
+      const name = String(ingredient.inventoryName || ingredient.inventory_name || ingredient.name || ingredient.item || '').trim();
+      const amount = Number(ingredient.quantity ?? ingredient.amount ?? 0) * Number(orderItem.qty || 0);
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+
+      let inventoryItem = inventoryId ? db.prepare('SELECT id, name, unit FROM inventory WHERE id = ?').get(inventoryId) : null;
+      if (!inventoryItem && name) {
+        inventoryItem = db.prepare('SELECT id, name, unit FROM inventory WHERE lower(trim(name)) = lower(trim(?)) ORDER BY id DESC LIMIT 1').get(name);
+      }
+      if (!inventoryItem) continue;
+      const row = usage.get(inventoryItem.id) || { inventoryId: inventoryItem.id, ingredient: inventoryItem.name, unit: inventoryItem.unit || ingredient.unit || '', quantity: 0 };
+      row.quantity += amount;
+      usage.set(inventoryItem.id, row);
+    }
+  }
+
+  return [...usage.values()].sort((left, right) => left.ingredient.localeCompare(right.ingredient));
+}
+
 function getOperationalSummaries(requestedDate = '') {
   const now = new Date();
   const latestOrderDay = db.prepare("SELECT MAX(substr(created_at, 1, 10)) AS day FROM orders WHERE status = 'completed' AND payment_status IN ('paid', 'completed')").get()?.day;
@@ -117,8 +149,8 @@ function getOperationalSummaries(requestedDate = '') {
     ORDER BY expense_date DESC, id DESC LIMIT 7
   `).all(weekStartValue);
   const dailySales = db.prepare(`
-    SELECT oi.name AS item, SUM(oi.qty) AS quantity, SUM(oi.qty * oi.price) AS total,
-      MAX(oi.price) AS price, COALESCE(i.quantity, 0) AS closingStock,
+    SELECT oi.name AS item, oi.modifiers, SUM(oi.qty) AS quantity, SUM(oi.qty * oi.price) AS total,
+      oi.price AS price, COALESCE(i.quantity, 0) AS closingStock,
       COALESCE(i.quantity, 0) + SUM(oi.qty) AS openingStock,
       GROUP_CONCAT(DISTINCT COALESCE(u.name, CASE WHEN o.order_source = 'website' THEN 'Website customer' ELSE 'POS till' END)) AS checkedBy
     FROM order_items oi
@@ -126,7 +158,7 @@ function getOperationalSummaries(requestedDate = '') {
     LEFT JOIN users u ON u.id = o.staff_id
     LEFT JOIN inventory i ON LOWER(TRIM(i.name)) = LOWER(TRIM(oi.name))
     WHERE substr(o.created_at, 1, 10) = ? AND o.status = 'completed' AND o.payment_status IN ('paid', 'completed')
-    GROUP BY oi.name, i.quantity
+    GROUP BY oi.name, oi.price, oi.modifiers, i.quantity
     ORDER BY total DESC LIMIT 24
   `).all(reportDate);
   const savedPetty = db.prepare("SELECT payload, checked_by_name, approved_by_name FROM operational_summaries WHERE summary_type = 'petty_cash' AND report_date = ?").get(reportDate);
@@ -136,10 +168,26 @@ function getOperationalSummaries(requestedDate = '') {
   const pettyRows = parseSaved(savedPetty)?.rows;
   const stockRows = db.prepare("SELECT inventory_counts_json FROM shift_handover_records WHERE shift_date = ?").all(reportDate).flatMap((row) => parseJson(row.inventory_counts_json, []));
   const stockSummary = parseSaved(savedStock) || calculateDailyStockSummary(stockRows, { inventory: db.prepare('SELECT name, unit_cost FROM inventory WHERE deleted_at IS NULL').all() });
-  const liveDailyRows = dailySales.map((row, index) => ({ id: `${reportDate}-${index}`, date: reportDate, item: row.item, quantity: Number(row.quantity || 0), openingStock: Number(row.openingStock || 0), closingStock: Number(row.closingStock || 0), price: Number(row.price || 0), difference: Number(row.openingStock || 0) - Number(row.closingStock || 0), total: Number(row.total || 0), checkedBy: row.checkedBy || 'System', remarks: 'Live order activity' }));
+  const liveDailyRows = dailySales.map((row, index) => {
+    const modifiers = parseJson(row.modifiers, []).map((modifier) => typeof modifier === 'string' ? modifier : modifier.name).filter(Boolean);
+    return {
+      id: `${reportDate}-${index}`,
+      date: reportDate,
+      item: modifiers.length ? `${row.item} (${modifiers.join(', ')})` : row.item,
+      quantity: Number(row.quantity || 0),
+      openingStock: Number(row.openingStock || 0),
+      closingStock: Number(row.closingStock || 0),
+      price: Number(row.price || 0),
+      difference: Number(row.openingStock || 0) - Number(row.closingStock || 0),
+      total: Number(row.total || 0),
+      checkedBy: row.checkedBy || 'System',
+      remarks: 'Live order activity',
+    };
+  });
   return {
     pettyCash: pettyRows || pettyCash.map((row, index) => ({ id: row.id, item: row.item, rate: Number(row.total || 0), quantity: 1, total: Number(row.total || 0), date: row.date, remarks: row.remarks || row.paymentMethod || 'Cash expense', checkedBy: row.created_by || 'System', rowNumber: index + 1 })),
     dailySales: liveDailyRows,
+    ingredientUsage: getIngredientUsage(reportDate),
     dailyStock: stockSummary,
     pettyCashTotal: (pettyRows || pettyCash).reduce((sum, row) => sum + (Number(row.total) || (Number(row.rate) || 0) * (Number(row.quantity) || 0)), 0),
     dailySalesTotal: liveDailyRows.reduce((sum, row) => sum + Number(row.total || 0), 0),

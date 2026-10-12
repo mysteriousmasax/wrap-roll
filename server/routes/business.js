@@ -4,7 +4,7 @@ import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
 import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/deletionPolicy.js';
-import { restaurantTime } from '../utils/localTime.js';
+import { restaurantDateBounds, restaurantTime } from '../utils/localTime.js';
 
 const router = Router();
 
@@ -80,6 +80,39 @@ function businessDate(value) {
 
 function parseJson(value, fallback) {
   try { return JSON.parse(value || ''); } catch { return fallback; }
+}
+
+function getShiftTransactionTotals(date, shift) {
+  const { start, end } = restaurantDateBounds(date);
+  const shiftName = shift === 'evening' ? '%evening%' : '%morning%';
+  const staffUsers = db.prepare(`SELECT user_id FROM staff
+    WHERE user_id IS NOT NULL AND status != 'removed' AND lower(shift) LIKE ?`).all(shiftName).map((row) => row.user_id);
+  const totals = { cashSales: 0, mobileMoney: 0, nfc: 0 };
+  if (!staffUsers.length) return totals;
+  const placeholders = staffUsers.map(() => '?').join(',');
+  const transactions = db.prepare(`SELECT lower(payment_method) AS method, COALESCE(SUM(total), 0) AS amount
+    FROM orders
+    WHERE created_at >= ? AND created_at < ? AND status != 'cancelled'
+      AND payment_status IN ('paid', 'completed') AND payment_method IS NOT NULL
+      AND lower(order_source) = 'pos' AND staff_id IN (${placeholders})
+    GROUP BY lower(payment_method)`).all(start, end, ...staffUsers);
+  for (const transaction of transactions) {
+    const method = transaction.method || '';
+    const key = method.includes('cash') ? 'cashSales' : method.includes('nfc') ? 'nfc' : 'mobileMoney';
+    totals[key] += Number(transaction.amount || 0);
+  }
+  return totals;
+}
+
+function mergeTransactionExpectations(reconciliation, totals) {
+  const merged = { ...reconciliation };
+  for (const [key, expected] of Object.entries(totals)) {
+    const row = { ...(merged[key] || { actual: '', notes: '' }) };
+    if (row.expectedSource !== 'manual') row.expected = expected;
+    row.expectedSource = row.expectedSource === 'manual' ? 'manual' : 'transactions';
+    merged[key] = row;
+  }
+  return merged;
 }
 
 function monthBounds() {
@@ -220,7 +253,7 @@ router.get('/shift-handover', authMiddleware, (req, res) => {
   const date = businessDate(req.query.date) || restaurantTime().date;
   const shift = ['morning', 'evening'].includes(req.query.shift) ? req.query.shift : 'morning';
   const row = db.prepare('SELECT * FROM shift_handover_records WHERE shift_date = ? AND shift = ?').get(date, shift);
-  res.json(row ? {
+  const handover = row ? {
     ...row,
     reconciliation: parseJson(row.reconciliation_json, {}),
     inventoryCounts: parseJson(row.inventory_counts_json, []),
@@ -244,7 +277,9 @@ router.get('/shift-handover', authMiddleware, (req, res) => {
       { item: 'NFC Loyalty Tags / Cards', unit: 'cards', opening: '', added: '', closing: '', status: 'ok' },
     ],
     notes: '',
-  });
+  };
+  handover.reconciliation = mergeTransactionExpectations(handover.reconciliation, getShiftTransactionTotals(date, shift));
+  res.json(handover);
 });
 
 router.put('/shift-handover', authMiddleware, (req, res) => {
@@ -259,18 +294,74 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
   const managerOut = String(req.body?.managerOut || '').trim();
   const managerIn = String(req.body?.managerIn || '').trim();
   const reconciliation = JSON.stringify(req.body.reconciliation);
-  const inventoryCounts = JSON.stringify(req.body.inventoryCounts);
+  const normalizedCounts = req.body.inventoryCounts.map((row) => ({
+    ...row,
+    item: String(row?.item || '').trim(),
+    unit: String(row?.unit || 'units').trim(),
+    inventoryId: row?.inventoryId ? Number(row.inventoryId) : null,
+    closing: row?.closing === '' || row?.closing == null ? '' : Number(row.closing),
+  }));
+  if (normalizedCounts.some((row) => row.closing !== '' && (!row.item || !Number.isFinite(row.closing) || row.closing < 0))) {
+    return res.status(400).json({ error: 'Closing stock counts need an item and a valid non-negative quantity.' });
+  }
   const notes = String(req.body?.notes || '').trim();
-  db.prepare(`INSERT INTO shift_handover_records
-    (shift_date, shift, manager_out, manager_in, reconciliation_json, inventory_counts_json, notes, created_by, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(shift_date, shift) DO UPDATE SET
-      manager_out = excluded.manager_out, manager_in = excluded.manager_in,
-      reconciliation_json = excluded.reconciliation_json, inventory_counts_json = excluded.inventory_counts_json,
-      notes = excluded.notes, created_by = excluded.created_by, updated_at = excluded.updated_at`)
-    .run(date, shift, managerOut, managerIn, reconciliation, inventoryCounts, notes, req.user?.name || req.user?.username || 'Staff', now, now);
+  const updatedInventoryIds = [];
+  try {
+    const saveHandover = db.transaction(() => {
+      const seenInventoryIds = new Set();
+      for (const row of normalizedCounts) {
+        if (row.closing === '') continue;
+        const item = row.inventoryId
+          ? db.prepare('SELECT * FROM inventory WHERE id = ? AND COALESCE(deleted_at, \'\') = \'\'').get(row.inventoryId)
+          : db.prepare(`SELECT * FROM inventory WHERE lower(trim(name)) = lower(?) AND lower(trim(unit)) = lower(?)
+            AND COALESCE(deleted_at, '') = '' ORDER BY id LIMIT 1`).get(row.item, row.unit);
+        if (!item) throw new Error(`Add “${row.item}” to inventory before reconciling its closing count.`);
+        if (seenInventoryIds.has(item.id)) throw new Error(`${row.item} appears more than once in this handover.`);
+        seenInventoryIds.add(item.id);
+        if (Number(item.quantity) !== row.closing) {
+          db.prepare('UPDATE inventory SET quantity = ? WHERE id = ?').run(row.closing, item.id);
+          db.prepare(`INSERT INTO inventory_audit
+            (inventory_id, action, changed_by_id, changed_by_name, changed_by_role, changes, created_at)
+            VALUES (?, 'updated', ?, ?, ?, ?, ?)`).run(
+            item.id,
+            req.user?.id ?? null,
+            req.user?.name || req.user?.username || 'Staff',
+            req.user?.role || 'staff',
+            JSON.stringify({
+              quantity: { from: item.quantity, to: row.closing },
+              reason: { from: null, to: `${shift} shift handover stock count` },
+            }),
+            now
+          );
+          if (Number(item.quantity) > Number(item.threshold || 0) && row.closing <= Number(item.threshold || 0)) {
+            db.prepare(`INSERT INTO notifications (type, title, message, read, created_at, audience_role)
+              VALUES ('warning', ?, ?, 0, ?, 'manager')`).run(
+              `Low stock: ${item.name}`,
+              `${item.name} was counted at ${row.closing} ${item.unit || ''} during ${shift} shift handover. Reorder threshold: ${item.threshold}.`,
+              now
+            );
+          }
+          updatedInventoryIds.push(item.id);
+        }
+        row.inventoryId = item.id;
+        row.unit = item.unit || row.unit;
+      }
+      db.prepare(`INSERT INTO shift_handover_records
+        (shift_date, shift, manager_out, manager_in, reconciliation_json, inventory_counts_json, notes, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(shift_date, shift) DO UPDATE SET
+          manager_out = excluded.manager_out, manager_in = excluded.manager_in,
+          reconciliation_json = excluded.reconciliation_json, inventory_counts_json = excluded.inventory_counts_json,
+          notes = excluded.notes, created_by = excluded.created_by, updated_at = excluded.updated_at`)
+        .run(date, shift, managerOut, managerIn, reconciliation, JSON.stringify(normalizedCounts), notes, req.user?.name || req.user?.username || 'Staff', now, now);
+    });
+    saveHandover();
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'Shift handover could not be saved.' });
+  }
   broadcast('business:updated', { type: 'shift_handover_saved', date, shift });
-  res.json({ date, shift, managerOut, managerIn, reconciliation: req.body.reconciliation, inventoryCounts: req.body.inventoryCounts, notes, updatedAt: now });
+  if (updatedInventoryIds.length) broadcast('inventory:updated', { action: 'handover-counted', items: updatedInventoryIds });
+  res.json({ date, shift, managerOut, managerIn, reconciliation: req.body.reconciliation, inventoryCounts: normalizedCounts, notes, updatedAt: now, updatedInventoryItems: updatedInventoryIds.length });
 });
 
 router.get('/expenses', authMiddleware, (_req, res) => {

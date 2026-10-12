@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { LocateFixed, MapPin, Search, LoaderCircle } from 'lucide-react';
 import { CircleMarker, MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { formatGooglePlace, hasGoogleMapsKey, loadGoogleMaps, reverseGoogleGeocode } from '../../lib/googleMaps';
+import { formatGooglePlace, loadGoogleMaps, reverseGoogleGeocode } from '../../lib/googleMaps';
 
 const DEFAULT_CENTER = { lat: -6.7594617, lng: 39.2517226 };
 
@@ -111,7 +111,7 @@ export default function DeliveryLocationPicker({ value, latitude, longitude, onC
       service.getPlacePredictions({ input: query, componentRestrictions: { country: 'tz' }, locationBias: { center: DEFAULT_CENTER, radius: 50000 } }, (results, status) => { setSuggestions(status === window.google.maps.places.PlacesServiceStatus.OK ? results || [] : []); setSearching(false); });
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [query, mapReady]);
+  }, [query, mapReady, mapError]);
 
   const chooseSuggestion = (suggestion) => {
     if (suggestion.fallback) return selectCoordinates(suggestion.lat, suggestion.lon);
@@ -154,11 +154,10 @@ export default function DeliveryLocationPicker({ value, latitude, longitude, onC
       <div className="relative overflow-hidden rounded-xl border border-outline-variant">
         {mapReady ? <div ref={mapElement} className="h-52 w-full" /> : <FallbackMap selectedPoint={selectedPoint} onSelect={selectCoordinates} />}
         {!mapReady && !mapError && <div className="absolute inset-0 flex items-center justify-center bg-surface-container-low/60 text-xs text-surface-on-variant">Loading Google Maps...</div>}
-        {mapError && <p className="absolute left-2 top-2 z-[500] rounded bg-white/90 px-2 py-1 text-[10px] text-surface-on-variant shadow">Google Maps unavailable, using OpenStreetMap</p>}
+        {mapError && <p className="absolute left-2 top-2 z-[500] rounded bg-white/90 px-2 py-1 text-[10px] text-surface-on-variant shadow">Using OpenStreetMap for delivery location selection</p>}
         <button type="button" onClick={useCurrentLocation} disabled={locating} className="absolute bottom-2 right-2 z-[400] inline-flex items-center gap-1.5 rounded-lg border border-outline-variant bg-white px-2.5 py-2 text-xs font-bold text-primary shadow-md hover:bg-surface-container-low disabled:opacity-60"><LocateFixed size={14} /> {locating ? 'Locating...' : 'Use my location'}</button>
       </div>
-      {!hasGoogleMapsKey() && <p className="text-xs text-error">Google Maps is not configured. Add the local API key to the environment.</p>}
-      <p className="text-[11px] leading-snug text-surface-on-variant">Choose a Google Maps suggestion or tap the map to pin the exact drop-off point.</p>
+      <p className="text-[11px] leading-snug text-surface-on-variant">{mapReady ? 'Choose a Google Maps suggestion or tap the map to pin the exact drop-off point.' : 'Search for a street or landmark, or tap the map to pin the exact drop-off point.'}</p>
     </div>
   );
 }

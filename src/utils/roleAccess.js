@@ -54,6 +54,9 @@ export function normalizeUserRole(role) {
 
   const aliases = {
     admin: 'admin',
+    'super admin': 'admin',
+    superadmin: 'admin',
+    'super administrator': 'admin',
     owner: 'admin',
     manager: 'manager',
     executive: 'executive',
@@ -111,10 +114,12 @@ export function getRolePageAccess(input = {}) {
 
 export function getUserPageAccess(user = {}) {
   const role = normalizeUserRole(user.role);
-  const explicit = normalizePageAccess(user.pageAccess ?? user.page_access ?? []);
-  if (explicit.length > 0) {
-    return expandImpliedPageAccess(explicit);
-  }
+  if (role === 'admin') return [...ROUTE_ACCESS.admin];
+
+  const hasExplicitAccess = Object.prototype.hasOwnProperty.call(user, 'pageAccess')
+    || Object.prototype.hasOwnProperty.call(user, 'page_access');
+  if (hasExplicitAccess) return expandImpliedPageAccess(normalizePageAccess(user.pageAccess ?? user.page_access));
+
   return getRolePageAccess({ role, pageAccess: [] });
 }
 

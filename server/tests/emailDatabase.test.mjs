@@ -27,6 +27,7 @@ test('email schema upgrades an existing database with consent and automation tab
     assert.ok(tables.has('email_automation_enrollments'));
     assert.ok(tables.has('email_automation_events'));
     assert.ok(tables.has('email_webhook_events'));
+    assert.ok(tables.has('team_email_digest_deliveries'));
     assert.ok(orderColumns.has('customer_type'));
     assert.ok(orderColumns.has('company_name'));
     assert.ok(orderColumns.has('customer_tin'));

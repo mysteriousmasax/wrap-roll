@@ -60,6 +60,16 @@ function StaffForm({ form, setForm, editStaff, formError, onSave, label, roleOpt
           {shiftOptions.map((shift) => <option key={shift} value={shift}>{shift}</option>)}
         </select>
       </div>
+      <section className="rounded-lg border border-outline-variant p-3">
+        <h3 className="mb-1 text-xs font-bold uppercase text-surface-on-variant">Shift attendance schedule</h3>
+        <p className="mb-3 text-[11px] text-surface-on-variant">Used to flag late arrivals and calculate overtime at clock-out.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="text-xs font-semibold">Morning clock-in<input type="time" value={form.morningStartTime || ''} onChange={(event) => setForm({ ...form, morningStartTime: event.target.value })} className="input-field mt-1 w-full" /></label>
+          <label className="text-xs font-semibold">Morning clock-out<input type="time" value={form.morningEndTime || ''} onChange={(event) => setForm({ ...form, morningEndTime: event.target.value })} className="input-field mt-1 w-full" /></label>
+          <label className="text-xs font-semibold">Evening clock-in<input type="time" value={form.eveningStartTime || ''} onChange={(event) => setForm({ ...form, eveningStartTime: event.target.value })} className="input-field mt-1 w-full" /></label>
+          <label className="text-xs font-semibold">Evening clock-out<input type="time" value={form.eveningEndTime || ''} onChange={(event) => setForm({ ...form, eveningEndTime: event.target.value })} className="input-field mt-1 w-full" /></label>
+        </div>
+      </section>
       <div>
         <label className="block text-xs font-semibold text-surface-on-variant uppercase mb-1.5">Page Access</label>
         <div className="grid grid-cols-2 gap-2 rounded-xl border border-outline-variant bg-surface-container-low p-2">
@@ -94,7 +104,7 @@ export default function StaffListPage({ embedded = false }) {
   const [staffMembers, setStaffMembers] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [editStaff, setEditStaff] = useState(null);
-  const [form, setForm] = useState({ name: '', role: 'foh', shift: 'Morning', phone: '', username: '', email: '', password: '', pageAccess: [] });
+  const [form, setForm] = useState({ name: '', role: 'foh', shift: 'Morning', phone: '', username: '', email: '', password: '', morningStartTime: '', morningEndTime: '', eveningStartTime: '', eveningEndTime: '', pageAccess: [] });
   const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -125,7 +135,7 @@ export default function StaffListPage({ embedded = false }) {
     try {
       await api.createStaff(form);
       setShowAdd(false);
-      setForm({ name: '', role: 'foh', shift: 'Morning', phone: '', username: '', email: '', password: '', pageAccess: [] });
+      setForm({ name: '', role: 'foh', shift: 'Morning', phone: '', username: '', email: '', password: '', morningStartTime: '', morningEndTime: '', eveningStartTime: '', eveningEndTime: '', pageAccess: [] });
       load();
     } catch (error) {
       setFormError(error instanceof ApiError ? error.message : 'Unable to add staff member. Please try again.');
@@ -147,7 +157,7 @@ export default function StaffListPage({ embedded = false }) {
 
   const openEdit = (staff) => {
     const normalizedPages = Array.isArray(staff.pageAccess) ? staff.pageAccess : [];
-    setForm({ name: staff.name, role: staff.role, shift: staff.shift, phone: staff.phone || '', username: staff.username || staff.name.toLowerCase().replace(/[^a-z0-9]+/g, '.'), email: staff.email || '', password: '', pageAccess: normalizedPages });
+    setForm({ name: staff.name, role: staff.role, shift: staff.shift, phone: staff.phone || '', username: staff.username || staff.name.toLowerCase().replace(/[^a-z0-9]+/g, '.'), email: staff.email || '', password: '', morningStartTime: staff.morningStartTime || '', morningEndTime: staff.morningEndTime || '', eveningStartTime: staff.eveningStartTime || '', eveningEndTime: staff.eveningEndTime || '', pageAccess: normalizedPages });
     setFormError('');
     setEditStaff(staff);
   };

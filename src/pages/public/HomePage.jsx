@@ -1011,6 +1011,22 @@ export default function HomePage() {
                   <p className="text-xs text-[#746e67] line-clamp-2 mt-1 leading-relaxed">
                     {item.description}
                   </p>
+                  {item.variants?.length > 0 && (
+                    <div
+                      aria-label={`Available sizes: ${item.variants.map((variant) => variant.name).join(', ')}`}
+                      className="mt-2 flex flex-wrap gap-1.5"
+                    >
+                      {item.variants.map((variant, index) => (
+                        <span
+                          key={`${variant.menuItemId || variant.name}-${index}`}
+                          className="inline-flex items-center gap-1 rounded-lg border border-[#ebdccb] bg-[#fffaf3] px-2 py-1 text-[10px] leading-tight text-[#554e46]"
+                        >
+                          <span className="font-semibold">{variant.name}</span>
+                          <span className="text-[#ae002a]">{formatCurrency(variant.price, displayCurrency)}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between pt-2 border-t border-[#f3ebde]">

@@ -11,12 +11,13 @@ function parseIngredients(value) {
   }
 }
 
-function deductInventory(menuItemId, itemName, ingredients, qty, now) {
+function deductInventory(menuItemId, itemName, ingredients, qty, orderType, now) {
   if (!menuItemId) return;
   const menuItem = db.prepare('SELECT id, name FROM menu_items WHERE id = ?').get(menuItemId);
   if (!menuItem) return;
   for (const ingredient of parseIngredients(ingredients)) {
     if (!ingredient || typeof ingredient !== 'object') continue;
+    if (ingredient.takeoutOnly && !['takeout', 'delivery'].includes(orderType)) continue;
     const inventoryId = ingredient.inventoryId ?? ingredient.inventory_id ?? ingredient.id ?? null;
     const name = String(ingredient.inventoryName || ingredient.inventory_name || ingredient.name || ingredient.item || '').trim();
     const amount = Number(ingredient.quantity ?? ingredient.amount ?? 0);
@@ -35,10 +36,12 @@ function deductInventory(menuItemId, itemName, ingredients, qty, now) {
         quantity: { from: inventoryItem.quantity, to: nextQuantity },
         reason: { from: null, to: `Order fulfillment for ${itemName || menuItem.name}` },
       }), now);
-    if (nextQuantity === 0 && Number(inventoryItem.quantity) < amount * qty) {
+    const crossedLowStockThreshold = Number(inventoryItem.quantity) > Number(inventoryItem.threshold || 0)
+      && nextQuantity <= Number(inventoryItem.threshold || 0);
+    if (crossedLowStockThreshold) {
       db.prepare(`INSERT INTO notifications (type, title, message, read, created_at, audience_role)
         VALUES ('warning', ?, ?, 0, ?, 'manager')`)
-        .run(`Low stock: ${inventoryItem.name}`, `${inventoryItem.name} ran out while preparing ${menuItem.name}. Reconcile inventory.`, now);
+        .run(`Low stock: ${inventoryItem.name}`, `${inventoryItem.name} is at ${nextQuantity} ${inventoryItem.unit || ''} after preparing ${menuItem.name}. Reorder threshold: ${inventoryItem.threshold}.`, now);
     }
     broadcast('inventory:updated', { itemId: inventoryItem.id, action: 'order-deducted', shortfall: nextQuantity === 0 });
   }
@@ -57,7 +60,7 @@ export function applyOrderFulfillmentEffects(orderId, { allowInvoiceTerms = fals
 
     if (!order.fulfillment_effects_applied_at) {
       const items = db.prepare('SELECT menu_item_id, name, qty, ingredients FROM order_items WHERE order_id = ?').all(orderId);
-      for (const item of items) deductInventory(item.menu_item_id, item.name, item.ingredients, Number(item.qty), now);
+      for (const item of items) deductInventory(item.menu_item_id, item.name, item.ingredients, Number(item.qty), order.order_type, now);
 
       if (order.customer_id) {
         const favoriteItems = items.map((item) => item.name).filter(Boolean);

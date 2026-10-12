@@ -3,6 +3,7 @@ import { campaignQueueReady, processEmailCampaign } from './emailCampaignService
 import { escapeEmailHtml, plainTextToHtml, renderEmailTemplate } from './emailCampaigns.js';
 import { createEmailToken, isEmailDeliveryConfigured, publicEmailUrl, sendEmail } from './emailDelivery.js';
 import { processOrderEmailOutbox } from './orderEmailService.js';
+import { processScheduledTeamDigest } from './teamEmailDigest.js';
 
 const minute = 60 * 1000;
 let processing = false;
@@ -149,6 +150,7 @@ async function processEmailQueue() {
       }
       await processAutomationEnrollments(new Date());
     }
+    await processScheduledTeamDigest(now);
   } catch (error) {
     console.error('Email marketing worker failed:', error.message);
   } finally {

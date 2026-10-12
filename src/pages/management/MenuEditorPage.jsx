@@ -43,6 +43,7 @@ function makeIngredientRow(ingredient = {}) {
     quantity: String(ingredient.quantity ?? ''),
     unit: ingredient.unit || 'kg',
     inventoryId: ingredient.inventoryId ?? ingredient.id ?? '',
+    takeoutOnly: Boolean(ingredient.takeoutOnly),
   };
 }
 
@@ -278,6 +279,7 @@ export default function MenuEditorPage() {
       quantity: Number(entry.quantity) || 0,
       unit: entry.unit?.trim() || 'kg',
       inventoryId: entry.inventoryId || '',
+      takeoutOnly: Boolean(entry.takeoutOnly),
     })).filter((entry) => entry.name && entry.quantity > 0);
     setFormError('');
     try {
@@ -320,6 +322,7 @@ export default function MenuEditorPage() {
       quantity: Number(entry.quantity) || 0,
       unit: entry.unit?.trim() || 'kg',
       inventoryId: entry.inventoryId || '',
+      takeoutOnly: Boolean(entry.takeoutOnly),
     })).filter((entry) => entry.name && entry.quantity > 0);
     setFormError('');
     try {
@@ -421,7 +424,7 @@ export default function MenuEditorPage() {
     }
   };
 
-  const resetForm = () =>
+  const resetForm = () => {
     setForm({
       name: '',
       description: '',
@@ -438,6 +441,7 @@ export default function MenuEditorPage() {
       active: true,
     });
     setFormError('');
+  };
 
   const syncIngredientFromInventory = (ingredient, value, index) => {
     const match = inventoryItems.find((item) => item.name.toLowerCase() === value.trim().toLowerCase());
@@ -478,10 +482,10 @@ export default function MenuEditorPage() {
       <div className="grid gap-3 md:grid-cols-2">
         <div>
           <div className="mb-2 flex items-center justify-between gap-2">
-            <label className="block text-xs font-bold uppercase tracking-wider text-[#746e67]">Recipe ingredients</label>
+            <label className="block text-xs font-bold uppercase tracking-wider text-[#746e67]">Recipe ingredients & packaging</label>
             <button
               type="button"
-              onClick={() => setForm((current) => ({ ...current, ingredients: [...(current.ingredients || [makeIngredientRow()]), makeIngredientRow()] }))}
+              onClick={() => setForm((current) => ({ ...current, ingredients: [...(current.ingredients || [makeIngredientRow()]), makeIngredientRow({ quantity: 1 })] }))}
               className="text-[10px] font-bold uppercase tracking-wide text-[#ae002a] hover:underline"
             >
               + Add ingredient
@@ -490,18 +494,24 @@ export default function MenuEditorPage() {
           <div className="space-y-2">
             {(form.ingredients || [makeIngredientRow()]).map((ingredient, index) => (
               <div key={index} className="grid grid-cols-[1.5fr_0.8fr_0.7fr_auto] gap-2 rounded-xl border border-[#ebdccb] bg-white p-2">
-                <input
-                  list="inventory-name-options"
-                  value={ingredient.name}
-                  onChange={(e) => setForm((current) => ({
-                    ...current,
-                    ingredients: current.ingredients.map((entry, entryIndex) =>
-                      entryIndex === index ? syncIngredientFromInventory(entry, e.target.value, index) : entry
-                    ),
-                  }))}
-                  placeholder="Inventory item"
-                  className="w-full rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2 py-1.5 text-[11px] text-[#24211e] outline-none focus:border-[#ae002a]"
-                />
+                <div className="min-w-0 space-y-1">
+                  <input
+                    list="inventory-name-options"
+                    value={ingredient.name}
+                    onChange={(e) => setForm((current) => ({
+                      ...current,
+                      ingredients: current.ingredients.map((entry, entryIndex) =>
+                        entryIndex === index ? syncIngredientFromInventory(entry, e.target.value, index) : entry
+                      ),
+                    }))}
+                    placeholder="Inventory item"
+                    className="w-full rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2 py-1.5 text-[11px] text-[#24211e] outline-none focus:border-[#ae002a]"
+                  />
+                  <label className="flex items-center gap-1 text-[10px] font-semibold text-[#746e67]">
+                    <input type="checkbox" checked={ingredient.takeoutOnly} onChange={(event) => setForm((current) => ({ ...current, ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === index ? { ...entry, takeoutOnly: event.target.checked } : entry) }))} />
+                    Packaging for takeout / delivery
+                  </label>
+                </div>
                 <input
                   type="number"
                   min="0"

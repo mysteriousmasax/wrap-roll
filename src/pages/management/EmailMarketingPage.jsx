@@ -5,6 +5,7 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import { api } from '../../api/client';
 import { Mail, Users, Send, Sparkles, Plus } from 'lucide-react';
+import TeamEmailDigestPanel from './TeamEmailDigestPanel';
 
 export default function EmailMarketingPage() {
   const [overview, setOverview] = useState({
@@ -92,6 +93,8 @@ export default function EmailMarketingPage() {
       } />
 
       {message && <p className="mb-4 text-sm text-primary">{message}</p>}
+
+      <TeamEmailDigestPanel />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <Card className="p-4"><p className="text-xs text-surface-on-variant">Subscribers</p><p className="text-2xl font-bold mt-2">{overview.subscribers}</p></Card>

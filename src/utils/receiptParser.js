@@ -24,6 +24,19 @@ export function parseReceiptText(source) {
   const ignoredLine = (line) => line === dateLine || line === referenceLine || /\b(grand\s+total|amount\s+due|total\s+due|net\s+total|total|amount\s+paid)\b/i.test(line);
   const supplier = lines.find((line) => !ignoredLine(line) && !/^\d/.test(line)) || '';
   const description = lines.filter((line) => line !== supplier && !ignoredLine(line)).join(' · ').slice(0, 500);
+  const items = lines.flatMap((line) => {
+    if (ignoredLine(line)) return [];
+    const itemMatch = line.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s*(kg|g|l|ml|pcs?|pieces?)\s+(?:x\s*)?([\d,]+(?:\.\d{1,2})?)$/i);
+    if (!itemMatch) return [];
+    const quantity = Number(itemMatch[2]);
+    const lineTotal = parseAmount(itemMatch[4]);
+    if (!quantity || !lineTotal) return [];
+    const unit = itemMatch[3].toLowerCase().startsWith('k') ? 'kg'
+      : itemMatch[3].toLowerCase() === 'g' ? 'g'
+        : itemMatch[3].toLowerCase() === 'l' ? 'litre'
+          : itemMatch[3].toLowerCase() === 'ml' ? 'ml' : 'pcs';
+    return [{ name: itemMatch[1].trim(), quantity, unit, unitCost: Math.round(lineTotal / quantity) }];
+  });
 
   return {
     supplier,
@@ -31,6 +44,7 @@ export function parseReceiptText(source) {
     receiptRef: reference,
     amount,
     description,
+    items,
     rawText: String(source || ''),
   };
 }

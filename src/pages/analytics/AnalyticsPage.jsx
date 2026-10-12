@@ -182,6 +182,7 @@ export default function AnalyticsPage() {
   const rangeData = (summary?.ranges && summary.ranges[reportRange]) || [];
   const pettyCashTotal = summary?.operational?.pettyCashTotal ?? pettyCashRows.reduce((sum, row) => sum + (Number(row.rate) || 0) * (Number(row.quantity) || 0), 0);
   const dailySalesTotal = summary?.operational?.dailySalesTotal ?? salesSummaryRows.reduce((sum, row) => sum + (Number(row.quantity) || 0) * (Number(row.price) || 0), 0);
+  const ingredientUsage = summary?.operational?.ingredientUsage || [];
   const dailyStockRows = ['morning', 'evening'].flatMap((shift) => {
     const handover = shiftHandovers[shift];
     return handover?.id || handover?.updated_at ? (handover.inventoryCounts || []) : [];
@@ -680,6 +681,22 @@ export default function AnalyticsPage() {
             );
           })}
         </div>
+
+        <Card className="border border-[#ebdccb] bg-white p-4 shadow-sm sm:p-5">
+          <div className="mb-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#ae002a]">Stock movement · live</p>
+            <h2 className="mt-1 font-display text-lg font-bold text-[#1f1d1b]">Ingredient usage from fulfilled orders</h2>
+            <p className="mt-1 text-xs text-[#746e67]">Recipe quantities consumed by orders fulfilled on {summary?.operational?.reportDate || selectedDate}.</p>
+          </div>
+          {ingredientUsage.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[420px] border-collapse text-left text-xs">
+                <thead className="bg-[#fbf6ee] text-[10px] uppercase tracking-wide text-[#746e67]"><tr><th className="border border-[#ebdccb] p-2">Inventory ingredient</th><th className="border border-[#ebdccb] p-2">Used</th><th className="border border-[#ebdccb] p-2">Unit</th></tr></thead>
+                <tbody>{ingredientUsage.map((row) => <tr key={row.inventoryId}><td className="border border-[#ebdccb] p-2 font-semibold">{row.ingredient}</td><td className="border border-[#ebdccb] p-2">{Number(row.quantity).toLocaleString()}</td><td className="border border-[#ebdccb] p-2">{row.unit || '-'}</td></tr>)}</tbody>
+              </table>
+            </div>
+          ) : <p className="text-xs text-[#746e67]">No fulfilled orders recorded for this date.</p>}
+        </Card>
 
         <div className="flex items-end justify-between gap-4">
           <div><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#ae002a]">Cash control · live</p><h2 className="mt-1 font-display text-xl font-bold text-[#1f1d1b]">Petty Cash Summary</h2><p className="mt-1 text-xs text-[#746e67]">Automatically calculated from approved cash expenses.</p></div>

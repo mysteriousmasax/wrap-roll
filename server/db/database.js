@@ -177,7 +177,11 @@ export async function initDatabase() {
       status TEXT DEFAULT 'off-clock',
       clock_in TEXT,
       avatar TEXT,
-      phone TEXT
+      phone TEXT,
+      morning_start_time TEXT,
+      morning_end_time TEXT,
+      evening_start_time TEXT,
+      evening_end_time TEXT
     );
 
     CREATE TABLE IF NOT EXISTS shift_logs (
@@ -196,6 +200,10 @@ export async function initDatabase() {
       clock_out_longitude REAL,
       started_at TEXT,
       ended_at TEXT,
+      scheduled_start_time TEXT,
+      scheduled_end_time TEXT,
+      late_minutes INTEGER DEFAULT 0,
+      overtime_minutes INTEGER DEFAULT 0,
       FOREIGN KEY (staff_id) REFERENCES staff(id)
     );
 
@@ -490,6 +498,19 @@ export async function initDatabase() {
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS team_email_digest_deliveries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      frequency TEXT NOT NULL,
+      period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL,
+      recipient_email TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'sending',
+      response TEXT DEFAULT '',
+      sent_at TEXT,
+      updated_at TEXT NOT NULL,
+      UNIQUE(frequency, period_start, recipient_email)
     );
 
     CREATE TABLE IF NOT EXISTS printer_pairing_codes (
@@ -1061,6 +1082,9 @@ function migrateSchema(db) {
   db.prepare("UPDATE users SET page_access = '[]' WHERE page_access IS NULL OR trim(page_access) = ''").run();
   const staffCols = db.prepare('PRAGMA table_info(staff)').all();
   if (!staffCols.some((col) => col.name === 'user_id')) db.exec('ALTER TABLE staff ADD COLUMN user_id INTEGER REFERENCES users(id)');
+  for (const [column, type] of [['morning_start_time', 'TEXT'], ['morning_end_time', 'TEXT'], ['evening_start_time', 'TEXT'], ['evening_end_time', 'TEXT']]) {
+    if (!staffCols.some((col) => col.name === column)) db.exec(`ALTER TABLE staff ADD COLUMN ${column} ${type}`);
+  }
   const shiftCols = db.prepare('PRAGMA table_info(shift_logs)').all();
   if (!shiftCols.some((col) => col.name === 'clock_in_latitude')) db.exec('ALTER TABLE shift_logs ADD COLUMN clock_in_latitude REAL');
   if (!shiftCols.some((col) => col.name === 'clock_in_longitude')) db.exec('ALTER TABLE shift_logs ADD COLUMN clock_in_longitude REAL');
@@ -1068,6 +1092,9 @@ function migrateSchema(db) {
   if (!shiftCols.some((col) => col.name === 'clock_out_longitude')) db.exec('ALTER TABLE shift_logs ADD COLUMN clock_out_longitude REAL');
   if (!shiftCols.some((col) => col.name === 'started_at')) db.exec('ALTER TABLE shift_logs ADD COLUMN started_at TEXT');
   if (!shiftCols.some((col) => col.name === 'ended_at')) db.exec('ALTER TABLE shift_logs ADD COLUMN ended_at TEXT');
+  for (const [column, type] of [['scheduled_start_time', 'TEXT'], ['scheduled_end_time', 'TEXT'], ['late_minutes', 'INTEGER DEFAULT 0'], ['overtime_minutes', 'INTEGER DEFAULT 0']]) {
+    if (!shiftCols.some((col) => col.name === column)) db.exec(`ALTER TABLE shift_logs ADD COLUMN ${column} ${type}`);
+  }
   const taskCols = db.prepare('PRAGMA table_info(staff_tasks)').all();
   if (!taskCols.some((col) => col.name === 'task_type')) db.exec("ALTER TABLE staff_tasks ADD COLUMN task_type TEXT DEFAULT 'task'");
   if (!taskCols.some((col) => col.name === 'task_payload')) db.exec("ALTER TABLE staff_tasks ADD COLUMN task_payload TEXT DEFAULT '{}'");

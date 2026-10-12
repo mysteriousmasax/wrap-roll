@@ -8,7 +8,7 @@ import {
   normalizeCustomRole,
   expandImpliedPageAccess,
 } from '../utils/roles.js';
-import { ROUTE_ACCESS as CLIENT_ROUTE_ACCESS } from '../../src/utils/roleAccess.js';
+import { ROUTE_ACCESS as CLIENT_ROUTE_ACCESS, getUserPageAccess, isPageAllowedForUser, normalizeUserRole as normalizeClientRole } from '../../src/utils/roleAccess.js';
 
 test('server and client role route access stay in sync', () => {
   assert.deepEqual(SERVER_ROUTE_ACCESS, CLIENT_ROUTE_ACCESS);
@@ -19,6 +19,8 @@ test('normalizeRoleName handles aliases and custom labels consistently', () => {
   assert.equal(normalizeRoleName('FRONT DESK'), 'foh');
   assert.equal(normalizeRoleName('Executive'), 'executive');
   assert.equal(normalizeRoleName('Head of Operations'), 'manager');
+  assert.equal(normalizeRoleName('Super Admin'), 'admin');
+  assert.equal(normalizeClientRole('super admin'), 'admin');
 });
 
 test('custom roles are normalized and default to their base permissions', () => {
@@ -50,4 +52,15 @@ test('POS access implies the checkout flow pages', () => {
   assert.deepEqual(expandImpliedPageAccess(['/pos']), ['/pos', '/pos/payment', '/pos/success']);
   assert.deepEqual(expandImpliedPageAccess(['/orders']), ['/orders']);
   assert.deepEqual(expandImpliedPageAccess([]), []);
+});
+
+test('explicitly unselected pages stay hidden while admins retain full access', () => {
+  const staff = { role: 'foh', pageAccess: ['/pos', '/orders'] };
+  assert.equal(isPageAllowedForUser(staff, '/pos'), true);
+  assert.equal(isPageAllowedForUser(staff, '/customers'), false);
+  assert.deepEqual(getUserPageAccess({ role: 'foh', pageAccess: [] }), []);
+
+  const superAdmin = { role: 'Super Admin', pageAccess: ['/pos'] };
+  assert.equal(isPageAllowedForUser(superAdmin, '/management/menu'), true);
+  assert.ok(getUserPageAccess(superAdmin).includes('/management/menu'));
 });

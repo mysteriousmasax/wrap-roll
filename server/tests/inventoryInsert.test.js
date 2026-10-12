@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const source = fs.readFileSync(new URL('../routes/inventory.js', import.meta.url), 'utf8');
-const insertMatch = source.match(/INSERT INTO inventory\s*\(([^)]*)\)\s*VALUES\s*\(([^)]*)\)/s);
+const insertMatch = [...source.matchAll(/INSERT INTO inventory\s*\(([^)]*)\)\s*VALUES\s*\(([^)]*)\)/gs)]
+  .find((match) => match[1].includes('front_burger'));
 
 assert.ok(insertMatch, 'inventory insert SQL should exist');
 

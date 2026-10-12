@@ -43,11 +43,11 @@ export default function LoginPage() {
       await login({ username: identifier, password, location: location || undefined });
       const role = useAuthStore.getState().currentUser?.role;
       const landingRoutes = {
-        kitchen: '/kds',
-        manager: '/analytics',
+        kitchen: '/staff-playbook',
+        manager: '/staff-playbook',
         executive: '/analytics',
         admin: '/pos',
-        foh: '/pos',
+        foh: '/staff-playbook',
       };
       navigate(landingRoutes[role] || '/pos');
     } catch (err) {

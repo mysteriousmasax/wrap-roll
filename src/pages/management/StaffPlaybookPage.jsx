@@ -1,11 +1,12 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ClipboardCheck, Copy, Edit3, PackageCheck, Plus, Printer, Save, ShieldAlert, Trash2, Utensils } from 'lucide-react';
+import { Activity, CheckCircle2, ClipboardCheck, Copy, Edit3, PackageCheck, Plus, Printer, Save, ShieldAlert, Trash2, Utensils } from 'lucide-react';
 import PageHeader from '../../components/layout/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import { api } from '../../api/client';
 import { formatCurrency } from '../../utils/format';
 import useAuthStore from '../../store/useAuthStore';
+import StaffShiftWorkspace from './StaffShiftWorkspace';
 
 function summarizeStockRows(rows = []) {
   const normalized = (Array.isArray(rows) ? rows : []).map((row) => ({
@@ -43,6 +44,7 @@ function summarizeStockRows(rows = []) {
 }
 
 const allTabs = [
+  { id: 'workspace', label: 'My Shift', Icon: Activity },
   { id: 'checklists', label: 'Daily checklists', Icon: ClipboardCheck },
   { id: 'recovery', label: 'Guest recovery', Icon: ShieldAlert },
   { id: 'menu', label: 'Menu guide', Icon: Utensils },
@@ -53,8 +55,8 @@ const roleTabs = {
   admin: allTabs,
   manager: allTabs,
   executive: allTabs,
-  foh: [allTabs[0], allTabs[1], allTabs[3]],
-  kitchen: [allTabs[0], allTabs[3]],
+  foh: [allTabs[0], allTabs[1], allTabs[2], allTabs[4]],
+  kitchen: [allTabs[0], allTabs[1], allTabs[4]],
 };
 
 const roleChecklistPhases = {
@@ -143,6 +145,7 @@ export default function StaffPlaybookPage() {
   const [checklistError, setChecklistError] = useState('');
   const [shift, setShift] = useState('morning');
   const [handover, setHandover] = useState(null);
+  const [inventoryItems, setInventoryItems] = useState([]);
   const [handoverLoading, setHandoverLoading] = useState(false);
   const [stockReport, setStockReport] = useState({ rows: [], financialSummary: { totalValue: 0, lowStockCount: 0, stockVariance: 0, currency: 'TZS' } });
   const [stockReportLoading, setStockReportLoading] = useState(false);
@@ -213,6 +216,10 @@ export default function StaffPlaybookPage() {
   }, [date]);
 
   useEffect(() => {
+    api.getInventory().then(setInventoryItems).catch(() => setInventoryItems([]));
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     setHandoverLoading(true);
     api.getShiftHandover(date, shift)
@@ -220,7 +227,16 @@ export default function StaffPlaybookPage() {
         if (!cancelled) {
           setHandover({
             ...result,
-            inventoryCounts: (result.inventoryCounts || []).map((row, index) => ({ ...row, clientKey: `${date}-${shift}-${index}` })),
+              inventoryCounts: (result.inventoryCounts || []).map((row, index) => {
+                const match = inventoryItems.find((item) => item.name.trim().toLowerCase() === String(row.item || '').trim().toLowerCase());
+                return {
+                  ...row,
+                  inventoryId: row.inventoryId || match?.id || '',
+                  unit: match?.unit || row.unit,
+                  opening: row.opening === '' || row.opening == null ? (match ? String(match.quantity ?? '') : '') : row.opening,
+                  clientKey: `${date}-${shift}-${index}`,
+                };
+              }),
           });
         }
       })
@@ -228,6 +244,22 @@ export default function StaffPlaybookPage() {
       .finally(() => { if (!cancelled) setHandoverLoading(false); });
     return () => { cancelled = true; };
   }, [date, shift]);
+
+  useEffect(() => {
+    if (!inventoryItems.length) return;
+    setHandover((current) => current ? {
+      ...current,
+      inventoryCounts: (current.inventoryCounts || []).map((row) => {
+        const match = inventoryItems.find((item) => item.name.trim().toLowerCase() === String(row.item || '').trim().toLowerCase());
+        return {
+          ...row,
+          inventoryId: row.inventoryId || match?.id || '',
+          unit: match?.unit || row.unit,
+          opening: row.opening === '' || row.opening == null ? (match ? String(match.quantity ?? '') : '') : row.opening,
+        };
+      }),
+    } : current);
+  }, [inventoryItems]);
 
   const toggleTask = async (phase, task) => {
     const next = !task.completed;
@@ -300,17 +332,28 @@ export default function StaffPlaybookPage() {
 
   const updateReconciliation = (key, field, value) => setHandover((current) => ({
     ...current,
-    reconciliation: { ...current.reconciliation, [key]: { ...current.reconciliation[key], [field]: value } },
+    reconciliation: { ...current.reconciliation, [key]: { ...current.reconciliation[key], [field]: value, ...(field === 'expected' ? { expectedSource: 'manual' } : {}) } },
   }));
 
   const updateInventoryCount = (index, field, value) => setHandover((current) => ({
     ...current,
-    inventoryCounts: current.inventoryCounts.map((row, rowIndex) => rowIndex === index ? { ...row, [field]: value } : row),
+    inventoryCounts: current.inventoryCounts.map((row, rowIndex) => {
+      if (rowIndex !== index) return row;
+      if (field !== 'item') return { ...row, [field]: value };
+      const match = inventoryItems.find((item) => item.name.trim().toLowerCase() === value.trim().toLowerCase());
+      return {
+        ...row,
+        item: value,
+        inventoryId: match?.id || '',
+        unit: match?.unit || row.unit,
+        opening: match ? String(match.quantity ?? '') : row.opening,
+      };
+    }),
   }));
 
   const addInventoryCount = () => setHandover((current) => ({
     ...current,
-    inventoryCounts: [...(current.inventoryCounts || []), { clientKey: `new-${Date.now()}-${Math.random()}`, item: 'New stock item', unit: 'units', opening: '', added: '', closing: '', status: 'ok' }],
+    inventoryCounts: [...(current.inventoryCounts || []), { clientKey: `new-${Date.now()}-${Math.random()}`, item: '', inventoryId: '', unit: 'units', opening: '', added: '', closing: '', status: 'ok' }],
   }));
 
   const removeInventoryCount = (index) => setHandover((current) => ({
@@ -364,7 +407,7 @@ export default function StaffPlaybookPage() {
 
   return (
     <div className="min-w-0 p-3 sm:p-6">
-      <PageHeader mobileStack title="Staff Playbook" subtitle="Shift checklists, guest recovery, menu guidance, and handovers" />
+      {activeTab !== 'workspace' && <PageHeader mobileStack title="Staff Playbook" subtitle="Shift checklists, guest recovery, menu guidance, and handovers" />}
       {message && <div role="status" className="mb-4 rounded-lg bg-surface-container-low px-3 py-2 text-sm">{message}</div>}
 
       <nav aria-label="Staff playbook sections" className="mb-5 grid grid-cols-2 gap-1 border-b border-outline-variant pb-2 sm:flex sm:flex-wrap sm:gap-2">
@@ -374,6 +417,8 @@ export default function StaffPlaybookPage() {
           </button>
         ))}
       </nav>
+
+      {activeTab === 'workspace' && <StaffShiftWorkspace />}
 
       {activeTab === 'checklists' && (
         <div className="min-w-0 space-y-4">
@@ -577,6 +622,12 @@ export default function StaffPlaybookPage() {
 
               <Card className="min-w-0 p-4 sm:p-5">
                 <h2 className="mb-3 font-display font-bold">Payment reconciliation · TZS</h2>
+                {Object.entries(handover.reconciliation || {}).some(([key, row]) => key !== 'cashFloat' && row.actual !== '' && Number(row.actual) < Number(row.expected || 0)) && (
+                  <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                    <ShieldAlert size={15} className="mt-0.5 shrink-0" />
+                    <span>Payment shortfall: actual takings are below the expected POS total. Recheck the till and record an explanation before saving.</span>
+                  </div>
+                )}
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[620px] text-left text-xs">
                     <thead>
@@ -595,7 +646,7 @@ export default function StaffPlaybookPage() {
                         return (
                           <tr key={key} className="border-b border-outline-variant/50">
                             <td className="py-2 font-semibold capitalize">{key.replace(/([A-Z])/g, ' $1')}</td>
-                            <td className="py-2">{row.expected === '' ? '—' : formatCurrency(expected)}</td>
+                            <td className="py-2"><input aria-label={`Expected POS total for ${key}`} type="number" min="0" step="1" value={row.expected ?? ''} onChange={(event) => updateReconciliation(key, 'expected', event.target.value)} className="input-field w-36" /></td>
                             <td className="py-2"><input type="number" min="0" value={row.actual ?? ''} onChange={(event) => updateReconciliation(key, 'actual', event.target.value)} className="input-field w-32" /></td>
                             <td className={`py-2 font-bold ${row.actual === '' ? '' : actual - expected === 0 ? 'text-green-700' : 'text-red-700'}`}>{row.actual === '' ? '—' : formatCurrency(actual - expected)}</td>
                             <td className="py-2 text-surface-on-variant">{row.notes || ''}</td>
@@ -609,7 +660,7 @@ export default function StaffPlaybookPage() {
 
               <Card className="min-w-0 p-4 sm:p-5">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <h2 className="font-display font-bold">Stock count</h2>
+                  <div><h2 className="font-display font-bold">Stock count</h2><p className="text-xs text-surface-on-variant">Enter a closing count to reconcile live inventory and low-stock alerts.</p></div>
                   <Button type="button" variant="secondary" size="sm" onClick={addInventoryCount}><Plus size={14} /> Add item</Button>
                 </div>
                 <div className="overflow-x-auto">
@@ -628,7 +679,7 @@ export default function StaffPlaybookPage() {
                     <tbody>
                       {(handover.inventoryCounts || []).map((row, index) => (
                         <tr key={row.clientKey || index} className="border-b border-outline-variant/50">
-                          <td className="py-2 font-semibold"><input value={row.item || ''} onChange={(event) => updateInventoryCount(index, 'item', event.target.value)} className="input-field w-full min-w-[180px]" /></td>
+                          <td className="py-2 font-semibold"><input list="handover-inventory-items" value={row.item || ''} onChange={(event) => updateInventoryCount(index, 'item', event.target.value)} placeholder="Choose inventory item" className="input-field w-full min-w-[180px]" />{row.closing !== '' && !row.inventoryId && <span className="mt-1 block text-[10px] font-medium text-error">Add this item to inventory before saving its count.</span>}</td>
                           <td className="py-2"><input value={row.unit || ''} onChange={(event) => updateInventoryCount(index, 'unit', event.target.value)} className="input-field w-20" /></td>
                           {['opening', 'added', 'closing'].map((field) => (
                             <td key={field} className="py-2"><input type="number" min="0" value={row[field] ?? ''} onChange={(event) => updateInventoryCount(index, field, event.target.value)} className="input-field w-24" /></td>
@@ -646,6 +697,7 @@ export default function StaffPlaybookPage() {
                     </tbody>
                   </table>
                 </div>
+                <datalist id="handover-inventory-items">{inventoryItems.map((item) => <option key={item.id} value={item.name} />)}</datalist>
               </Card>
 
               <Card className="min-w-0 p-4 sm:p-5">

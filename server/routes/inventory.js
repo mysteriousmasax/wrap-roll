@@ -86,15 +86,27 @@ router.put('/categories/:id', authMiddleware, (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Category not found' });
   const name = String(req.body?.name || existing.name).trim();
   if (!name) return res.status(400).json({ error: 'Category name is required' });
-  db.prepare('UPDATE inventory_categories SET name = ? WHERE id = ?').run(name, req.params.id);
+  const updateCategory = db.transaction(() => {
+    db.prepare('UPDATE inventory_categories SET name = ? WHERE id = ?').run(name, req.params.id);
+    db.prepare('UPDATE inventory SET category = ? WHERE lower(trim(category)) = lower(?)').run(name, existing.name);
+  });
+  updateCategory();
   const row = db.prepare('SELECT id, name FROM inventory_categories WHERE id = ?').get(req.params.id);
+  broadcast('inventory:updated', { action: 'category_renamed', categoryId: Number(req.params.id) });
   res.json(row);
 });
 
 router.delete('/categories/:id', authMiddleware, (req, res) => {
   const existing = db.prepare('SELECT * FROM inventory_categories WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Category not found' });
-  db.prepare('DELETE FROM inventory_categories WHERE id = ?').run(req.params.id);
+  const fallback = existing.name.toLowerCase() === 'stock items' ? 'Fresh ingredients' : 'Stock items';
+  db.prepare('INSERT OR IGNORE INTO inventory_categories (name) VALUES (?)').run(fallback);
+  const deleteCategory = db.transaction(() => {
+    db.prepare('UPDATE inventory SET category = ? WHERE lower(trim(category)) = lower(?)').run(fallback, existing.name);
+    db.prepare('DELETE FROM inventory_categories WHERE id = ?').run(existing.id);
+  });
+  deleteCategory();
+  broadcast('inventory:updated', { action: 'category_deleted', categoryId: Number(existing.id) });
   res.json({ ok: true });
 });
 
@@ -139,6 +151,7 @@ router.get('/', authMiddleware, (req, res) => {
 
 router.post('/receive-receipt', authMiddleware, (req, res) => {
   const { items, supplier = '', receiptRef = '', receiptDate = '' } = req.body || {};
+  const expenseInput = req.body?.expense;
   if (!Array.isArray(items) || items.length === 0 || items.length > 100) return res.status(400).json({ error: 'Add between 1 and 100 reviewed stock lines.' });
   const normalizedLines = items.map((line) => ({
     inventoryId: line.inventoryId ? Number(line.inventoryId) : null,
@@ -147,9 +160,13 @@ router.post('/receive-receipt', authMiddleware, (req, res) => {
     unit: String(line.unit || 'pcs').trim(),
     quantity: Number(line.quantity),
     unitCost: Number(line.unitCost) || 0,
+    threshold: Number(line.threshold) || 0,
   }));
-  if (normalizedLines.some((line) => !line.name || !line.unit || !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitCost) || line.unitCost < 0)) {
-    return res.status(400).json({ error: 'Every stock line needs an item, unit, positive quantity, and non-negative unit cost.' });
+  if (normalizedLines.some((line) => !line.name || !line.unit || !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitCost) || line.unitCost < 0 || !Number.isFinite(line.threshold) || line.threshold < 0)) {
+    return res.status(400).json({ error: 'Every stock line needs an item, unit, positive quantity, non-negative unit cost, and valid low-stock threshold.' });
+  }
+  if (expenseInput && (!String(expenseInput.category || '').trim() || !String(expenseInput.description || '').trim() || !Number.isFinite(Number(expenseInput.amount)) || Number(expenseInput.amount) <= 0)) {
+    return res.status(400).json({ error: 'A category, description, and positive expense total are required to post both.' });
   }
 
   ensureInventoryColumn('delivery_date', "TEXT DEFAULT ''");
@@ -161,6 +178,7 @@ router.post('/receive-receipt', authMiddleware, (req, res) => {
   const today = String(receiptDate || new Date().toISOString().slice(0, 10));
   const receiptDescription = `Receipt ${String(receiptRef || 'scanned').trim()} from ${String(supplier || 'supplier').trim()}`;
   const receivedItems = [];
+  let createdExpense = null;
 
   try {
     const receive = db.transaction(() => {
@@ -178,23 +196,44 @@ router.post('/receive-receipt', authMiddleware, (req, res) => {
             WHERE id = ?`).run(nextQuantity, supplier || existing.supplier || '', line.unitCost || existing.unit_cost || 0, today, today, existing.id);
           auditInventoryChange(existing.id, 'updated', req.user, {
             quantity: { from: existing.quantity, to: nextQuantity },
+            supplier: { from: existing.supplier || '', to: supplier || existing.supplier || '' },
+            unit_cost: { from: existing.unit_cost || 0, to: line.unitCost || existing.unit_cost || 0 },
             receipt: { from: null, to: receiptDescription },
           });
           receivedItems.push(mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(existing.id)));
         } else {
           const result = db.prepare(`INSERT INTO inventory
             (name, quantity, unit, threshold, supplier, last_restocked, category, sku, unit_cost, storage_location, delivery_date)
-            VALUES (?, ?, ?, 0, ?, ?, 'Stock items', ?, ?, 'Stock sheet', ?)`).run(
-            line.name, line.quantity, line.unit, supplier || '', today,
-            line.sku || `INV-${Date.now().toString().slice(-6)}`, line.unitCost, today
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+            line.name, line.quantity, line.unit, line.threshold, supplier || '', today, 'Stock items',
+            line.sku || `INV-${Date.now().toString().slice(-6)}`, line.unitCost, 'Stock sheet', today
           );
           auditInventoryChange(result.lastInsertRowid, 'created', req.user, {
             item: { from: null, to: line.name },
             quantity: { from: null, to: line.quantity },
+            supplier: { from: null, to: supplier || '' },
+            unit_cost: { from: null, to: line.unitCost },
+            threshold: { from: null, to: line.threshold },
             receipt: { from: null, to: receiptDescription },
           });
           receivedItems.push(mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(result.lastInsertRowid)));
         }
+      }
+      if (expenseInput) {
+        const expenseResult = db.prepare(`INSERT INTO business_expenses
+          (expense_date, category, description, supplier, amount, payment_method, status, receipt_ref, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`).run(
+          today,
+          String(expenseInput.category).trim(),
+          String(expenseInput.description).trim(),
+          supplier || null,
+          Number(expenseInput.amount),
+          expenseInput.paymentMethod || 'cash',
+          receiptRef || null,
+          req.user?.name || 'Admin',
+          new Date().toISOString()
+        );
+        createdExpense = db.prepare('SELECT * FROM business_expenses WHERE id = ?').get(expenseResult.lastInsertRowid);
       }
     });
     receive();
@@ -203,7 +242,8 @@ router.post('/receive-receipt', authMiddleware, (req, res) => {
   }
 
   broadcast('inventory:updated', { action: 'receipt_received', items: receivedItems.map((item) => item.id), receiptRef });
-  res.status(201).json({ receiptRef, received: receivedItems });
+  if (createdExpense) broadcast('business:updated', { type: 'expense_created' });
+  res.status(201).json({ receiptRef, received: receivedItems, expense: createdExpense });
 });
 
 router.post('/', authMiddleware, (req, res) => {

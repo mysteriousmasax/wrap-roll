@@ -51,6 +51,9 @@ export function normalizeRoleName(role) {
 
   const aliases = {
     admin: 'admin',
+    'super admin': 'admin',
+    superadmin: 'admin',
+    'super administrator': 'admin',
     owner: 'admin',
     manager: 'manager',
     executive: 'executive',

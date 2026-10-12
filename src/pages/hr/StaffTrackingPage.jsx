@@ -9,10 +9,20 @@ import { Users, Clock, AlertTriangle, UserCheck, Trash2, LogIn, LogOut } from 'l
 import { useWebSocket } from '../../hooks/useWebSocket';
 import useAuthStore from '../../store/useAuthStore';
 
+function toTimeInput(value) {
+  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i);
+  if (!match) return '';
+  let hour = Number(match[1]);
+  if (match[3]) hour = hour % 12 + (match[3].toUpperCase() === 'PM' ? 12 : 0);
+  return `${String(hour).padStart(2, '0')}:${match[2]}`;
+}
+
 export default function StaffTrackingPage({ embedded = false }) {
   const [tracking, setTracking] = useState({ staff: [], attendance: [], tasks: [] });
   const [loading, setLoading] = useState(true);
   const [taskForm, setTaskForm] = useState({ staffId: '', title: '', dueDate: '' });
+  const [attendanceEdits, setAttendanceEdits] = useState({});
+  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const currentUser = useAuthStore((state) => state.currentUser);
 
@@ -55,6 +65,20 @@ export default function StaffTrackingPage({ embedded = false }) {
 
   const completeTask = async (id) => { try { await api.updateStaffTask(id, 'completed'); await load(); } catch (requestError) { setError(requestError.message || 'Unable to complete task.'); } };
   const resolveApprovalTask = async (id, status) => { try { await api.updateStaffTask(id, status); await load(); } catch (requestError) { setError(requestError.message || 'Unable to resolve approval.'); } };
+  const saveAttendanceEdit = async (entry) => {
+    const edit = attendanceEdits[entry.id] || {};
+    const startTime = edit.startTime ?? toTimeInput(entry.login);
+    const endTime = edit.endTime ?? toTimeInput(entry.logout);
+    try {
+      setError('');
+      await api.correctStaffAttendance(entry.id, { startTime, endTime });
+      setAttendanceEdits((current) => { const next = { ...current }; delete next[entry.id]; return next; });
+      setMessage(`Attendance corrected for ${entry.staffName}.`);
+      await load();
+    } catch (requestError) {
+      setError(requestError.message || 'Unable to correct attendance.');
+    }
+  };
   const removeStaff = async (staff) => {
     if (currentUser?.role !== 'admin' || !window.confirm(`Remove ${staff.name} from active staff?`)) return;
     try {
@@ -76,6 +100,7 @@ export default function StaffTrackingPage({ embedded = false }) {
     <div className={embedded ? '' : 'p-4 sm:p-6'}>
       {!embedded && <PageHeader title="HR Staff Tracking" subtitle="Real-time workforce monitoring and shift management" />}
       {error && <div className="mb-4 rounded-xl border border-error/30 bg-error/10 px-4 py-3 text-sm font-semibold text-error" role="alert">{error}</div>}
+      {message && <div className="mb-4 rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm font-semibold text-success" role="status">{message}</div>}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard title="Total Staff" value={staffMembers.length} icon={Users} iconColor="primary" />
@@ -133,8 +158,19 @@ export default function StaffTrackingPage({ embedded = false }) {
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[620px] text-left text-xs">
-            <thead className="border-b border-outline-variant text-[10px] uppercase tracking-wide text-surface-on-variant"><tr><th className="p-2">Staff</th><th className="p-2">Date</th><th className="p-2">Clock in</th><th className="p-2">Clock out</th><th className="p-2">Hours</th><th className="p-2">Location</th><th className="p-2">Status</th></tr></thead>
-            <tbody>{tracking.attendance.map((entry) => <tr key={entry.id} className="border-b border-outline-variant/40"><td className="p-2 font-semibold">{entry.staffName}</td><td className="p-2">{entry.date}</td><td className="p-2"><span className="inline-flex items-center gap-1"><LogIn size={12} className="text-success" />{entry.login || '-'}</span></td><td className="p-2"><span className="inline-flex items-center gap-1"><LogOut size={12} className="text-error" />{entry.logout || '-'}</span></td><td className="p-2">{entry.hours ? Number(entry.hours).toFixed(2) : '-'}</td><td className="p-2">{entry.clockInLocation ? <a className="text-primary underline" href={`https://www.google.com/maps?q=${entry.clockInLocation.latitude},${entry.clockInLocation.longitude}`} target="_blank" rel="noreferrer">View GPS</a> : 'Not shared'}</td><td className="p-2 capitalize">{entry.status}</td></tr>)}</tbody>
+            <thead className="border-b border-outline-variant text-[10px] uppercase tracking-wide text-surface-on-variant"><tr><th className="p-2">Staff</th><th className="p-2">Date / shift</th><th className="p-2">Clock in</th><th className="p-2">Clock out</th><th className="p-2">Hours</th><th className="p-2">Timing</th><th className="p-2">Correction</th></tr></thead>
+            <tbody>{tracking.attendance.map((entry) => {
+              const edit = attendanceEdits[entry.id] || {};
+              return <tr key={entry.id} className="border-b border-outline-variant/40">
+                <td className="p-2 font-semibold">{entry.staffName}</td>
+                <td className="p-2">{entry.date}<span className="block capitalize text-[10px] text-surface-on-variant">{entry.assignedShift || 'Shift'}</span></td>
+                <td className="p-2"><label className="sr-only">{entry.staffName} clock in</label><input type="time" disabled={!['admin', 'manager'].includes(currentUser?.role)} value={edit.startTime ?? toTimeInput(entry.login)} onChange={(event) => setAttendanceEdits((current) => ({ ...current, [entry.id]: { ...current[entry.id], startTime: event.target.value } }))} className="input-field w-28" /></td>
+                <td className="p-2"><label className="sr-only">{entry.staffName} clock out</label><input type="time" disabled={!['admin', 'manager'].includes(currentUser?.role) || entry.status === 'active'} value={edit.endTime ?? toTimeInput(entry.logout)} onChange={(event) => setAttendanceEdits((current) => ({ ...current, [entry.id]: { ...current[entry.id], endTime: event.target.value } }))} className="input-field w-28" /></td>
+                <td className="p-2">{entry.hours ? Number(entry.hours).toFixed(2) : '-'}</td>
+                <td className="p-2 text-[10px]">{entry.lateMinutes ? <span className="block text-error">Late {entry.lateMinutes}m</span> : 'On time'}{entry.overtimeMinutes > 0 && <span className="block text-primary">OT {entry.overtimeMinutes}m</span>}<span className="block text-surface-on-variant">Plan {entry.scheduledStart || '-'}–{entry.scheduledEnd || '-'}</span></td>
+                <td className="p-2">{['admin', 'manager'].includes(currentUser?.role) && <Button size="sm" variant="secondary" disabled={entry.status === 'active' || !(edit.endTime ?? toTimeInput(entry.logout))} onClick={() => saveAttendanceEdit(entry)}><Save size={13} />Save</Button>}</td>
+              </tr>;
+            })}</tbody>
           </table>
           {!tracking.attendance.length && <p className="py-6 text-center text-sm text-surface-on-variant">No attendance events recorded yet.</p>}
         </div>

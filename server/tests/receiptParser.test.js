@@ -15,6 +15,10 @@ TOTAL TZS 11,000`);
   assert.equal(parsed.receiptRef, 'INV-88421');
   assert.equal(parsed.amount, 11000);
   assert.match(parsed.description, /Tomatoes 2kg/);
+  assert.deepEqual(parsed.items, [
+    { name: 'Tomatoes', quantity: 2, unit: 'kg', unitCost: 4000 },
+    { name: 'Onions', quantity: 1, unit: 'kg', unitCost: 3000 },
+  ]);
   assert.match(parsed.rawText, /TOTAL TZS/);
 });
 
@@ -23,4 +27,5 @@ test('receipt OCR parser leaves uncertain fields blank for manual review', () =>
   assert.equal(parsed.amount, '');
   assert.equal(parsed.receiptRef, '');
   assert.equal(parsed.expenseDate, '');
+  assert.deepEqual(parsed.items, []);
 });

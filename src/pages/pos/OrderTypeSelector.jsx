@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Utensils, ShoppingBag, Truck } from 'lucide-react';
+import { X, Utensils, ShoppingBag, Truck, CalendarDays, MapPin, CheckCircle2 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import useCartStore from '../../store/useCartStore';
@@ -53,7 +53,7 @@ export default function OrderTypeSelector({ isOpen, onClose, onComplete }) {
     setValidationMessage('');
     const nextOrderType = fulfillmentMode === 'roadside_handoff' ? 'takeout' : selectedType;
     setOrderType(nextOrderType);
-    setTableNumber(nextOrderType === 'dine-in' ? localTable : null);
+    setTableNumber(nextOrderType === 'dine-in' ? Number(localTable) : null);
     setCustomerName(localName || '');
     setCustomerPhone(localPhone.trim());
     setDeliveryLocation({
@@ -105,13 +105,49 @@ export default function OrderTypeSelector({ isOpen, onClose, onComplete }) {
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase text-surface-on-variant">Fulfillment</label>
-            <select value={fulfillmentMode} onChange={(event) => { setFulfillmentMode(event.target.value); setValidationMessage(''); }} className="input-field">
-              <option value="standard">Standard service</option>
-              <option value="roadside_handoff">Roadside handoff · Mwai Kibaki Road</option>
-            </select>
+            <label className="mb-2 block text-xs font-semibold uppercase text-surface-on-variant">Fulfillment</label>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { id: 'standard', label: 'Standard service', detail: 'Regular pickup or delivery', icon: CheckCircle2 },
+                { id: 'roadside_handoff', label: 'Roadside handoff', detail: 'Mwai Kibaki Road', icon: MapPin },
+              ].map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={fulfillmentMode === option.id}
+                  onClick={() => { setFulfillmentMode(option.id); setValidationMessage(''); }}
+                  className={'min-h-24 rounded-xl border-2 p-3 text-left transition-colors ' + (fulfillmentMode === option.id ? 'border-primary bg-primary/5' : 'border-outline-variant hover:border-outline')}
+                >
+                  <option.icon size={20} className={fulfillmentMode === option.id ? 'mb-2 text-primary' : 'mb-2 text-surface-on-variant'} />
+                  <span className="block text-sm font-bold">{option.label}</span>
+                  <span className="mt-0.5 block text-xs text-surface-on-variant">{option.detail}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          <Input label="Pickup / handoff time (optional)" type="datetime-local" min={localDateTimeValue(new Date(Date.now() + 5 * 60 * 1000))} value={scheduledFor} onChange={(event) => setScheduledFor(event.target.value)} />
+          <div>
+            <label htmlFor="scheduled-for" className="mb-1.5 block text-xs font-semibold uppercase text-surface-on-variant">Pickup / handoff time (optional)</label>
+            <div className="relative">
+              <div className="pointer-events-none flex min-h-14 items-center gap-3 rounded-xl border border-outline-variant bg-white px-4">
+                <CalendarDays size={20} className="shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-surface-on">
+                    {scheduledFor ? new Date(scheduledFor).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Choose date and time'}
+                  </span>
+                  <span className="block text-xs text-surface-on-variant">{scheduledFor ? 'Tap to change' : 'Leave blank for ASAP'}</span>
+                </div>
+              </div>
+              <input
+                id="scheduled-for"
+                aria-label="Pickup or handoff date and time"
+                type="datetime-local"
+                min={localDateTimeValue(new Date(Date.now() + 5 * 60 * 1000))}
+                value={scheduledFor}
+                onChange={(event) => setScheduledFor(event.target.value)}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              />
+            </div>
+          </div>
 
           {selectedType === 'dine-in' && fulfillmentMode !== 'roadside_handoff' && (
             <Input label="Table Number" type="number" min="1" placeholder="e.g. 5" value={localTable} onChange={(e) => { setLocalTable(e.target.value); setValidationMessage(''); }} required />

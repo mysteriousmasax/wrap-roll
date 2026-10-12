@@ -9,6 +9,8 @@ Copy `.env.example` to `.env` and set:
 - `JWT_SECRET`: a long random value. This is required when `NODE_ENV=production`.
 - `CORS_ORIGIN`: comma-separated frontend origins. Set this to `https://wrapandrolltz.com` when the frontend uses the Railway custom domain.
 - `PUBLIC_APP_URL`: public origin used to generate NFC table scan links. Set this to `https://wrapandrolltz.com`.
+- `POS_WIFI_SSID` and `POS_WIFI_PASSWORD`: Wi-Fi credentials shown only to authenticated POS staff through the Wi-Fi QR dialog. Set them as Railway server variables; do not use `VITE_`-prefixed names.
+- `POS_WIFI_SECURITY`: optional Wi-Fi QR security type (`WPA` by default; also accepts `WEP` or `NOPASS`).
 - `PORT`: the port supplied by the hosting provider, when applicable.
 - `DB_PATH`: the path to `wraproll.db` on persistent storage. For Docker deployments use `/data/wraproll.db` and mount `/data` to a named volume or host directory.
 - `RESEND_API_KEY` and a Resend-verified `EMAIL_FROM_ADDRESS`: configure Resend API delivery for marketing email.

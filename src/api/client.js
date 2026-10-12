@@ -150,6 +150,9 @@ export const api = {
   getCampaignDashboard: () => request('/loyalty/dashboard'),
   dispatchCustomerCampaign: () => request('/loyalty/campaign/dispatch', { method: 'POST' }),
   getEmailMarketingOverview: () => request('/email-marketing/overview'),
+  getEmailTeamDigest: (frequency = 'daily') => request(`/email-marketing/team-digest?frequency=${encodeURIComponent(frequency)}`),
+  saveEmailTeamDigest: (data) => request('/email-marketing/team-digest', { method: 'PUT', body: JSON.stringify(data) }),
+  sendEmailTeamDigest: (frequency) => request('/email-marketing/team-digest/send', { method: 'POST', body: JSON.stringify({ frequency }) }),
   subscribeToEmailMarketing: (data) => request('/email-marketing/subscribe', { method: 'POST', body: JSON.stringify(data) }),
   getEmailSubscribers: (options = {}) => {
     const query = new URLSearchParams(Object.entries(options).filter(([, value]) => value !== undefined && value !== ''));
@@ -198,6 +201,10 @@ export const api = {
   getStaffRoles: () => request('/staff/roles'),
   deleteStaff: (id) => request(`/staff/${id}`, { method: 'DELETE' }),
   getStaffTracking: () => request('/staff/tracking'),
+  getMyShiftWorkspace: () => request('/staff/me/workspace'),
+  clockMyShift: (action, location = null, shift = '') => request('/staff/me/clock', { method: 'PATCH', body: JSON.stringify({ action, shift, ...(location || {}) }) }),
+  updateMyStaffTask: (id, status) => request(`/staff/me/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  correctStaffAttendance: (id, data) => request(`/staff/attendance/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   createStaff: (data) => request('/staff', { method: 'POST', body: JSON.stringify(data) }),
   updateStaff: (id, data) => request(`/staff/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   updateStaffCredentials: (id, data) => request(`/staff/${id}/credentials`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -227,6 +234,7 @@ export const api = {
 
   getSettings: () => request('/settings'),
   getPublicSettings: () => request('/settings/public'),
+  getWifiQr: () => request('/settings/wifi-qr'),
   updateSettings: (data) => request('/settings', { method: 'PUT', body: JSON.stringify(data) }),
   getDesktopRelease: () => request('/desktop/release'),
   downloadDesktopInstaller: async () => {

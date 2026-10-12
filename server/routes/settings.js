@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
+import { buildWifiQrPayload } from '../utils/wifiQr.js';
 import { broadcast } from '../ws.js';
 
 const router = Router();
@@ -58,6 +59,22 @@ router.get('/public', (req, res) => {
   }
 
   res.json(settings);
+});
+
+router.get('/wifi-qr', authMiddleware, requireRole('admin', 'foh'), (req, res) => {
+  const ssid = String(process.env.POS_WIFI_SSID || '').trim();
+  const password = String(process.env.POS_WIFI_PASSWORD || '');
+  const security = String(process.env.POS_WIFI_SECURITY || 'WPA').trim().toUpperCase();
+  if (!ssid || (security !== 'NOPASS' && !password)) {
+    return res.status(503).json({ error: 'Wi-Fi QR is not configured. Set POS_WIFI_SSID and POS_WIFI_PASSWORD in the server environment.' });
+  }
+
+  try {
+    const payload = buildWifiQrPayload(ssid, password, security);
+    res.set('Cache-Control', 'no-store, private').json({ ssid, password, payload });
+  } catch (error) {
+    res.status(503).json({ error: error.message });
+  }
 });
 
 router.get('/', authMiddleware, (req, res) => {

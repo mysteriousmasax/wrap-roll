@@ -15,6 +15,7 @@ import {
   Percent,
   Pause,
   RotateCcw,
+  Wifi,
 } from 'lucide-react';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
@@ -23,6 +24,7 @@ import useCartStore from '../../store/useCartStore';
 import useSettingsStore from '../../store/useSettingsStore';
 import ProductCard from '../../components/ui/ProductCard';
 import Button from '../../components/ui/Button';
+import InternalQrCode from '../../components/ui/InternalQrCode';
 import ItemCustomization from './ItemCustomization';
 import OrderTypeSelector from './OrderTypeSelector';
 import { syncQueuedOrders } from '../../store/useOrderStore';
@@ -193,6 +195,38 @@ function CustomItemModal({ isOpen, onClose, onAdd }) {
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+function WifiQrModal({ isOpen, onClose, wifi, loading, error }) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section role="dialog" aria-modal="true" aria-labelledby="wifi-qr-title" className="w-full max-w-sm rounded-2xl border border-[#ebdccb] bg-white p-5 text-center shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-left">
+            <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#f0f9f3] text-[#227653]"><Wifi size={18} /></span>
+            <div>
+              <h2 id="wifi-qr-title" className="text-base font-bold text-[#1f1d1b]">Connect to Wi-Fi</h2>
+              <p className="text-xs text-[#746e67]">Scan with your phone camera</p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close Wi-Fi QR" className="grid h-8 w-8 place-items-center rounded-full text-[#746e67] hover:bg-[#fbf6ee]"><X size={18} /></button>
+        </div>
+        {loading ? <div className="flex h-52 items-center justify-center text-sm text-[#746e67]">Loading Wi-Fi QR…</div> : error ? (
+          <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>
+        ) : wifi && (
+          <>
+            <InternalQrCode value={wifi.payload} alt={`Wi-Fi QR code for ${wifi.ssid}`} className="mx-auto h-52 w-52 rounded-lg border border-[#eee4d5] bg-white p-2 object-contain" />
+            <dl className="mt-4 space-y-2 rounded-xl bg-[#fbf6ee] p-3 text-left text-sm">
+              <div className="flex justify-between gap-4"><dt className="text-[#746e67]">Network</dt><dd className="break-all text-right font-semibold text-[#1f1d1b]">{wifi.ssid}</dd></div>
+              <div className="flex justify-between gap-4"><dt className="text-[#746e67]">Password</dt><dd className="break-all text-right font-semibold text-[#1f1d1b]">{wifi.password || 'No password'}</dd></div>
+            </dl>
+          </>
+        )}
+      </section>
     </div>
   );
 }
@@ -577,6 +611,10 @@ export default function POSPage() {
   const [showCustomization, setShowCustomization] = useState(false);
   const [showOrderType, setShowOrderType] = useState(false);
   const [showCustomItemModal, setShowCustomItemModal] = useState(false);
+  const [showWifiQr, setShowWifiQr] = useState(false);
+  const [wifiQr, setWifiQr] = useState(null);
+  const [wifiQrLoading, setWifiQrLoading] = useState(false);
+  const [wifiQrError, setWifiQrError] = useState('');
   const [showMobileCart, setShowMobileCart] = useState(false);
   const [showDesktopCart, setShowDesktopCart] = useState(true);
   const desktopCartRef = useRef(null);
@@ -718,6 +756,20 @@ export default function POSPage() {
     setShowOrderType(true);
   };
 
+  const openWifiQr = async () => {
+    setShowWifiQr(true);
+    setWifiQr(null);
+    setWifiQrError('');
+    setWifiQrLoading(true);
+    try {
+      setWifiQr(await api.getWifiQr());
+    } catch (error) {
+      setWifiQrError(error.message || 'Unable to load Wi-Fi details.');
+    } finally {
+      setWifiQrLoading(false);
+    }
+  };
+
   const holdCurrentBill = (label) => {
     const cart = useCartStore.getState();
     if (!cart.items.length) return;
@@ -800,6 +852,13 @@ export default function POSPage() {
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={openWifiQr}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#d9cdb7] bg-white px-3 py-1.5 text-xs font-bold text-[#227653] shadow-sm transition-colors hover:bg-[#f0f9f3]"
+              >
+                <Wifi size={14} /> Wi-Fi QR
+              </button>
               <button
                 type="button"
                 onClick={() => setShowCustomItemModal(true)}
@@ -1022,6 +1081,13 @@ export default function POSPage() {
         isOpen={showCustomItemModal}
         onClose={() => setShowCustomItemModal(false)}
         onAdd={(customItem) => addCustomItem(customItem)}
+      />
+      <WifiQrModal
+        isOpen={showWifiQr}
+        onClose={() => setShowWifiQr(false)}
+        wifi={wifiQr}
+        loading={wifiQrLoading}
+        error={wifiQrError}
       />
     </div>
   );
