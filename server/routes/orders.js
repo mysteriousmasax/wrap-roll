@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { deletionViewer, recordDeletion } from '../utils/deletionPolicy.js';
@@ -10,7 +11,7 @@ import { enqueueOrderEmail } from '../utils/orderEmailService.js';
 import { releaseExpiredCleaningTables } from '../utils/tableAvailability.js';
 import { parseMenuVariants } from '../utils/menuVariants.js';
 import { applyOrderFulfillmentEffects } from '../utils/orderFulfillment.js';
-import { createRoadsideAccessToken, hashRoadsideAccessToken } from '../utils/roadsideAccess.js';
+import { createCustomerOrderTrackingToken, createRoadsideAccessToken, hashRoadsideAccessToken } from '../utils/roadsideAccess.js';
 
 const router = Router();
 
@@ -25,6 +26,15 @@ function parseMenuIngredients(value) {
     }
   }
   return [];
+}
+
+function parseStoredCart(value) {
+  try {
+    const parsed = JSON.parse(value || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : { items: [] };
+  } catch {
+    return { items: [] };
+  }
 }
 
 function priceOrderItems(items, { allowCustom = false } = {}) {
@@ -170,6 +180,7 @@ function createOrderRecord(
     ? new Date(scheduledDate.getTime() - (maxPrepMinutes + 5) * 60 * 1000).toISOString()
     : null;
   const roadsideAccessToken = normalizedFulfillmentMode === 'roadside_handoff' ? createRoadsideAccessToken(id) : null;
+  const customerTrackingToken = roadsideAccessToken || createCustomerOrderTrackingToken(id);
 
   const insertOrder = db.prepare(`
     INSERT INTO orders (
@@ -294,6 +305,9 @@ function createOrderRecord(
       );
     }
 
+    db.prepare(`INSERT INTO customer_order_tracking_links (order_id, access_token_hash, created_at)
+      VALUES (?, ?, ?)`).run(id, hashRoadsideAccessToken(customerTrackingToken), now);
+
     if (roadsideAccessToken) {
       db.prepare(`INSERT INTO roadside_trips (order_id, access_token_hash, status, created_at, updated_at)
         VALUES (?, ?, 'awaiting_customer', ?, ?)`)
@@ -409,7 +423,11 @@ function createOrderRecord(
     broadcast('notification:created', { type: 'success', title: `Order confirmed (${notifyChannel})` });
   }
 
-  return roadsideAccessToken ? { ...order, roadsideAccessToken } : order;
+  return {
+    ...order,
+    customerTrackingToken,
+    ...(roadsideAccessToken ? { roadsideAccessToken } : {}),
+  };
 }
 
 /**
@@ -538,6 +556,69 @@ router.patch('/company-terms/:customerId', authMiddleware, requireRole('admin', 
 router.get('/', authMiddleware, (req, res) => {
   const { status, paymentStatus } = req.query;
   res.json(getOrders({ status, paymentStatus }, { includeInvoiceEmailStatus: true }));
+});
+
+router.get('/held', authMiddleware, requireRole('admin', 'manager', 'foh'), (req, res) => {
+  const bills = db.prepare(`SELECT id, label, cart_json, item_count, total, created_at
+    FROM held_pos_bills WHERE owner_user_id = ? ORDER BY created_at DESC`).all(req.user.id);
+  res.json(bills.map((bill) => ({
+    id: bill.id,
+    label: bill.label,
+    cart: parseStoredCart(bill.cart_json),
+    itemCount: bill.item_count,
+    total: bill.total,
+    heldAt: bill.created_at,
+  })));
+});
+
+router.post('/held', authMiddleware, requireRole('admin', 'manager', 'foh'), (req, res) => {
+  const cart = req.body?.cart;
+  if (!cart || typeof cart !== 'object' || !Array.isArray(cart.items) || !cart.items.length) {
+    return res.status(400).json({ error: 'A non-empty held cart is required.' });
+  }
+  const serializedCart = JSON.stringify(cart);
+  if (serializedCart.length > 500000) return res.status(413).json({ error: 'This held bill is too large to save.' });
+  const id = `held-${randomUUID()}`;
+  const now = new Date().toISOString();
+  const itemCount = cart.items.reduce((sum, item) => sum + Math.max(0, Number(item.quantity ?? item.qty ?? 0)), 0);
+  const calculatedTotal = cart.items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity ?? item.qty ?? 0), 0);
+  const total = Number.isFinite(Number(req.body?.total)) ? Number(req.body.total) : calculatedTotal;
+  const label = String(req.body?.label || '').trim().slice(0, 120) || `Held bill ${new Date(now).toLocaleTimeString()}`;
+  db.prepare(`INSERT INTO held_pos_bills (id, owner_user_id, label, cart_json, item_count, total, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, req.user.id, label, serializedCart, itemCount, total, now, now);
+  res.status(201).json({ id, label, cart, itemCount, total, heldAt: now });
+});
+
+router.delete('/held/:id', authMiddleware, requireRole('admin', 'manager', 'foh'), (req, res) => {
+  const result = db.prepare('DELETE FROM held_pos_bills WHERE id = ? AND owner_user_id = ?').run(req.params.id, req.user.id);
+  if (!result.changes) return res.status(404).json({ error: 'Held bill not found.' });
+  res.json({ ok: true });
+});
+
+router.get('/tracking/:id', (req, res) => {
+  const id = String(req.params.id || '');
+  const order = db.prepare('SELECT * FROM orders WHERE id = ? OR order_number = ?').get(id, id);
+  const link = order && db.prepare('SELECT access_token_hash FROM customer_order_tracking_links WHERE order_id = ?').get(order.id);
+  const token = String(req.get('x-order-tracking-token') || '');
+  if (!order || !link || !token) return res.status(404).json({ error: 'Order tracking link is unavailable.' });
+  const expected = Buffer.from(link.access_token_hash, 'hex');
+  const actual = Buffer.from(hashRoadsideAccessToken(token), 'hex');
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return res.status(404).json({ error: 'Order tracking link is unavailable.' });
+  const trip = db.prepare('SELECT status FROM roadside_trips WHERE order_id = ?').get(order.id);
+  res.json({
+    id: order.id,
+    orderNumber: order.order_number || order.id,
+    type: order.order_type,
+    status: order.status,
+    paymentStatus: order.payment_status,
+    paymentTerms: order.payment_terms,
+    fulfillmentMode: order.fulfillment_mode,
+    scheduledFor: order.delivery_scheduled_for,
+    reservationStatus: order.reservation_status,
+    roadsideStatus: trip?.status || null,
+    items: db.prepare('SELECT name, qty FROM order_items WHERE order_id = ?').all(order.id),
+  });
 });
 
 /**

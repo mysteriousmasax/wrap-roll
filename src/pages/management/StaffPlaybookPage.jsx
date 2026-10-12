@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { Activity, CheckCircle2, ClipboardCheck, Copy, PackageCheck, Printer, Save, ShieldAlert, Utensils } from 'lucide-react';
+import { Activity, CheckCircle2, Copy, PackageCheck, Printer, ShieldAlert, Utensils } from 'lucide-react';
 import PageHeader from '../../components/layout/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
@@ -45,18 +45,16 @@ function summarizeStockRows(rows = []) {
 
 const allTabs = [
   { id: 'workspace', label: 'My Shift', Icon: Activity },
-  { id: 'checklists', label: 'Daily checklists', Icon: ClipboardCheck },
   { id: 'recovery', label: 'Guest recovery', Icon: ShieldAlert },
   { id: 'menu', label: 'Menu guide', Icon: Utensils },
-  { id: 'handover', label: 'Shift handover', Icon: Save },
 ];
 
 const roleTabs = {
   admin: allTabs,
   manager: allTabs,
   executive: allTabs,
-  foh: [allTabs[0], allTabs[2], allTabs[3]],
-  kitchen: [allTabs[0], allTabs[2], allTabs[3]],
+  foh: allTabs,
+  kitchen: allTabs,
 };
 
 const roleChecklistPhases = {
@@ -194,7 +192,7 @@ export default function StaffPlaybookPage() {
   };
 
   useEffect(() => {
-    if (!tabs.some((tab) => tab.id === activeTab)) setActiveTab(tabs[0]?.id || 'checklists');
+    if (!tabs.some((tab) => tab.id === activeTab)) setActiveTab(tabs[0]?.id || 'workspace');
   }, [tabs, activeTab]);
 
   useEffect(() => {

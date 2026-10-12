@@ -46,17 +46,6 @@ const defaultCategories = [
   { id: 'soft-drinks', label: 'Soft Drinks' },
 ];
 const categoryFallbackImages = ['/hero-food.jpg', '/delivery-wraps.jpg', '/craft-story.jpg'];
-const HELD_BILLS_STORAGE_KEY = 'wraproll_pos_held_bills';
-
-function loadHeldBills() {
-  try {
-    const bills = JSON.parse(localStorage.getItem(HELD_BILLS_STORAGE_KEY) || '[]');
-    return Array.isArray(bills) ? bills : [];
-  } catch {
-    return [];
-  }
-}
-
 const quickUpsells = [
   { name: 'French Fries', price: 4000, category: 'sides' },
   { name: 'Cold Soda / Water', price: 2000, category: 'soft-drinks' },
@@ -231,7 +220,7 @@ function WifiQrModal({ isOpen, onClose, wifi, loading, error }) {
   );
 }
 
-function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, onHoldBill, onResumeBill, onDiscardBill }) {
+function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, heldBillsError, heldBillsLoading, onHoldBill, onResumeBill, onDiscardBill }) {
   const {
     items,
     updateQuantity,
@@ -261,14 +250,17 @@ function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, 
   const total = getTotal();
   const itemCount = getItemCount();
 
-  const heldBillsPanel = heldBills.length > 0 && (
+  const heldBillsPanel = (heldBills.length > 0 || heldBillsError || heldBillsLoading) && (
     <section className="rounded-xl border border-[#ebdccb] bg-[#fffaf4] p-2.5 text-left">
+      {heldBillsError && <p role="alert" className="mb-2 text-[11px] font-semibold text-red-700">{heldBillsError}</p>}
       <button type="button" onClick={() => setShowHeldBills((visible) => !visible)} className="flex w-full items-center justify-between text-xs font-bold text-[#554e46]">
         <span>Held bills</span>
         <span className="rounded-full bg-[#ae002a] px-2 py-0.5 text-[10px] text-white">{heldBills.length}</span>
       </button>
       {showHeldBills && (
         <div className="mt-2 max-h-44 space-y-2 overflow-y-auto">
+          {heldBillsLoading && <p className="text-[10px] text-[#746e67]">Loading held bills…</p>}
+          {!heldBillsLoading && !heldBills.length && !heldBillsError && <p className="text-[10px] text-[#746e67]">No held bills for this account.</p>}
           {items.length > 0 && <p className="text-[10px] text-[#746e67]">Hold the current bill before switching to another.</p>}
           {heldBills.map((bill) => (
             <div key={bill.id} className="flex items-center justify-between gap-2 rounded-lg border border-[#eee4d5] bg-white p-2">
@@ -526,7 +518,7 @@ function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, 
         </div>
 
         {showHoldForm && (
-          <form onSubmit={(event) => { event.preventDefault(); onHoldBill(holdLabel); setHoldLabel(''); setShowHoldForm(false); }} className="flex gap-2">
+          <form onSubmit={async (event) => { event.preventDefault(); const saved = await onHoldBill(holdLabel); if (saved) { setHoldLabel(''); setShowHoldForm(false); } }} className="flex gap-2">
             <input value={holdLabel} onChange={(event) => setHoldLabel(event.target.value)} placeholder="Customer name or table" className="min-w-0 flex-1 rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2.5 py-2 text-xs" />
             <button type="submit" className="shrink-0 rounded-lg bg-[#ae002a] px-3 py-2 text-xs font-bold text-white">Hold bill</button>
           </form>
@@ -625,17 +617,22 @@ export default function POSPage() {
   const [offlineOrderCount, setOfflineOrderCount] = useState(0);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [kitchenLoad, setKitchenLoad] = useState(0);
-  const [heldBills, setHeldBills] = useState(loadHeldBills);
+  const [heldBills, setHeldBills] = useState([]);
+  const [heldBillsError, setHeldBillsError] = useState('');
+  const [heldBillsLoading, setHeldBillsLoading] = useState(true);
 
   const { items, addItem, addCustomItem, updateItem, getTotal, getItemCount } = useCartStore();
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
-    try {
-      localStorage.setItem(HELD_BILLS_STORAGE_KEY, JSON.stringify(heldBills));
-    } catch {}
-  }, [heldBills]);
+    let active = true;
+    api.getHeldBills()
+      .then((bills) => { if (active) setHeldBills(Array.isArray(bills) ? bills : []); })
+      .catch((error) => { if (active) setHeldBillsError(error.message || 'Could not load held bills.'); })
+      .finally(() => { if (active) setHeldBillsLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const refreshOfflineCount = () => getQueuedOrderCount().then(setOfflineOrderCount).catch(() => {});
@@ -770,13 +767,11 @@ export default function POSPage() {
     }
   };
 
-  const holdCurrentBill = (label) => {
+  const holdCurrentBill = async (label) => {
     const cart = useCartStore.getState();
-    if (!cart.items.length) return;
+    if (!cart.items.length) return false;
     const heldBill = {
-      id: `held-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       label: String(label || '').trim() || cart.customerName.trim() || `Guest bill ${heldBills.length + 1}`,
-      heldAt: new Date().toISOString(),
       itemCount: cart.getItemCount(),
       total: cart.getTotal(),
       cart: {
@@ -797,20 +792,42 @@ export default function POSPage() {
         discountPercent: cart.discountPercent,
       },
     };
-    setHeldBills((current) => [...current, heldBill]);
-    cart.resetCart();
+    setHeldBillsError('');
+    try {
+      const savedBill = await api.createHeldBill(heldBill);
+      setHeldBills((current) => [savedBill, ...current]);
+      cart.resetCart();
+      return true;
+    } catch (error) {
+      setHeldBillsError(error.message || 'Could not save held bill. Your current order is still in the cart.');
+      return false;
+    }
   };
 
-  const resumeHeldBill = (id) => {
+  const resumeHeldBill = async (id) => {
     const cart = useCartStore.getState();
     if (cart.items.length) return;
     const heldBill = heldBills.find((bill) => bill.id === id);
     if (!heldBill) return;
-    cart.restoreCart(heldBill.cart);
-    setHeldBills((current) => current.filter((bill) => bill.id !== id));
+    setHeldBillsError('');
+    try {
+      await api.deleteHeldBill(id);
+      cart.restoreCart(heldBill.cart);
+      setHeldBills((current) => current.filter((bill) => bill.id !== id));
+    } catch (error) {
+      setHeldBillsError(error.message || 'Could not resume held bill.');
+    }
   };
 
-  const discardHeldBill = (id) => setHeldBills((current) => current.filter((bill) => bill.id !== id));
+  const discardHeldBill = async (id) => {
+    setHeldBillsError('');
+    try {
+      await api.deleteHeldBill(id);
+      setHeldBills((current) => current.filter((bill) => bill.id !== id));
+    } catch (error) {
+      setHeldBillsError(error.message || 'Could not discard held bill.');
+    }
+  };
 
   if (loading) {
     return (
@@ -967,6 +984,8 @@ export default function POSPage() {
           onOpenCustomModal={() => setShowCustomItemModal(true)}
           onCustomizeItem={handleCustomizeCartItem}
           heldBills={heldBills}
+          heldBillsError={heldBillsError}
+          heldBillsLoading={heldBillsLoading}
           onHoldBill={holdCurrentBill}
           onResumeBill={resumeHeldBill}
           onDiscardBill={discardHeldBill}
@@ -1045,6 +1064,8 @@ export default function POSPage() {
                 setShowCustomItemModal(true);
               }}
               heldBills={heldBills}
+              heldBillsError={heldBillsError}
+              heldBillsLoading={heldBillsLoading}
               onHoldBill={holdCurrentBill}
               onResumeBill={resumeHeldBill}
               onDiscardBill={discardHeldBill}

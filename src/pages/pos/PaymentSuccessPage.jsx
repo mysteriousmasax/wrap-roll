@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle, Receipt } from 'lucide-react';
+import { Check, CheckCircle, Copy, Link2, Receipt, Share2 } from 'lucide-react';
 import { formatCurrency, printFiscalInvoice } from '../../utils/format';
 import { api } from '../../api/client';
 import useSettingsStore from '../../store/useSettingsStore';
@@ -12,6 +12,7 @@ export default function PaymentSuccessPage() {
   const navigate = useNavigate();
   const { order, orderId, total, method, awaitingConfirmation } = location.state || {};
   const [confirmedOrder, setConfirmedOrder] = useState(order || null);
+  const [shareMessage, setShareMessage] = useState('');
   const printedOrderRef = useRef(null);
   const clearedOrderRef = useRef(null);
   const settings = useSettingsStore((state) => state.settings);
@@ -55,6 +56,32 @@ export default function PaymentSuccessPage() {
   }
 
   const receiptOrder = order || { id: orderId, total, paymentMethod: method, items: [] };
+  const trackedOrderId = orderId || confirmedOrder?.id || receiptOrder.id;
+  const trackingToken = confirmedOrder?.customerTrackingToken || order?.customerTrackingToken || confirmedOrder?.roadsideAccessToken || order?.roadsideAccessToken;
+  const isRoadsideOrder = (confirmedOrder || order)?.fulfillmentMode === 'roadside_handoff';
+  const customerTrackingUrl = trackingToken
+    ? `${window.location.origin}/order-track/${encodeURIComponent(trackedOrderId)}#${encodeURIComponent(trackingToken)}`
+    : '';
+
+  const shareCustomerTracking = async () => {
+    if (!customerTrackingUrl) return;
+    setShareMessage('');
+    try {
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: 'Wrap & Roll order tracking', text: `Track order ${trackedOrderId}`, url: customerTrackingUrl });
+          setShareMessage('Tracking link shared.');
+          return;
+        } catch (shareError) {
+          if (shareError.name === 'AbortError') return;
+        }
+      }
+      await navigator.clipboard.writeText(customerTrackingUrl);
+      setShareMessage('Customer order link copied.');
+    } catch (error) {
+      setShareMessage('Could not share the tracking link. Copy it from your browser address bar.');
+    }
+  };
 
   return (
     <div className="payment-page min-h-screen bg-surface flex items-center justify-center p-6">
@@ -92,6 +119,12 @@ export default function PaymentSuccessPage() {
             </div>}
           </div>
         </div>
+
+        {customerTrackingUrl && <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4 text-left">
+          <div className="flex items-start gap-3"><Link2 size={18} className="mt-0.5 shrink-0 text-primary" /><div><h2 className="text-sm font-bold">Customer order link</h2><p className="mt-1 text-xs leading-5 text-surface-on-variant">Share this secure link so the customer can follow order and payment status.{isRoadsideOrder ? ' Roadside customers can optionally share live location with the handoff team.' : ''}</p></div></div>
+          <Button type="button" size="sm" className="mt-3 w-full" onClick={shareCustomerTracking}>{navigator.share ? <Share2 size={14} /> : shareMessage.includes('copied') ? <Check size={14} /> : <Copy size={14} />}{navigator.share ? 'Share order link' : 'Copy order link'}</Button>
+          {shareMessage && <p role="status" className="mt-2 text-center text-xs font-semibold text-primary">{shareMessage}</p>}
+        </div>}
 
         <div className="flex gap-3">
           <Button variant="secondary" onClick={() => navigate('/pos')} className="flex-1" size="lg">

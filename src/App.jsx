@@ -32,6 +32,7 @@ import PeopleHubPage from './pages/management/PeopleHubPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
 import HomePage from './pages/public/HomePage';
 import RoadsideTrackingPage from './pages/public/RoadsideTrackingPage';
+import OrderTrackingPage from './pages/public/OrderTrackingPage';
 import PrivacyPolicyPage from './pages/public/PrivacyPolicyPage';
 import CustomerRewardsPage from './pages/public/CustomerRewardsPage';
 import BranchSetupPage from './pages/desktop/BranchSetupPage';
@@ -124,6 +125,7 @@ function AppRoutes() {
       <Route path="/" element={<HomePage />} />
       <Route path="/table/:tagId" element={<HomePage />} />
       <Route path="/roadside-track/:orderId" element={<RoadsideTrackingPage />} />
+      <Route path="/order-track/:orderId" element={<OrderTrackingPage />} />
       <Route path="/customer-rewards" element={<CustomerRewardsPage />} />
       <Route path="/rewards" element={<CustomerRewardsPage />} />
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />

@@ -75,7 +75,11 @@ export const api = {
     const qs = params.toString();
     return request(`/orders${qs ? `?${qs}` : ''}`);
   },
+  getHeldBills: () => request('/orders/held'),
+  createHeldBill: (data) => request('/orders/held', { method: 'POST', body: JSON.stringify(data) }),
+  deleteHeldBill: (id) => request(`/orders/held/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getOrder: (id) => request(`/orders/${id}`),
+  getCustomerOrderTracking: (id, token) => request(`/orders/tracking/${encodeURIComponent(id)}`, { headers: { 'X-Order-Tracking-Token': token } }),
   getPublicOrder: (idOrRef, phone) => request(`/orders/public/${encodeURIComponent(idOrRef)}${phone ? `?phone=${encodeURIComponent(phone)}` : ''}`),
   createOrder: (data) => request('/orders', { method: 'POST', body: JSON.stringify(data) }),
   createPublicOrder: (data) => request('/orders/public', { method: 'POST', body: JSON.stringify(data) }),

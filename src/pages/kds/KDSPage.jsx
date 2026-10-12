@@ -239,12 +239,24 @@ export default function KDSPage() {
   }, [fetchOrders]);
 
   useEffect(() => {
+    const refreshOrders = () => {
+      if (document.visibilityState === 'visible') fetchOrders('confirmed,pending,pending_payment,preparing,ready');
+    };
+    const interval = window.setInterval(refreshOrders, 15000);
+    document.addEventListener('visibilitychange', refreshOrders);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshOrders);
+    };
+  }, [fetchOrders]);
+
+  useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
   useWebSocket((event) => {
-    if (event === 'order:created' || event === 'order:updated' || event === 'order:confirmed' || event === 'payment:manual_review' || event === 'payment:confirmed' || event === 'payment:rejected') {
+    if (event === 'connected' || event === 'order:created' || event === 'order:updated' || event === 'order:confirmed' || event === 'payment:manual_review' || event === 'payment:confirmed' || event === 'payment:rejected') {
       fetchOrders('confirmed,pending,pending_payment,preparing,ready');
       if (event === 'order:created' && soundEnabled) playOrderChime();
     }

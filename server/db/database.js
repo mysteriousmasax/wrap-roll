@@ -398,6 +398,26 @@ export async function initDatabase() {
       FOREIGN KEY (staff_id) REFERENCES users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS held_pos_bills (
+      id TEXT PRIMARY KEY,
+      owner_user_id INTEGER NOT NULL,
+      label TEXT NOT NULL,
+      cart_json TEXT NOT NULL,
+      item_count INTEGER NOT NULL DEFAULT 0,
+      total REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_held_pos_bills_owner ON held_pos_bills(owner_user_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS customer_order_tracking_links (
+      order_id TEXT PRIMARY KEY,
+      access_token_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS order_email_outbox (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id TEXT NOT NULL,

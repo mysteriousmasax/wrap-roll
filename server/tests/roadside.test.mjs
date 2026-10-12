@@ -20,6 +20,7 @@ import test from 'node:test';
     await database.ensureDatabase();
     const menuItemId = testDb.prepare('INSERT INTO menu_items (name, description, price, category, active) VALUES (?, ?, ?, ?, 1)')
       .run('Roadside Test Roll', '', 10000, 'wraps').lastInsertRowid;
+    testDb.prepare("INSERT INTO tables (number, seats, status) VALUES (1, 2, 'available')").run();
     const userId = testDb.prepare('INSERT INTO users (name, role, pin) VALUES (?, ?, ?)').run('Roadside Manager', 'manager', 'test-pin').lastInsertRowid;
     const { default: ordersRouter } = await import(`../routes/orders.js?roadside-test=${Date.now()}`);
     const { default: roadsideRouter } = await import(`../routes/roadside.js?roadside-test=${Date.now()}`);
@@ -51,6 +52,65 @@ import test from 'node:test';
     assert.equal(order.paymentStatus, 'pending');
     assert.equal(order.reservationStatus, 'awaiting_payment');
     assert.ok(order.roadsideAccessToken);
+
+    for (const orderType of ['dine-in', 'takeout', 'delivery']) {
+      const orderResponse = await fetch(`${base}/orders`, {
+        method: 'POST',
+        headers: { ...staffHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: [{ menuItemId, qty: 1 }],
+          orderType,
+          tableNumber: orderType === 'dine-in' ? 1 : null,
+          customerName: 'Tracking Link Customer',
+          deliveryAddress: orderType === 'delivery' ? '1 Test Road' : '',
+          paymentMethod: 'cash',
+          paymentTiming: 'paid-cash',
+          orderSource: 'foh',
+        }),
+      });
+      assert.equal(orderResponse.status, 201);
+      const createdOrder = await orderResponse.json();
+      assert.ok(createdOrder.customerTrackingToken, `${orderType} should get a public tracking token`);
+      const statusResponse = await fetch(`${base}/orders/tracking/${encodeURIComponent(createdOrder.id)}`, {
+        headers: { 'X-Order-Tracking-Token': createdOrder.customerTrackingToken },
+      });
+      assert.equal(statusResponse.status, 200);
+      const publicStatus = await statusResponse.json();
+      assert.equal(publicStatus.type, orderType);
+      assert.equal(publicStatus.status, 'confirmed');
+      assert.equal(publicStatus.paymentStatus, 'paid');
+    }
+
+    const posCashResponse = await fetch(`${base}/orders`, {
+      method: 'POST',
+      headers: { ...staffHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: [{ menuItemId, qty: 1 }],
+        customerName: 'POS Roadside Customer',
+        customerPhone: '+255700000010',
+        orderType: 'takeout',
+        fulfillmentMode: 'roadside_handoff',
+        paymentMethod: 'cash',
+        paymentTiming: 'paid-cash',
+        orderSource: 'foh',
+      }),
+    });
+    assert.equal(posCashResponse.status, 201);
+    const posRoadsideOrder = await posCashResponse.json();
+    assert.equal(posRoadsideOrder.paymentStatus, 'paid');
+    assert.equal(posRoadsideOrder.reservationStatus, 'confirmed');
+    assert.ok(posRoadsideOrder.roadsideAccessToken);
+    const posShareResponse = await fetch(`${base}/roadside/${encodeURIComponent(posRoadsideOrder.id)}/share-link`, { method: 'POST', headers: staffHeaders });
+    assert.equal(posShareResponse.status, 200);
+    const posShareLink = await posShareResponse.json();
+    assert.equal(new URL(posShareLink.url).hash.slice(1), posRoadsideOrder.roadsideAccessToken);
+    const publicPosOrderResponse = await fetch(`${base}/roadside/${encodeURIComponent(posRoadsideOrder.id)}/customer`, {
+      headers: { 'X-Roadside-Token': posRoadsideOrder.roadsideAccessToken },
+    });
+    assert.equal(publicPosOrderResponse.status, 200);
+    const publicPosOrder = await publicPosOrderResponse.json();
+    assert.equal(publicPosOrder.paymentStatus, 'paid');
+    assert.equal(publicPosOrder.reservationStatus, 'confirmed');
 
     const staffEndpoint = await fetch(`${base}/roadside/active`);
     assert.equal(staffEndpoint.status, 401);

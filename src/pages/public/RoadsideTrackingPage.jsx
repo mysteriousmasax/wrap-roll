@@ -13,6 +13,26 @@ export default function RoadsideTrackingPage() {
   });
   const [order, setOrder] = useState(null);
   const [error, setError] = useState('');
+  const orderStatusLabel = order?.reservationStatus === 'released'
+    ? 'Handoff team alerted'
+    : order?.status === 'completed'
+      ? 'Handoff complete'
+      : order?.status === 'ready'
+        ? 'Ready for handoff'
+        : order?.status === 'preparing'
+          ? 'Being prepared'
+          : order?.status === 'confirmed'
+            ? 'Order confirmed'
+            : 'Awaiting payment confirmation';
+  const locationStatusLabel = order?.tripStatus === 'tracking'
+    ? 'Sharing live location'
+    : order?.tripStatus === 'assigned'
+      ? 'A runner is assigned'
+      : order?.tripStatus === 'tracking_stopped'
+        ? 'Location sharing stopped'
+        : order?.tripStatus === 'completed'
+          ? 'Handoff complete'
+          : 'Location not shared';
 
   useEffect(() => {
     if (!accessToken) return;
@@ -50,6 +70,15 @@ export default function RoadsideTrackingPage() {
         {!accessToken && <p className="mt-3 text-sm text-red-700">This tracking link is incomplete. Open the secure link from your order email.</p>}
         {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
         {!order && accessToken && !error && <p className="mt-3 text-sm text-[#746e67]">Loading your order…</p>}
+        {order && <div aria-live="polite" className="mt-4 space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-t border-[#eee4d5] pt-3">
+            <div><p className="text-[10px] font-bold uppercase tracking-wide text-[#746e67]">Order</p><p className="mt-1 text-sm font-bold">{order.orderNumber}</p></div>
+            <div><p className="text-[10px] font-bold uppercase tracking-wide text-[#746e67]">Order status</p><p className="mt-1 text-sm font-semibold">{orderStatusLabel}</p></div>
+            <div><p className="text-[10px] font-bold uppercase tracking-wide text-[#746e67]">Payment</p><p className="mt-1 text-sm font-semibold capitalize">{order.paymentStatus === 'manual_review' ? 'Verification pending' : String(order.paymentStatus || 'pending').replaceAll('_', ' ')}</p></div>
+          </div>
+          <p className="rounded-lg bg-[#fbf6ee] p-3 text-xs font-semibold text-[#554e46]">{locationStatusLabel}{order.scheduledFor ? ` · Handoff ${new Date(order.scheduledFor).toLocaleString()}` : ''}</p>
+          {order.items?.length > 0 && <div><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-[#746e67]">Order items</p><p className="text-xs leading-5">{order.items.map((item) => `${item.qty}x ${item.name}`).join(', ')}</p></div>}
+        </div>}
         {order && !['paid', 'completed'].includes(order.paymentStatus) && order.paymentTerms !== 'invoice' && <p className="mt-3 rounded-lg bg-[#fbf6ee] p-3 text-sm text-[#554e46]">Live tracking will be available after payment is verified.</p>}
       </section>
       {order && (order.paymentStatus === 'paid' || order.paymentTerms === 'invoice') && <div className="mt-4"><RoadsideTrackingPanel order={order} accessToken={accessToken} /></div>}
