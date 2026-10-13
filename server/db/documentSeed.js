@@ -234,12 +234,10 @@ const legacyFixtureNames = new Set([
 
 function purgeLegacyFixtures(db) {
   const names = Array.from(legacyFixtureNames);
-  const menuDeleted = db.prepare('DELETE FROM menu_items WHERE name IN (' + names.map(() => '?').join(',') + ')').run(...names).changes;
   const inventoryDeleted = db.prepare('DELETE FROM inventory WHERE name IN (' + names.map(() => '?').join(',') + ')').run(...names).changes;
-  db.prepare('DELETE FROM menu_items WHERE name LIKE ?').run('%TEST%');
   db.prepare('DELETE FROM inventory WHERE lower(name) LIKE ?').run('%test%');
 
-  return { menuDeleted, inventoryDeleted };
+  return { menuDeleted: 0, inventoryDeleted };
 }
 
 function ensureDocumentSchema(db) {
@@ -444,12 +442,12 @@ export function seedFromDocuments(db) {
   }
 
   const writeMenu = db.prepare('SELECT id FROM menu_items WHERE name = ?');
-  const updateMenu = db.prepare('UPDATE menu_items SET description = ?, price = ?, category = ?, image = ?, popular = ?, active = 1 WHERE id = ?');
+  const updateMenu = db.prepare('UPDATE menu_items SET description = ?, price = ?, category = ?, popular = ?, active = 1 WHERE id = ?');
   const insertMenu = db.prepare('INSERT INTO menu_items (name, description, price, category, image, popular, active) VALUES (?, ?, ?, ?, ?, ?, 1)');
 
   for (const item of menuCatalog) {
     const existing = writeMenu.get(item.name);
-    if (existing) updateMenu.run(item.description, item.price, item.category, item.image, item.popular ? 1 : 0, existing.id);
+    if (existing) updateMenu.run(item.description, item.price, item.category, item.popular ? 1 : 0, existing.id);
     else insertMenu.run(item.name, item.description, item.price, item.category, item.image, item.popular ? 1 : 0);
   }
 

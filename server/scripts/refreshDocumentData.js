@@ -1,22 +1,19 @@
 import { DatabaseSync } from 'node:sqlite';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { seedFromDocuments } from '../db/documentSeed.js';
 
-const db = new DatabaseSync(new URL('../db/wraproll.db', import.meta.url).pathname);
-
-const tableNames = [
-  'order_items', 'payments', 'refunds', 'sales_transactions', 'orders', 'sales_monthly',
-  'shift_logs', 'payroll_records', 'training_records', 'customers', 'staff', 'inventory',
-  'menu_items', 'settings'
-];
-
-for (const table of tableNames) {
-  try {
-    db.prepare(`DELETE FROM ${table}`).run();
-  } catch {
-    // table may not yet exist, which is fine for a refresh script that also checks the schema
-  }
+export function refreshDocumentData(db) {
+  return seedFromDocuments(db);
 }
 
-const result = seedFromDocuments(db);
-console.log(JSON.stringify({ refreshed: true, ...result }, null, 2));
-db.close();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const dbPath = process.env.DB_PATH || path.join(path.dirname(fileURLToPath(import.meta.url)), '../db/wraproll.db');
+  const db = new DatabaseSync(dbPath);
+  try {
+    const result = refreshDocumentData(db);
+    console.log(JSON.stringify({ refreshed: true, ...result }, null, 2));
+  } finally {
+    db.close();
+  }
+}
