@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fallbackMenuImage, getMenuImage, getMenuImageHash } from '../utils/menuImages.js';
+import { fallbackMenuImage, getMenuImage, getMenuImageHash, resolveMenuImageUpdate } from '../utils/menuImages.js';
 
 test('oversized embedded menu images use the fallback instead of a dead image endpoint', () => {
   const encodedLength = Math.ceil(((8 * 1024 * 1024) + 1) / 3) * 4;
@@ -18,4 +18,13 @@ test('image URL generation and validation normalize stored whitespace consistent
   const imageUrl = getMenuImage(image, 191);
 
   assert.equal(getMenuImageHash(image), imageUrl.split('/').at(-1));
+});
+
+test('saving a displayed hashed URL preserves the original database image source', () => {
+  const storedImage = 'data:image/png;base64,AA==';
+  const displayedImage = getMenuImage(storedImage, 191);
+
+  assert.equal(resolveMenuImageUpdate(displayedImage, storedImage, 191), storedImage);
+  assert.equal(resolveMenuImageUpdate('data:image/jpeg;base64,Q3VzdG9t', storedImage, 191), 'data:image/jpeg;base64,Q3VzdG9t');
+  assert.equal(resolveMenuImageUpdate(undefined, storedImage, 191), storedImage);
 });

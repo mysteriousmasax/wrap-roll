@@ -4,7 +4,7 @@ import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { createMenuBookExport } from '../utils/menuBookExport.js';
 import { broadcast } from '../ws.js';
 import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/deletionPolicy.js';
-import { decodeMenuImage, fallbackMenuImage, getMenuImage, getMenuImageHash } from '../utils/menuImages.js';
+import { decodeMenuImage, fallbackMenuImage, getMenuImage, getMenuImageHash, resolveMenuImageUpdate } from '../utils/menuImages.js';
 import { normalizeMenuVariants, parseMenuVariants } from '../utils/menuVariants.js';
 
 const router = Router();
@@ -290,6 +290,7 @@ router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
   const { name, description, price, variants, category, categories, modifier_ids: modifierIds, image, popular, active, prep_time_minutes, ingredients, cooking_instructions } = req.body;
   const existing = db.prepare('SELECT * FROM menu_items WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Item not found' });
+  const nextImage = resolveMenuImageUpdate(image, existing.image, existing.id);
   const nextCategories = categories === undefined ? null : normalizeMenuCategories(categories ?? category);
   if (nextCategories && nextCategories.length === 0) return res.status(400).json({ error: 'At least one category is required' });
   let nextVariants;
@@ -308,7 +309,7 @@ router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
     nextVariants[0]?.price ?? price ?? existing.price,
     JSON.stringify(nextVariants),
     nextCategories?.[0] ?? category ?? existing.category,
-    image ?? existing.image,
+    nextImage,
     nextPrepMinutes,
     popular != null ? (popular ? 1 : 0) : existing.popular,
     active != null ? (active ? 1 : 0) : existing.active,

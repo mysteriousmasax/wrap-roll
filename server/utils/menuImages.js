@@ -18,6 +18,16 @@ export function getMenuImage(image, itemId, isPublic = false) {
   return fallbackMenuImage;
 }
 
+export function resolveMenuImageUpdate(image, existingImage, itemId) {
+  if (image === undefined || image === null) return existingImage || '';
+  const submitted = String(image).trim();
+  const currentDisplayUrl = getMenuImage(existingImage, itemId);
+  if (submitted === currentDisplayUrl && /^\/api\/menu\/image\/\d+\/[a-f\d]{20}$/i.test(submitted)) {
+    return existingImage || '';
+  }
+  return image;
+}
+
 export function decodeMenuImage(value) {
   if (typeof value !== 'string') return null;
   const embeddedImage = /^data:(image\/(?:png|jpe?g|webp|gif));base64,([a-z\d+/=]+)$/i.exec(value.trim());
