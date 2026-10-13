@@ -34,7 +34,7 @@ test('public company orders require and persist invoice TIN and queue order emai
     const payload = {
       items: [{ menuItemId, qty: 1 }],
       customerName: 'Amina Buyer',
-      customerPhone: '+255700000001',
+      customerPhone: '0712345678',
       customerEmail: 'amina@example.com',
       customerType: 'company',
       companyName: 'Amina Foods Ltd',
@@ -54,6 +54,7 @@ test('public company orders require and persist invoice TIN and queue order emai
     assert.equal(response.status, 201);
     const order = await response.json();
     assert.equal(order.customerType, 'company');
+    assert.equal(order.customerPhone, '+255712345678');
     assert.equal(order.companyName, 'Amina Foods Ltd');
     assert.equal(order.customerTin, '123456789');
     assert.equal(routeDb.prepare('SELECT email_type FROM order_email_outbox WHERE order_id = ?').get(order.id).email_type, 'order_received');

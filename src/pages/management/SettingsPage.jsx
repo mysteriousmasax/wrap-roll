@@ -3,6 +3,7 @@ import PageHeader from '../../components/layout/PageHeader';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
+import { normalizeTanzanianPhone } from '../../../shared/phone.js';
 import MobileBluetoothPrinterSettings from '../../components/settings/MobileBluetoothPrinterSettings';
 import { api } from '../../api/client';
 import useSettingsStore from '../../store/useSettingsStore';
@@ -328,7 +329,7 @@ export default function SettingsPage() {
                 <Input label="Automatic kitchen-release radius (meters)" type="number" min="50" max="1000" step="10" value={form.roadside_arrival_radius_meters || '250'} onChange={(e) => update('roadside_arrival_radius_meters', e.target.value)} />
                 <Input label="Google Maps URL" value={form.google_maps_url || ''} onChange={(e) => update('google_maps_url', e.target.value)} />
                 <Input label="Google Maps Embed URL" value={form.google_maps_embed_url || ''} onChange={(e) => update('google_maps_embed_url', e.target.value)} />
-                <Input label="Phone Number" value={form.phone || ''} onChange={(e) => update('phone', e.target.value)} />
+                <Input label="Phone Number" type="tel" value={form.phone || ''} onChange={(e) => update('phone', e.target.value)} onBlur={(e) => update('phone', normalizeTanzanianPhone(e.target.value))} />
                 <Input label="Email" value={form.email || ''} onChange={(e) => update('email', e.target.value)} />
                 <Input label="Operating Hours" value={form.operating_hours || ''} onChange={(e) => update('operating_hours', e.target.value)} />
                 <Input label="Timezone" value={form.timezone || ''} onChange={(e) => update('timezone', e.target.value)} />

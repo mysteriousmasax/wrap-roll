@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Plus, Minus, Utensils, Sparkles, Check } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
 import Button from '../../components/ui/Button';
@@ -18,6 +19,12 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
     setQuantity(initialQuantity);
   }, [item?.id, selectionKey]);
 
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [isOpen]);
 
   if (!isOpen || !item) return null;
 
@@ -49,9 +56,9 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 animate-fade-in">
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-[#fffdfa] border border-[#ebdccb] rounded-3xl shadow-2xl w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden animate-slide-up z-10 text-[#24211e]">
+    createPortal(<div className="fixed inset-0 z-[60] flex items-end justify-center p-0 sm:items-center sm:p-4 animate-fade-in">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-[#fffdfa] border border-[#ebdccb] rounded-t-3xl sm:rounded-3xl shadow-2xl w-full max-w-xl max-h-[92dvh] sm:max-h-[min(92dvh,900px)] flex flex-col overflow-hidden animate-slide-up z-10 text-[#24211e]">
         {/* Header with image banner */}
         <div className="relative p-5 border-b border-[#eee4d5] bg-gradient-to-r from-[#fff9f0] to-[#fffdfa] flex items-start justify-between gap-4">
           <div className="flex items-start gap-3.5">
@@ -87,7 +94,7 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
         </div>
 
         {/* Scrollable Customization Content */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-6 [webkit-overflow-scrolling:touch]">
           {item.variants?.length > 0 && (
             <section aria-label="Choose a size">
               <h3 className="mb-2.5 text-xs font-bold uppercase tracking-wider text-[#746e67]">Choose a size</h3>
@@ -280,7 +287,7 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
         </div>
 
         {/* Footer with sticky CTA */}
-        <div className="p-4 sm:p-5 border-t border-[#eee4d5] bg-white flex items-center justify-between gap-3 shadow-lg">
+        <div style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }} className="shrink-0 p-3 sm:p-5 border-t border-[#eee4d5] bg-white flex items-center justify-between gap-2 sm:gap-3 shadow-lg">
           <div className="leading-tight">
             <span className="text-[11px] font-semibold text-[#746e67] uppercase tracking-wider block">
               Total ({quantity} {quantity === 1 ? 'item' : 'items'})
@@ -294,7 +301,7 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl border border-[#d9cdb7] font-semibold text-xs text-[#554e46] hover:bg-[#faeee2] transition-colors"
+              className="min-h-11 px-3 sm:px-4 py-2.5 rounded-xl border border-[#d9cdb7] font-semibold text-xs text-[#554e46] hover:bg-[#faeee2] transition-colors"
             >
               Cancel
             </button>
@@ -304,6 +311,6 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
           </div>
         </div>
       </div>
-    </div>
+    </div>, document.body)
   );
 }

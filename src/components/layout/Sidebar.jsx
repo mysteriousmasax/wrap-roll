@@ -86,7 +86,7 @@ export default function Sidebar({ isOpen, onClose, compact, onToggleCollapse }) 
             </button>
           )}
           {onClose && (
-              <button onClick={onClose} className="md:hidden p-1.5 rounded-lg hover:bg-surface-container">
+              <button onClick={onClose} aria-label="Close navigation menu" className="md:hidden flex min-h-11 min-w-11 items-center justify-center rounded-lg hover:bg-surface-container">
               <X size={18} />
             </button>
           )}
@@ -98,8 +98,6 @@ export default function Sidebar({ isOpen, onClose, compact, onToggleCollapse }) 
           <NavLink
             key={item.path}
             to={item.path}
-            onPointerDown={() => onClose?.()}
-            onClick={() => onClose?.()}
             className={({ isActive }) =>
               clsx(
                 'flex items-center gap-3 rounded-lg text-sm font-medium transition-all',
@@ -161,7 +159,7 @@ export default function Sidebar({ isOpen, onClose, compact, onToggleCollapse }) 
       <aside
         ref={sidebarRef}
         className={clsx(
-          'dashboard-sidebar bg-white border-r border-outline-variant flex flex-col h-screen z-50 transition-all duration-300',
+          'dashboard-sidebar bg-white border-r border-outline-variant flex flex-col h-[100dvh] z-50 transition-all duration-300',
           compact ? 'dashboard-sidebar-compact' : '',
           compact ? 'w-16' : 'w-60',
           compact ? 'relative' : '',

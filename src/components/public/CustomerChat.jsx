@@ -3,23 +3,29 @@ import { Image, MapPin, MessageCircle, Mic, Send, ShoppingBag, Square, X } from 
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { reverseGoogleGeocode } from '../../lib/googleMaps';
+import { normalizeTanzanianPhone } from '../../../shared/phone.js';
 
-export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', onOpenCart, hasFloatingCart = false }) {
+export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', onOpenCart, hasFloatingCart = false, initialProfile, conversationKey = '' }) {
   const [open, setOpen] = useState(false);
-  const [profile, setProfile] = useState(() => ({
+  const [profile, setProfile] = useState(() => initialProfile ? {
+    name: initialProfile.name || '',
+    phone: normalizeTanzanianPhone(initialProfile.phone || ''),
+    email: initialProfile.email || '',
+  } : {
     name: localStorage.getItem('wraproll_customer_name') || '',
-    phone: localStorage.getItem('wraproll_customer_phone') || '',
+    phone: normalizeTanzanianPhone(localStorage.getItem('wraproll_customer_phone') || ''),
     email: localStorage.getItem('wraproll_customer_email') || '',
-  }));
+  });
   const [profileForm, setProfileForm] = useState(profile);
   const [profileError, setProfileError] = useState('');
+  const conversationStorageKey = conversationKey ? `wraproll_chat_id_${conversationKey}` : 'wraproll_chat_id';
   const panelRef = useRef(null);
   const triggerRef = useRef(null);
   const [conversationId, setConversationId] = useState(() => {
-    const stored = localStorage.getItem('wraproll_chat_id');
+    const stored = localStorage.getItem(conversationStorageKey);
     if (stored) return stored;
     const id = crypto.randomUUID();
-    localStorage.setItem('wraproll_chat_id', id);
+    localStorage.setItem(conversationStorageKey, id);
     return id;
   });
   const [messages, setMessages] = useState([]);
@@ -35,14 +41,25 @@ export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', 
   ];
 
   useEffect(() => {
+    if (!initialProfile) return;
+    const nextProfile = {
+      name: initialProfile.name || '',
+      phone: normalizeTanzanianPhone(initialProfile.phone || ''),
+      email: initialProfile.email || '',
+    };
+    setProfile(nextProfile);
+    setProfileForm(nextProfile);
+  }, [initialProfile?.name, initialProfile?.phone, initialProfile?.email]);
+
+  useEffect(() => {
     api.getPublicChat(conversationId, profile.email, profile.name, profile.phone).then(({ conversationId: canonicalId, messages: savedMessages }) => {
       if (canonicalId && canonicalId !== conversationId) {
         setConversationId(canonicalId);
-        localStorage.setItem('wraproll_chat_id', canonicalId);
+        localStorage.setItem(conversationStorageKey, canonicalId);
       }
       setMessages(savedMessages.length ? savedMessages : [{ from: 'agent', text: t('chatGreeting') }]);
     }).catch(() => setMessages([{ from: 'agent', text: t('chatGreeting') }]));
-  }, [conversationId, profile.email, profile.name, profile.phone, t]);
+  }, [conversationId, conversationStorageKey, profile.email, profile.name, profile.phone, t]);
 
   useWebSocket((event, data) => {
     if (event !== 'chat:message' || data.conversationId !== conversationId) return;
@@ -64,9 +81,9 @@ export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', 
       const response = await api.sendPublicChatMessage(
         conversationId,
         text,
-        localStorage.getItem('wraproll_customer_name') || '',
-        localStorage.getItem('wraproll_customer_phone') || '',
-        localStorage.getItem('wraproll_customer_email') || '',
+        profile.name,
+        profile.phone,
+        profile.email,
         options.messageType || 'text',
         options.attachmentUrl || null,
         options.metadata || {}
@@ -159,7 +176,7 @@ export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', 
     setRecording(true);
   };
 
-  const hasProfile = Boolean(profile.name.trim() && profile.phone.trim() && profile.email.trim());
+  const hasProfile = Boolean(profile.name.trim() && (profile.phone.trim() || profile.email.trim()));
 
   const renderMessage = (message) => (
     <div className="customer-chat-message-content">
@@ -186,11 +203,11 @@ export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', 
     event.preventDefault();
     const nextProfile = {
       name: profileForm.name.trim(),
-      phone: profileForm.phone.trim(),
+      phone: normalizeTanzanianPhone(profileForm.phone),
       email: profileForm.email.trim().toLowerCase(),
     };
-    if (!nextProfile.name || !nextProfile.phone || !nextProfile.email) {
-      setProfileError('Enter your name, phone number, and email to start chatting.');
+    if (!nextProfile.name || (!nextProfile.phone && !nextProfile.email)) {
+      setProfileError('Enter your name and either a phone number or email address to start chatting.');
       return;
     }
     if (!/^\S+@\S+\.\S+$/.test(nextProfile.email)) {
@@ -214,8 +231,8 @@ export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', 
           <div><strong>Start your chat</strong><p>Tell us who you are so we can help with your order and contact you about it.</p></div>
           {profileError && <p className="customer-chat-profile-error">{profileError}</p>}
           <label>Full name<input required value={profileForm.name} onChange={(event) => setProfileForm({ ...profileForm, name: event.target.value })} placeholder="e.g. Rachel F" /></label>
-          <label>Phone number<input required type="tel" value={profileForm.phone} onChange={(event) => setProfileForm({ ...profileForm, phone: event.target.value })} placeholder="e.g. 0712 345 678" /></label>
-          <label>Email address<input required type="email" value={profileForm.email} onChange={(event) => setProfileForm({ ...profileForm, email: event.target.value })} placeholder="you@example.com" /></label>
+          <label>Phone number (optional)<input type="tel" value={profileForm.phone} onChange={(event) => setProfileForm({ ...profileForm, phone: event.target.value })} onBlur={(event) => setProfileForm((current) => ({ ...current, phone: normalizeTanzanianPhone(event.target.value) }))} placeholder="e.g. 0712 345 678" /></label>
+          <label>Email address (optional)<input type="email" value={profileForm.email} onChange={(event) => setProfileForm({ ...profileForm, email: event.target.value })} placeholder="you@example.com" /></label>
           <button type="submit">Continue to chat <Send size={14} /></button>
         </form> : <>
           <div className="customer-chat-profile-summary"><strong>{profile.name}</strong><span>{profile.phone} · {profile.email}</span></div>

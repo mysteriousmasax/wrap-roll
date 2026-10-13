@@ -88,6 +88,12 @@ test('staff workspace clocks shifts, reports assigned POS totals, and permits sc
     assert.equal(workspace.shift.start, '00:00');
     assert.equal(workspace.metrics.shifts, 0);
 
+    const trackingResponse = await fetch(`${base}/staff/tracking`, { headers: managerHeaders });
+    assert.equal(trackingResponse.status, 200);
+    const tracking = await trackingResponse.json();
+    assert.equal(tracking.staff.find((staff) => staff.id === staffId).activity.openTasks, 1);
+    assert.equal('inventoryChanges' in tracking.staff.find((staff) => staff.id === staffId).activity, false);
+
     const handoverResponse = await fetch(`${base}/business/shift-handover?date=${businessDate}&shift=morning`, { headers: staffHeaders });
     assert.equal(handoverResponse.status, 200);
     const handover = await handoverResponse.json();

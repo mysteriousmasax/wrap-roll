@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowRight, Clock3, Gift, KeyRound, Sparkles } from 'lucide-react';
 import { api } from '../../api/client';
 import { formatCurrency } from '../../utils/format';
+import { normalizeTanzanianPhone } from '../../../shared/phone.js';
 
 export default function CustomerRewardsPage() {
   const [searchParams] = useSearchParams();
@@ -30,7 +31,8 @@ export default function CustomerRewardsPage() {
 
   const requestCode = async (event) => {
     event.preventDefault();
-    const cleanIdentifier = identifier.trim();
+    const cleanIdentifier = identifier.includes('@') ? identifier.trim() : normalizeTanzanianPhone(identifier);
+    setIdentifier(cleanIdentifier);
     if (!cleanIdentifier) return setError('Enter the email address or phone number on your customer profile.');
     setLoading(true);
     setError('');
@@ -54,7 +56,7 @@ export default function CustomerRewardsPage() {
       const result = await api.verifyCustomerCode(identifier.trim(), code.trim());
       localStorage.setItem('wraproll_customer_session', result.token);
       localStorage.setItem('wraproll_customer_name', result.customer.name || '');
-      localStorage.setItem('wraproll_customer_phone', result.customer.phone || '');
+      localStorage.setItem('wraproll_customer_phone', normalizeTanzanianPhone(result.customer.phone || ''));
       localStorage.setItem('wraproll_customer_email', result.customer.email || '');
       setCustomer(result.customer);
       setCodeSent(false);
@@ -91,6 +93,7 @@ export default function CustomerRewardsPage() {
                 <input
                   value={identifier}
                   onChange={(event) => { setIdentifier(event.target.value); setCodeSent(false); setCode(''); }}
+                  onBlur={(event) => { if (!event.target.value.includes('@')) setIdentifier(normalizeTanzanianPhone(event.target.value)); }}
                   placeholder="name@example.com or +255 712 345 678"
                   autoComplete="email tel"
                   className="mt-1 w-full rounded-xl border border-[#e5d5d9] bg-[#fff7f8] px-4 py-3 text-sm font-normal outline-none transition focus:border-[#ae002a]"

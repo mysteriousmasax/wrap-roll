@@ -122,7 +122,7 @@ export default function DashboardLayout() {
   });
 
   return (
-    <div className="dashboard-shell flex h-screen overflow-hidden bg-surface">
+    <div className="dashboard-shell flex h-[100dvh] overflow-hidden bg-surface">
       <Sidebar
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}

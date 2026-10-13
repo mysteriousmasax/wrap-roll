@@ -199,9 +199,8 @@ export default function StaffTrackingPage({ embedded = false }) {
               </div>
               <p className="text-xs text-surface-on-variant">{staff.attendance?.login || staff.clockIn || '-'}{staff.attendance?.logout ? ` - ${staff.attendance.logout}` : ''}</p>
               </div>
-              <div className="mt-3 grid grid-cols-3 gap-2 border-t border-outline-variant/40 pt-3 text-center">
+              <div className="mt-3 grid grid-cols-2 gap-2 border-t border-outline-variant/40 pt-3 text-center">
                 <div><p className="text-sm font-bold">{staff.activity.orders}</p><p className="text-[10px] text-surface-on-variant">Orders</p></div>
-                <div><p className="text-sm font-bold">{staff.activity.inventoryChanges}</p><p className="text-[10px] text-surface-on-variant">Stock changes</p></div>
                 <div><p className="text-sm font-bold">{staff.activity.openTasks}</p><p className="text-[10px] text-surface-on-variant">Open tasks</p></div>
               </div>
               <div className="mt-2 flex justify-end">

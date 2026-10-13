@@ -36,6 +36,7 @@ import RotatingText from '../../components/ui/RotatingText';
 import DepthText from '../../components/ui/DepthText';
 import { reverseGoogleGeocode } from '../../lib/googleMaps';
 import { groupLegacyMenuVariants, isMenuVariantCategory } from '../../utils/menuProductVariants';
+import { normalizeTanzanianPhone } from '../../../shared/phone.js';
 
 const defaultCategories = [
   { key: 'allMenu', filter: 'all', label: 'All Menu' },
@@ -173,7 +174,7 @@ export default function HomePage() {
   const [cartOpen, setCartOpen] = useState(false);
   const [customerName, setCustomerName] = useState(() => localStorage.getItem('wraproll_customer_name') || '');
   const [customerPhone, setCustomerPhone] = useState(
-    () => localStorage.getItem('wraproll_customer_phone') || ''
+    () => normalizeTanzanianPhone(localStorage.getItem('wraproll_customer_phone') || '')
   );
   const [customerEmail, setCustomerEmail] = useState(
     () => localStorage.getItem('wraproll_customer_email') || ''
@@ -368,7 +369,7 @@ export default function HomePage() {
       if (!active) return;
       setRememberedCustomer(customer);
       setCustomerName((current) => current || customer.name || '');
-      setCustomerPhone((current) => current || customer.phone || '');
+      setCustomerPhone((current) => current || normalizeTanzanianPhone(customer.phone || ''));
       setCustomerEmail((current) => current || customer.email || '');
     }).catch(() => {
       localStorage.removeItem('wraproll_customer_session');
@@ -560,6 +561,8 @@ export default function HomePage() {
 
   const submitOrder = async (event) => {
     event.preventDefault();
+    const normalizedCustomerPhone = normalizeTanzanianPhone(customerPhone);
+    setCustomerPhone(normalizedCustomerPhone);
     if (!cartItems.length) return setOrderStatus('Add a dish before checking out.');
     if (!customerName.trim()) return setOrderStatus('Please enter your full name.');
     if (!customerPhone.trim()) return setOrderStatus('Please enter your phone number so we can confirm your order.');
@@ -576,7 +579,7 @@ export default function HomePage() {
           specialInstructions: item.instructions || undefined,
         })),
         customerName,
-        customerPhone,
+        customerPhone: normalizedCustomerPhone,
         customerEmail,
         customerType,
         companyName,
@@ -1287,7 +1290,7 @@ export default function HomePage() {
               {cartItems.length > 0 && (
                 <form onSubmit={submitOrder} className="space-y-2.5 pt-2 border-t border-[#eee4d5]">
                   <input required value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Your Full Name" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
-                  <input required type="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="Phone Number (e.g., 0712345678)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
+                  <input required type="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} onBlur={(e) => setCustomerPhone(normalizeTanzanianPhone(e.target.value))} placeholder="Phone Number (e.g., 0712345678)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
                   <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="Email for order receipt and invoice (Optional)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
                   <label className="block text-[11px] font-semibold text-[#746e67]">Invoice type<select value={customerType} onChange={(event) => setCustomerType(event.target.value)} className="mt-1 w-full rounded-xl border border-[#ebdccb] bg-white px-3.5 py-2.5 text-xs focus:outline-none focus:border-[#ae002a]"><option value="individual">Individual</option><option value="company">Company</option></select></label>
                   {customerType === 'company' && <input required value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Company name" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />}

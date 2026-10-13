@@ -4,6 +4,7 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import useCartStore from '../../store/useCartStore';
 import DeliveryLocationPicker from './DeliveryLocationPicker';
+import { normalizeTanzanianPhone } from '../../../shared/phone.js';
 
 const orderTypes = [
   { id: 'dine-in', label: 'Dine In', icon: Utensils, desc: 'Eat at the restaurant' },
@@ -55,7 +56,7 @@ export default function OrderTypeSelector({ isOpen, onClose, onComplete }) {
     setOrderType(nextOrderType);
     setTableNumber(nextOrderType === 'dine-in' ? Number(localTable) : null);
     setCustomerName(localName || '');
-    setCustomerPhone(localPhone.trim());
+    setCustomerPhone(normalizeTanzanianPhone(localPhone));
     setDeliveryLocation({
       address: selectedType === 'delivery' ? deliveryAddress : '',
       latitude: selectedType === 'delivery' ? deliveryLatitude : null,
@@ -154,7 +155,7 @@ export default function OrderTypeSelector({ isOpen, onClose, onComplete }) {
           )}
           <div><label className="block text-xs font-semibold text-surface-on-variant uppercase mb-1.5">Order source</label><select className="input-field" value={source} onChange={(e) => { setSource(e.target.value); setValidationMessage(''); }}><option value="foh">FOH / Walk-in</option><option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option></select></div>
           {source === 'whatsapp' && (
-            <Input label="WhatsApp Number" type="tel" placeholder="e.g. 0712 345 678" value={localPhone} onChange={(e) => { setLocalPhone(e.target.value); setValidationMessage(''); }} required />
+            <Input label="WhatsApp Number" type="tel" placeholder="e.g. 0712 345 678" value={localPhone} onChange={(e) => { setLocalPhone(e.target.value); setValidationMessage(''); }} onBlur={(e) => setLocalPhone(normalizeTanzanianPhone(e.target.value))} required />
           )}
           {selectedType === 'delivery' && fulfillmentMode !== 'roadside_handoff' && (
             <>
@@ -165,7 +166,7 @@ export default function OrderTypeSelector({ isOpen, onClose, onComplete }) {
           {(selectedType === 'takeout' || fulfillmentMode === 'roadside_handoff') && (
             <Input label={fulfillmentMode === 'roadside_handoff' ? 'Customer Name' : 'Customer Name (Optional)'} placeholder="Full name" value={localName} onChange={(e) => setLocalName(e.target.value)} required={fulfillmentMode === 'roadside_handoff'} />
           )}
-          {fulfillmentMode === 'roadside_handoff' && <Input label="Customer Phone" type="tel" placeholder="+255 7XX XXX XXX" value={localPhone} onChange={(event) => { setLocalPhone(event.target.value); setValidationMessage(''); }} required />}
+          {fulfillmentMode === 'roadside_handoff' && <Input label="Customer Phone" type="tel" placeholder="+255 7XX XXX XXX" value={localPhone} onChange={(event) => { setLocalPhone(event.target.value); setValidationMessage(''); }} onBlur={(event) => setLocalPhone(normalizeTanzanianPhone(event.target.value))} required />}
           {validationMessage && <p className="text-sm text-primary" role="alert">{validationMessage}</p>}
         </div>
 

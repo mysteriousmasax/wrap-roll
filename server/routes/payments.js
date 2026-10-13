@@ -15,6 +15,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
 import { getOrderById } from '../utils/orders.js';
 import { enqueueOrderEmail } from '../utils/orderEmailService.js';
+import { normalizeTanzanianPhone } from '../../shared/phone.js';
 import {
   manualLipaProvider,
   genericWebhookProvider,
@@ -73,7 +74,7 @@ router.post('/create-intent', async (req, res) => {
       order,
       paymentReference: paymentRef,
       provider,
-      senderPhone: senderPhone || order.customerPhone,
+      senderPhone: normalizeTanzanianPhone(senderPhone || order.customerPhone),
     });
 
     res.json({
@@ -103,7 +104,7 @@ router.post('/submit-manual', async (req, res) => {
     const result = await manualLipaProvider.submitManualPayment({
       paymentReference: paymentReference.trim(),
       transactionId: transactionId?.trim(),
-      senderPhone: senderPhone?.trim(),
+      senderPhone: normalizeTanzanianPhone(senderPhone),
       senderName: senderName?.trim(),
       notes: notes?.trim(),
     });

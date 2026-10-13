@@ -10,6 +10,7 @@ import useSettingsStore from '../../store/useSettingsStore';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { CalendarDays, ChevronRight, Clock3, CreditCard, Mail, MapPin, Search, ShoppingBag, UserRound, Utensils, Printer, Trash2 } from 'lucide-react';
+import { normalizeTanzanianPhone } from '../../../shared/phone.js';
 
 const filters = [
   { id: 'all', label: 'All orders' },
@@ -219,7 +220,7 @@ function CustomerEditModal({ order, onClose, onSave }) {
     <Modal isOpen={Boolean(order)} onClose={onClose} title={`Edit customer for ${order.id}`}>
       <div className="space-y-3">
         <input value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} placeholder="Customer name" className="input-field w-full" />
-        <input value={form.customerPhone} onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))} placeholder="Phone" className="input-field w-full" />
+        <input type="tel" value={form.customerPhone} onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))} onBlur={(event) => setForm((current) => ({ ...current, customerPhone: normalizeTanzanianPhone(event.target.value) }))} placeholder="Phone" className="input-field w-full" />
         <input value={form.customerEmail} onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))} placeholder="Email" className="input-field w-full" />
         <select value={form.customerType} onChange={(event) => setForm((current) => ({ ...current, customerType: event.target.value }))} className="input-field w-full">
           <option value="individual">Individual</option>

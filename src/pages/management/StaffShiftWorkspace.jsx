@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, CircleDollarSign, ClipboardCheck, Clock3, LogIn, LogOut, PackageCheck, Save, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleDollarSign, ClipboardCheck, Clock3, LogIn, LogOut, PackageCheck, Plus, Save, ShieldAlert } from 'lucide-react';
 import PageHeader from '../../components/layout/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
+import Input from '../../components/ui/Input';
+import Modal from '../../components/ui/Modal';
 import { api } from '../../api/client';
 import useAuthStore from '../../store/useAuthStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
@@ -31,12 +33,17 @@ function withInventoryLinks(handover, items, date, shift) {
   return {
     ...handover,
     inventoryCounts: (handover.inventoryCounts || []).map((row, index) => {
-      const match = items.find((item) => inventoryName(item) === String(row.item || '').trim().toLowerCase());
+      const match = items.find((item) => Number(item.id) === Number(row.inventoryId))
+        || items.find((item) => inventoryName(item) === String(row.item || '').trim().toLowerCase());
+      const ownCount = row.currentStaffCount;
       return {
         ...row,
         inventoryId: row.inventoryId || match?.id || '',
         unit: match?.unit || row.unit || 'units',
-        opening: row.opening === '' || row.opening == null ? (match ? String(match.quantity ?? '') : '') : String(row.opening),
+        opening: ownCount ? String(ownCount.opening ?? '') : '',
+        added: ownCount ? String(ownCount.added ?? '') : '',
+        closing: ownCount ? String(ownCount.closing ?? '') : '',
+        status: ownCount?.status || row.status || 'ok',
         clientKey: `${date}-${shift}-${index}`,
       };
     }),
@@ -55,6 +62,11 @@ export default function StaffShiftWorkspace() {
   const [shift, setShift] = useState('morning');
   const [workspace, setWorkspace] = useState(null);
   const [inventoryItems, setInventoryItems] = useState([]);
+  const [selectedInventoryId, setSelectedInventoryId] = useState('');
+  const [showStockItemModal, setShowStockItemModal] = useState(false);
+  const [newStockItem, setNewStockItem] = useState({ name: '', unit: 'units' });
+  const [stockItemError, setStockItemError] = useState('');
+  const [creatingStockItem, setCreatingStockItem] = useState(false);
   const [inventoryReady, setInventoryReady] = useState(false);
   const [handover, setHandover] = useState(null);
   const [checklist, setChecklist] = useState(null);
@@ -98,9 +110,12 @@ export default function StaffShiftWorkspace() {
     return () => { cancelled = true; };
   }, [date]);
 
-  useWebSocket((event) => {
+  useWebSocket((event, data) => {
     if (event === 'staff:updated') {
       api.getMyShiftWorkspace().then(setWorkspace).catch(() => {});
+    }
+    if (event === 'business:updated' && data?.type === 'shift_handover_saved' && data.date === date && data.shift === shift) {
+      api.getShiftHandover(date, shift).then((result) => setHandover(withInventoryLinks(result, inventoryItems, date, shift))).catch(() => {});
     }
     if (['order:created', 'order:updated', 'payment:confirmed', 'inventory:updated'].includes(event)) {
       api.getShiftHandover(date, shift).then((result) => setHandover(withInventoryLinks(result, inventoryItems, date, shift))).catch(() => {});
@@ -177,6 +192,64 @@ export default function StaffShiftWorkspace() {
     inventoryCounts: current.inventoryCounts.map((row, rowIndex) => rowIndex === index ? { ...row, [field]: value } : row),
   }));
 
+  const addInventoryCount = () => {
+    const item = inventoryItems.find((entry) => String(entry.id) === selectedInventoryId);
+    if (!item) return;
+    setHandover((current) => {
+      if (current.inventoryCounts.some((row) => Number(row.inventoryId) === Number(item.id))) return current;
+      return {
+        ...current,
+        inventoryCounts: [...current.inventoryCounts, {
+          inventoryId: item.id,
+          item: item.name,
+          unit: item.unit || 'units',
+          opening: '',
+          added: '',
+          closing: '',
+          status: 'ok',
+          staffCounts: [],
+          clientKey: `${date}-${shift}-${item.id}`,
+        }],
+      };
+    });
+    setSelectedInventoryId('');
+  };
+
+  const saveNewStockItem = async (event) => {
+    event.preventDefault();
+    const name = newStockItem.name.trim();
+    const unit = newStockItem.unit.trim() || 'units';
+    if (!name) return setStockItemError('Enter a stock item name.');
+
+    const existingItem = inventoryItems.find((item) => (
+      inventoryName(item) === name.toLowerCase() && String(item.unit || 'units').trim().toLowerCase() === unit.toLowerCase()
+    ));
+    if (existingItem) {
+      const alreadyCounted = handover?.inventoryCounts?.some((row) => Number(row.inventoryId) === Number(existingItem.id));
+      setSelectedInventoryId(alreadyCounted ? '' : String(existingItem.id));
+      setMessage(alreadyCounted ? `${existingItem.name} is already in this shift's stock count.` : `${existingItem.name} already exists and is selected. Add it to this shift's count.`);
+      setShowStockItemModal(false);
+      setNewStockItem({ name: '', unit: 'units' });
+      return;
+    }
+
+    setCreatingStockItem(true);
+    setStockItemError('');
+    setError('');
+    try {
+      const item = await api.createInventory({ name, quantity: 0, unit });
+      setInventoryItems((current) => [...current, item]);
+      setSelectedInventoryId(String(item.id));
+      setMessage(`${item.name} was added with zero stock. Add it to your shift count to reconcile its quantity.`);
+      setShowStockItemModal(false);
+      setNewStockItem({ name: '', unit: 'units' });
+    } catch (requestError) {
+      setStockItemError(requestError.message || 'Unable to add this stock item.');
+    } finally {
+      setCreatingStockItem(false);
+    }
+  };
+
   const saveHandover = async (event) => {
     event.preventDefault();
     setSaving(true);
@@ -185,8 +258,10 @@ export default function StaffShiftWorkspace() {
     try {
       const inventoryCounts = (handover.inventoryCounts || []).map(({ clientKey, ...row }) => row);
       const saved = await api.saveShiftHandover({ ...handover, date, shift, inventoryCounts });
-      setHandover((current) => ({ ...current, ...saved, inventoryCounts: current.inventoryCounts }));
-      setMessage('Payment reconciliation and stock count saved.');
+      setHandover(withInventoryLinks(saved, inventoryItems, date, shift));
+      setMessage(saved.inventoryCounts.some((row) => row.confirmationStatus === 'mismatch')
+        ? 'Your count was saved. Stock counts do not match; recount together. Inventory was not changed.'
+        : 'Payment reconciliation and stock count saved.');
     } catch (requestError) {
       setError(requestError.message || 'Unable to save shift reconciliation.');
     } finally {
@@ -203,6 +278,11 @@ export default function StaffShiftWorkspace() {
   const completedTasks = checklistTasks.filter((task) => task.completed).length;
   const reconciliationRows = Object.entries(handover?.reconciliation || {});
   const shortfalls = reconciliationRows.filter(([key, row]) => key !== 'cashFloat' && row.actual !== '' && Number(row.actual) < Number(row.expected || 0));
+  const inventoryCounts = handover?.inventoryCounts || [];
+  const inventoryDiscrepancies = inventoryCounts.filter((row) => row.confirmationStatus === 'mismatch');
+  const availableInventoryItems = inventoryItems.filter((item) => !inventoryCounts.some((row) => (
+    Number(row.inventoryId) === Number(item.id) || inventoryName(row) === inventoryName(item)
+  )));
   const expectedTotal = reconciliationRows.filter(([key]) => key !== 'cashFloat').reduce((sum, [, row]) => sum + (Number(row.expected) || 0), 0);
   const actualTotal = reconciliationRows.filter(([key, row]) => key !== 'cashFloat' && row.actual !== '').reduce((sum, [, row]) => sum + (Number(row.actual) || 0), 0);
   const schedule = workspace.active
@@ -279,11 +359,39 @@ export default function StaffShiftWorkspace() {
         </Card>
 
         <Card className="min-w-0 p-4 sm:p-5">
-          <div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-primary">Inventory close</p><h2 className="mt-1 font-display font-bold">Stock count</h2><p className="mt-1 text-xs text-surface-on-variant">Opening balances begin at live inventory. Enter closing counts to reconcile inventory.</p></div><PackageCheck size={20} className="text-primary" /></div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left text-xs"><thead><tr className="border-b border-outline-variant text-surface-on-variant"><th className="py-2">Item</th><th className="py-2">Unit</th><th className="py-2">Opening</th><th className="py-2">Added prep</th><th className="py-2">Closing</th><th className="py-2">Status</th></tr></thead><tbody>{(handover?.inventoryCounts || []).map((row, index) => <tr key={row.clientKey || index} className="border-b border-outline-variant/50"><td className="py-2 font-semibold">{row.item || 'Stock item'}</td><td className="py-2">{row.unit || 'units'}</td>{['opening', 'added', 'closing'].map((field) => <td key={field} className="py-2"><input aria-label={`${field} ${row.item || 'stock item'}`} type="number" min="0" step="any" value={row[field] ?? ''} onChange={(event) => updateInventoryCount(index, field, event.target.value)} className="input-field w-24" /></td>)}<td className="py-2"><select aria-label={`Status for ${row.item || 'stock item'}`} value={row.status || 'ok'} onChange={(event) => updateInventoryCount(index, 'status', event.target.value)} className="input-field"><option value="ok">OK</option><option value="restock">Needs restock</option><option value="prep">Needs prep</option></select></td></tr>)}</tbody></table></div>
+          <div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-primary">Inventory close</p><h2 className="mt-1 font-display font-bold">Stock count</h2><p className="mt-1 text-xs text-surface-on-variant">Choose items from live inventory. Counts are saved per staff member; live stock updates after two closing counts agree.</p></div><PackageCheck size={20} className="text-primary" /></div>
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row">
+            <label className="sr-only" htmlFor="shift-inventory-item">Add inventory item</label>
+            <select id="shift-inventory-item" value={selectedInventoryId} onChange={(event) => setSelectedInventoryId(event.target.value)} className="input-field min-w-0 flex-1">
+              <option value="">Choose an item from inventory</option>
+              {availableInventoryItems.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.quantity} {item.unit || 'units'}</option>)}
+            </select>
+            <div className="flex gap-2">
+              <Button type="button" variant="secondary" onClick={() => { setStockItemError(''); setShowStockItemModal(true); }}><Plus size={14} />New stock item</Button>
+              <Button type="button" variant="secondary" disabled={!selectedInventoryId} onClick={addInventoryCount}><PackageCheck size={14} />Add to count</Button>
+            </div>
+          </div>
+          {inventoryDiscrepancies.length > 0 && <div role="alert" className="mb-3 rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-xs font-semibold text-error">
+            <div className="flex items-center gap-2"><AlertTriangle size={15} />Count mismatch. Recount these items together; live inventory has not been changed.</div>
+            {inventoryDiscrepancies.map((row) => <p key={row.inventoryId || row.item} className="mt-1">{row.item}: {row.staffCounts.filter((count) => count.closing !== '' && count.closing != null).map((count) => `${count.staffName}: ${count.closing} ${row.unit}`).join(' · ')}</p>)}
+          </div>}
+          <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-xs"><thead><tr className="border-b border-outline-variant text-surface-on-variant"><th className="py-2">Item</th><th className="py-2">Unit</th><th className="py-2">Opening</th><th className="py-2">Added prep</th><th className="py-2">Closing</th><th className="py-2">Status</th><th className="py-2">Staff confirmation</th></tr></thead><tbody>{inventoryCounts.map((row, index) => <tr key={row.clientKey || index} className="border-b border-outline-variant/50"><td className="py-2 font-semibold">{row.item || 'Stock item'}</td><td className="py-2">{row.unit || 'units'}</td>{['opening', 'added', 'closing'].map((field) => <td key={field} className="py-2"><input aria-label={`${field} ${row.item || 'stock item'}`} type="number" min="0" step="any" value={row[field] ?? ''} onChange={(event) => updateInventoryCount(index, field, event.target.value)} className="input-field w-24" /></td>)}<td className="py-2"><select aria-label={`Status for ${row.item || 'stock item'}`} value={row.status || 'ok'} onChange={(event) => updateInventoryCount(index, 'status', event.target.value)} className="input-field"><option value="ok">OK</option><option value="restock">Needs restock</option><option value="prep">Needs prep</option></select></td><td className="py-2"><span className={`font-semibold ${row.confirmationStatus === 'mismatch' ? 'text-error' : row.confirmationStatus === 'confirmed' ? 'text-success' : 'text-surface-on-variant'}`}>{row.confirmationStatus === 'confirmed' ? 'Confirmed' : row.confirmationStatus === 'mismatch' ? 'Mismatch' : row.confirmationStatus === 'pending-confirmation' ? 'Waiting for second count' : 'Not counted'}</span>{row.staffCounts?.length > 0 && <span className="mt-1 block text-[10px] text-surface-on-variant">{row.staffCounts.map((count) => `${count.staffName}: ${count.closing === '' || count.closing == null ? 'no closing count' : `${count.closing} ${row.unit}`}`).join(' · ')}</span>}</td></tr>)}</tbody></table>{inventoryCounts.length === 0 && <p className="py-4 text-center text-sm text-surface-on-variant">No items selected. Add items from live inventory to count this shift.</p>}</div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="flex items-center gap-2 text-[11px] text-surface-on-variant"><ShieldAlert size={14} />Any closing count updates live inventory and creates an audit record.</p><Button type="submit" disabled={saving || !handover}><Save size={14} />{saving ? 'Saving...' : 'Save shift close'}</Button></div>
         </Card>
       </form>
+
+      <Modal isOpen={showStockItemModal} onClose={() => setShowStockItemModal(false)} title="Add stock item">
+        <form onSubmit={saveNewStockItem} className="space-y-4">
+          <Input label="Item name" value={newStockItem.name} onChange={(event) => setNewStockItem((current) => ({ ...current, name: event.target.value }))} autoFocus required />
+          <Input label="Unit" value={newStockItem.unit} onChange={(event) => setNewStockItem((current) => ({ ...current, unit: event.target.value }))} placeholder="e.g. units, kg, loaves" required />
+          <p className="text-xs text-surface-on-variant">The item starts at zero live stock. Add it to this shift’s count and reconcile it with a second count before stock changes.</p>
+          {stockItemError && <p className="text-sm text-error" role="alert">{stockItemError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setShowStockItemModal(false)}>Cancel</Button>
+            <Button type="submit" disabled={creatingStockItem}>{creatingStockItem ? 'Adding...' : 'Create stock item'}</Button>
+          </div>
+        </form>
+      </Modal>
 
       <Card className="p-4 sm:p-5">
         <div className="mb-3 flex items-center gap-2"><Clock3 size={17} className="text-primary" /><div><h2 className="font-display font-bold">Recent attendance</h2><p className="text-xs text-surface-on-variant">Schedule adherence from your last 30 days.</p></div></div>

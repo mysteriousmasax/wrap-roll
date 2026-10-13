@@ -6,6 +6,7 @@ import { printReceipt } from '../utils/escposPrinter.js';
 import { sendCrmMessage } from '../utils/crmMessaging.js';
 import { createCustomerAccessService } from '../utils/customerAccess.js';
 import { isEmailDeliveryConfigured, resolveEmailSender, sendEmail } from '../utils/emailDelivery.js';
+import { normalizeTanzanianPhone } from '../../shared/phone.js';
 
 const router = Router();
 
@@ -87,7 +88,7 @@ function mapVerifiedCustomer(targetDb, customer) {
     id: customer.id,
     name: customer.name,
     email: customer.email || '',
-    phone: customer.phone || '',
+    phone: normalizeTanzanianPhone(customer.phone || ''),
     rollPoints: Number(customer.roll_points_balance || 0),
     favoriteItems,
     favoriteOrders: getFavoriteOrders(targetDb, customer.id),
@@ -137,7 +138,7 @@ export function updateCustomerContact(targetDb = db, customerId, input = {}) {
   if (!current) return { ok: false, error: 'Customer not found' };
 
   const name = String(input.name ?? current.name).trim();
-  const phone = String(input.phone ?? current.phone ?? '').trim();
+  const phone = normalizeTanzanianPhone(input.phone ?? current.phone ?? '');
   const email = String(input.email ?? current.email ?? '').trim().toLowerCase();
   if (!name) return { ok: false, error: 'Customer name is required' };
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Enter a valid email address' };
@@ -160,7 +161,7 @@ function findDuplicateCustomerContact(targetDb, excludedId, email, phone) {
 
 export function createCustomerContact(targetDb = db, input = {}) {
   const name = String(input.name || '').trim();
-  const phone = String(input.phone || '').trim();
+  const phone = normalizeTanzanianPhone(input.phone || '');
   const email = String(input.email || '').trim().toLowerCase();
   if (!name) return { ok: false, status: 400, error: 'Name required' };
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, status: 400, error: 'Enter a valid email address' };
@@ -197,7 +198,7 @@ function mapCustomer(row, extra = {}) {
     lifetimeValue: Number(row.lifetime_value || 0),
     favoriteItems: JSON.parse(row.favorite_items || '[]'),
     lastVisit: row.last_visit,
-    phone: row.phone,
+    phone: normalizeTanzanianPhone(row.phone),
     email: row.email,
     socialLinks,
     customerType: row.customer_type || 'individual',

@@ -80,6 +80,7 @@ export const api = {
   deleteHeldBill: (id) => request(`/orders/held/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getOrder: (id) => request(`/orders/${id}`),
   getCustomerOrderTracking: (id, token) => request(`/orders/tracking/${encodeURIComponent(id)}`, { headers: { 'X-Order-Tracking-Token': token } }),
+  updateCustomerOrderTracking: (id, token, data) => request(`/orders/tracking/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'X-Order-Tracking-Token': token }, body: JSON.stringify(data) }),
   getPublicOrder: (idOrRef, phone) => request(`/orders/public/${encodeURIComponent(idOrRef)}${phone ? `?phone=${encodeURIComponent(phone)}` : ''}`),
   createOrder: (data) => request('/orders', { method: 'POST', body: JSON.stringify(data) }),
   createPublicOrder: (data) => request('/orders/public', { method: 'POST', body: JSON.stringify(data) }),

@@ -12,6 +12,7 @@ import { releaseExpiredCleaningTables } from '../utils/tableAvailability.js';
 import { parseMenuVariants } from '../utils/menuVariants.js';
 import { applyOrderFulfillmentEffects } from '../utils/orderFulfillment.js';
 import { createCustomerOrderTrackingToken, createRoadsideAccessToken, hashRoadsideAccessToken } from '../utils/roadsideAccess.js';
+import { normalizeTanzanianPhone } from '../../shared/phone.js';
 
 const router = Router();
 
@@ -214,7 +215,7 @@ function createOrderRecord(
     // Customer identity: match by phone, email, or company TIN so each real
     // customer maps to exactly one record (never grouped under a shared "Guest").
     const normalizedEmail = String(customerEmail || '').trim().toLowerCase();
-    const normalizedPhone = String(customerPhone || '').trim();
+    const normalizedPhone = normalizeTanzanianPhone(customerPhone);
     const normalizedName = String(customerName || '').trim().toLowerCase();
     const hasIdentity = Boolean(normalizedPhone || normalizedEmail || (normalizedCustomerType === 'company' && normalizedCustomerTin) || customerName?.trim());
     let resolvedCustomerId = null;
@@ -263,7 +264,7 @@ function createOrderRecord(
       tableNumber || null,
       resolvedCustomerId,
       customerName || null,
-      customerPhone || null,
+      normalizedPhone || null,
       customerEmail || null,
       normalizedCustomerType,
       normalizedCustomerType === 'company' ? normalizedCompanyName : null,
@@ -329,7 +330,7 @@ function createOrderRecord(
       paymentMethod || 'lipa_namba',
       paymentMethod || 'lipa_namba',
       total,
-      customerPhone || null,
+      normalizedPhone || null,
       customerName || null,
       initialPaymentStatus,
       paidAt,
@@ -500,8 +501,8 @@ router.post('/public', (req, res) => {
 router.get('/public/:idOrRef', (req, res) => {
   const order = getOrderById(req.params.idOrRef);
   if (!order) return res.status(404).json({ error: 'Order not found' });
-  const suppliedPhone = String(req.query.phone || '').replace(/\D/g, '');
-  const orderPhone = String(order.customerPhone || '').replace(/\D/g, '');
+  const suppliedPhone = normalizeTanzanianPhone(req.query.phone).replace(/\D/g, '');
+  const orderPhone = normalizeTanzanianPhone(order.customerPhone).replace(/\D/g, '');
   if (!suppliedPhone || suppliedPhone !== orderPhone) return res.status(404).json({ error: 'Order not found' });
   res.json(order);
 });
@@ -596,29 +597,65 @@ router.delete('/held/:id', authMiddleware, requireRole('admin', 'manager', 'foh'
   res.json({ ok: true });
 });
 
-router.get('/tracking/:id', (req, res) => {
-  const id = String(req.params.id || '');
+function getTrackedCustomerOrder(orderId, token) {
+  const id = String(orderId || '');
   const order = db.prepare('SELECT * FROM orders WHERE id = ? OR order_number = ?').get(id, id);
   const link = order && db.prepare('SELECT access_token_hash FROM customer_order_tracking_links WHERE order_id = ?').get(order.id);
-  const token = String(req.get('x-order-tracking-token') || '');
-  if (!order || !link || !token) return res.status(404).json({ error: 'Order tracking link is unavailable.' });
+  if (!order || !link || !token) return null;
   const expected = Buffer.from(link.access_token_hash, 'hex');
   const actual = Buffer.from(hashRoadsideAccessToken(token), 'hex');
-  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return res.status(404).json({ error: 'Order tracking link is unavailable.' });
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null;
+  return order;
+}
+
+router.get('/tracking/:id', (req, res) => {
+  const order = getTrackedCustomerOrder(req.params.id, String(req.get('x-order-tracking-token') || ''));
+  if (!order) return res.status(404).json({ error: 'Order tracking link is unavailable.' });
   const trip = db.prepare('SELECT status FROM roadside_trips WHERE order_id = ?').get(order.id);
   res.json({
     id: order.id,
     orderNumber: order.order_number || order.id,
     type: order.order_type,
+    customerName: order.customer_name || '',
+    customerPhone: normalizeTanzanianPhone(order.customer_phone),
+    customerEmail: order.customer_email || '',
     status: order.status,
     paymentStatus: order.payment_status,
     paymentTerms: order.payment_terms,
     fulfillmentMode: order.fulfillment_mode,
+    createdAt: order.created_at,
+    updatedAt: order.updated_at,
     scheduledFor: order.delivery_scheduled_for,
     reservationStatus: order.reservation_status,
     roadsideStatus: trip?.status || null,
-    items: db.prepare('SELECT name, qty FROM order_items WHERE order_id = ?').all(order.id),
+    items: db.prepare('SELECT name, qty, prep_time_minutes AS prepTimeMinutes FROM order_items WHERE order_id = ?').all(order.id),
   });
+});
+
+router.patch('/tracking/:id', (req, res) => {
+  const order = getTrackedCustomerOrder(req.params.id, String(req.get('x-order-tracking-token') || ''));
+  if (!order) return res.status(404).json({ error: 'Order tracking link is unavailable.' });
+
+  const customerName = String(req.body?.customerName ?? order.customer_name ?? '').trim() || order.customer_name || 'Customer';
+  const customerPhone = normalizeTanzanianPhone(req.body?.customerPhone ?? order.customer_phone ?? '');
+  const customerEmail = String(req.body?.customerEmail ?? order.customer_email ?? '').trim().toLowerCase();
+  if (customerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) {
+    return res.status(400).json({ error: 'Enter a valid email address.' });
+  }
+  if (!customerPhone && !customerEmail) return res.status(400).json({ error: 'Add a phone number or email address.' });
+
+  const saveContact = db.transaction(() => {
+    db.prepare('UPDATE orders SET customer_name = ?, customer_phone = ?, customer_email = ?, updated_at = ? WHERE id = ?')
+      .run(customerName, customerPhone || null, customerEmail || null, new Date().toISOString(), order.id);
+    if (order.customer_id) {
+      db.prepare('UPDATE customers SET name = ?, phone = ?, email = ? WHERE id = ?')
+        .run(customerName, customerPhone || null, customerEmail || null, order.customer_id);
+    }
+  });
+  saveContact();
+  const updatedOrder = getOrderById(order.id, { includeInvoiceEmailStatus: true });
+  broadcast('order:updated', updatedOrder);
+  res.json({ customerName, customerPhone, customerEmail });
 });
 
 /**
@@ -762,7 +799,7 @@ router.patch('/:id/customer', authMiddleware, (req, res) => {
 
   const payload = {
     customerName: String(customerName ?? existing.customer_name ?? '').trim(),
-    customerPhone: String(customerPhone ?? existing.customer_phone ?? '').trim(),
+    customerPhone: normalizeTanzanianPhone(customerPhone ?? existing.customer_phone ?? ''),
     customerEmail: String(customerEmail ?? existing.customer_email ?? '').trim().toLowerCase(),
     customerType: ['individual', 'company'].includes(String(customerType || existing.customer_type || 'individual'))
       ? String(customerType || existing.customer_type || 'individual')
@@ -777,14 +814,21 @@ router.patch('/:id/customer', authMiddleware, (req, res) => {
   }
 
   const now = new Date().toISOString();
-  db.prepare(`UPDATE orders SET customer_name = ?, customer_phone = ?, customer_email = ?, customer_type = ?, company_name = ?, customer_tin = ?, billing_address = ?, updated_at = ? WHERE id = ?`)
-    .run(payload.customerName || null, payload.customerPhone || null, payload.customerEmail || null, payload.customerType, payload.companyName || null, payload.customerTin || null, payload.billingAddress || null, now, req.params.id);
+  const customerMatch = existing.customer_id
+    ? db.prepare('SELECT * FROM customers WHERE id = ?').get(existing.customer_id)
+    : db.prepare('SELECT * FROM customers WHERE phone = ? OR lower(email) = ? OR lower(name) = ? ORDER BY id DESC LIMIT 1')
+      .get(existing.customer_phone || '', String(existing.customer_email || '').toLowerCase(), String(existing.customer_name || '').toLowerCase());
 
-  const customerMatch = db.prepare('SELECT * FROM customers WHERE phone = ? OR lower(email) = ? OR lower(name) = ? ORDER BY id DESC LIMIT 1').get(payload.customerPhone || '', payload.customerEmail || '', payload.customerName || '');
+  const saveCustomerDetails = db.transaction(() => {
+    db.prepare(`UPDATE orders SET customer_name = ?, customer_phone = ?, customer_email = ?, customer_type = ?, company_name = ?, customer_tin = ?, billing_address = ?, updated_at = ? WHERE id = ?`)
+      .run(payload.customerName || null, payload.customerPhone || null, payload.customerEmail || null, payload.customerType, payload.companyName || null, payload.customerTin || null, payload.billingAddress || null, now, req.params.id);
+
   if (customerMatch) {
-    db.prepare('UPDATE customers SET name = ?, phone = ?, email = ?, customer_type = ?, company_name = ?, tin = ?, billing_address = ?, updated_at = ? WHERE id = ?')
-      .run(payload.customerName || customerMatch.name || 'Customer', payload.customerPhone || customerMatch.phone || '', payload.customerEmail || customerMatch.email || '', payload.customerType, payload.companyName || customerMatch.company_name || '', payload.customerTin || customerMatch.tin || '', payload.billingAddress || customerMatch.billing_address || '', now, customerMatch.id);
+    db.prepare('UPDATE customers SET name = ?, phone = ?, email = ?, customer_type = ?, company_name = ?, tin = ?, billing_address = ? WHERE id = ?')
+      .run(payload.customerName || customerMatch.name || 'Customer', payload.customerPhone, payload.customerEmail, payload.customerType, payload.companyName, payload.customerTin, payload.billingAddress, customerMatch.id);
   }
+  });
+  saveCustomerDetails();
 
   const order = getOrderById(req.params.id, { includeInvoiceEmailStatus: true });
   broadcast('order:updated', order);

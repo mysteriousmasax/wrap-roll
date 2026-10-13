@@ -1,4 +1,5 @@
 import db from '../db/database.js';
+import { normalizeTanzanianPhone } from '../../shared/phone.js';
 
 export function formatOrder(row, items, { includeInvoiceEmailStatus = false } = {}) {
   const menuImages = new Map();
@@ -35,7 +36,7 @@ export function formatOrder(row, items, { includeInvoiceEmailStatus = false } = 
     type: row.order_type,
     table: row.table_number,
     customer: row.customer_name,
-    customerPhone: row.customer_phone,
+    customerPhone: normalizeTanzanianPhone(row.customer_phone),
     customerEmail: row.customer_email,
     customerType: row.customer_type || 'individual',
     companyName: row.company_name || '',

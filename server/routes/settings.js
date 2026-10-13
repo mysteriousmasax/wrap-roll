@@ -3,6 +3,7 @@ import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { buildWifiQrPayload } from '../utils/wifiQr.js';
 import { broadcast } from '../ws.js';
+import { normalizeTanzanianPhone } from '../../shared/phone.js';
 
 const router = Router();
 
@@ -42,7 +43,7 @@ router.get('/public', (req, res) => {
   const publicKeys = Object.keys(publicDefaults);
   const rows = db.prepare(`SELECT key, value FROM settings WHERE key IN (${publicKeys.map(() => '?').join(', ')})`).all(...publicKeys);
   const settings = { ...publicDefaults };
-  for (const row of rows) settings[row.key] = row.value;
+  for (const row of rows) settings[row.key] = row.key === 'phone' ? normalizeTanzanianPhone(row.value) : row.value;
 
   try {
     const storedAccounts = JSON.parse(settings.lipa_namba_accounts || '[]');
@@ -89,7 +90,7 @@ router.put('/', authMiddleware, requireRole('admin'), (req, res) => {
   const upsert = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
   const tx = db.transaction(() => {
     for (const [key, value] of Object.entries(req.body)) {
-      upsert.run(key, String(value));
+      upsert.run(key, String(key === 'phone' ? normalizeTanzanianPhone(value) : value));
     }
   });
   tx();

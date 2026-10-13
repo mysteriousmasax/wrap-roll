@@ -31,7 +31,8 @@ export default function TopBar({ title, onMenuClick }) {
     <header className="dashboard-topbar h-14 bg-white border-b border-outline-variant flex items-center px-4 gap-3 z-30 shrink-0">
       <button
         onClick={onMenuClick}
-          className="md:hidden p-2 rounded-lg hover:bg-surface-container transition-colors"
+        aria-label="Open navigation menu"
+        className="md:hidden flex min-h-11 min-w-11 items-center justify-center rounded-lg hover:bg-surface-container transition-colors"
       >
         <Menu size={20} />
       </button>

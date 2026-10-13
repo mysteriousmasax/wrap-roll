@@ -170,7 +170,7 @@ npm install
 npm run dev
 ```
 
-The root development script starts the API and Vite client together. The Vite proxy targets `http://localhost:3000`; ensure the API uses that port during proxied development, or update the proxy if the server is assigned another port. The checked-in `.env.example` currently shows `PORT=3001`, so this value must be reconciled with the proxy for a working local API connection.
+The root development script starts the API and Vite client together. The Vite proxy targets `http://localhost:3000`, which matches the `PORT=3000` default in `.env.example`. If you change the API port, update the Vite proxy target as well.
 
 Build and run the production-style server:
 

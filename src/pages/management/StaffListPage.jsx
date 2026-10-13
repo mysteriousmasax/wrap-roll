@@ -8,6 +8,7 @@ import Input from '../../components/ui/Input';
 import { api, ApiError } from '../../api/client';
 import { normalizeUserRole } from '../../utils/roleAccess';
 import { Search, UserPlus, Phone, Clock, ShieldCheck, BriefcaseBusiness, Plus, Trash2 } from 'lucide-react';
+import { normalizeTanzanianPhone } from '../../../shared/phone.js';
 
 const builtInRoles = [
   { name: 'foh', label: 'FOH / Cashier', baseRole: 'foh' },
@@ -90,7 +91,7 @@ function StaffForm({ form, setForm, editStaff, formError, onSave, label, roleOpt
           ))}
         </div>
       </div>
-      <Input label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+      <Input label="Phone" type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} onBlur={(e) => setForm((current) => ({ ...current, phone: normalizeTanzanianPhone(e.target.value) }))} />
       {!editStaff && <Input label="Login Password" type="password" minLength={8} placeholder="At least 8 characters" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />}
       {!editStaff && <p className="text-xs text-surface-on-variant">Give the staff member their username and password privately.</p>}
       {editStaff && <Input label="Reset Password (optional)" type="password" minLength={8} placeholder="Leave blank to keep current password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />}

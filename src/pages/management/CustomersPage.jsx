@@ -6,6 +6,7 @@ import Input from '../../components/ui/Input';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { Pencil, Plus, Search, Trash2, Users } from 'lucide-react';
+import { normalizeTanzanianPhone } from '../../../shared/phone.js';
 
 const emptyCustomer = { name: '', phone: '', email: '' };
 
@@ -144,7 +145,7 @@ export default function CustomersPage() {
       <Modal isOpen={modalOpen} onClose={closeModal} title={editing ? 'Edit customer' : 'Add customer'}>
         <form onSubmit={saveCustomer} className="space-y-4">
           <Input label="Customer name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-          <Input label="Phone number" type="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
+          <Input label="Phone number" type="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} onBlur={(event) => setForm((current) => ({ ...current, phone: normalizeTanzanianPhone(event.target.value) }))} />
           <Input label="Email address" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
           <p className="-mt-2 text-[11px] text-surface-on-variant">A saved email lets the customer verify their Roll Points online.</p>
           {error && <p className="text-sm text-error" role="alert">{error}</p>}

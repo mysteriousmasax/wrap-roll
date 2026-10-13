@@ -91,6 +91,33 @@ const DEFAULT_HANDOVER_COUNTS = [
   { item: 'NFC Loyalty Tags / Cards', unit: 'cards', opening: '', added: '', closing: '', status: 'ok' },
 ];
 
+function inventoryCountStatus(staffCounts = []) {
+  const closingCounts = staffCounts.filter((count) => count.closing !== '' && count.closing != null);
+  if (!closingCounts.length) return 'not-counted';
+  if (closingCounts.length < 2) return 'pending-confirmation';
+  return closingCounts.every((count) => Number(count.closing) === Number(closingCounts[0].closing))
+    ? 'confirmed'
+    : 'mismatch';
+}
+
+function decorateInventoryCounts(counts, userId) {
+  return counts.map((row) => {
+    const staffCounts = Array.isArray(row.staffCounts) ? row.staffCounts : [];
+    return {
+      ...row,
+      staffCounts,
+      currentStaffCount: staffCounts.find((count) => String(count.userId) === String(userId)) || null,
+      confirmationStatus: inventoryCountStatus(staffCounts),
+    };
+  });
+}
+
+function sameInventoryCountItem(left, right) {
+  if (left.inventoryId && right.inventoryId) return Number(left.inventoryId) === Number(right.inventoryId);
+  return String(left.item || '').trim().toLowerCase() === String(right.item || '').trim().toLowerCase()
+    && String(left.unit || 'units').trim().toLowerCase() === String(right.unit || 'units').trim().toLowerCase();
+}
+
 function getShiftTransactionTotals(date, shift) {
   const { start, end } = restaurantDateBounds(date);
   const shiftName = shift === 'evening' ? '%evening%' : '%morning%';
@@ -281,6 +308,7 @@ router.get('/shift-handover', authMiddleware, (req, res) => {
     notes: '',
   };
   handover.reconciliation = mergeTransactionExpectations(handover.reconciliation, getShiftTransactionTotals(date, shift));
+  handover.inventoryCounts = decorateInventoryCounts(handover.inventoryCounts, req.user.id);
   res.json(handover);
 });
 
@@ -296,66 +324,125 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
   const managerOut = String(req.body?.managerOut || '').trim();
   const managerIn = String(req.body?.managerIn || '').trim();
   const reconciliation = JSON.stringify(req.body.reconciliation);
-  const normalizedCounts = req.body.inventoryCounts.map((row) => ({
-    ...row,
-    item: String(row?.item || '').trim(),
-    unit: String(row?.unit || 'units').trim(),
-    inventoryId: row?.inventoryId ? Number(row.inventoryId) : null,
-    closing: row?.closing === '' || row?.closing == null ? '' : Number(row.closing),
-  }));
-  if (!['admin', 'manager', 'executive'].includes(req.user?.role)) {
-    const savedRecord = db.prepare('SELECT inventory_counts_json FROM shift_handover_records WHERE shift_date = ? AND shift = ?').get(date, shift);
-    const existingCounts = savedRecord ? parseJson(savedRecord.inventory_counts_json, DEFAULT_HANDOVER_COUNTS) : DEFAULT_HANDOVER_COUNTS;
-    const rosterUnchanged = normalizedCounts.length === existingCounts.length && normalizedCounts.every((row, index) => (
-      row.item.toLowerCase() === String(existingCounts[index]?.item || '').trim().toLowerCase()
-      && row.unit.toLowerCase() === String(existingCounts[index]?.unit || '').trim().toLowerCase()
-    ));
-    if (!rosterUnchanged) return res.status(403).json({ error: 'Only managers can change the stock count item list.' });
-  }
-  if (normalizedCounts.some((row) => row.closing !== '' && (!row.item || !Number.isFinite(row.closing) || row.closing < 0))) {
-    return res.status(400).json({ error: 'Closing stock counts need an item and a valid non-negative quantity.' });
+  const normalizedCounts = req.body.inventoryCounts.map((row) => {
+    const normalizeQuantity = (value) => value === '' || value == null ? '' : Number(value);
+    return {
+      item: String(row?.item || '').trim(),
+      unit: String(row?.unit || 'units').trim(),
+      inventoryId: row?.inventoryId ? Number(row.inventoryId) : null,
+      opening: normalizeQuantity(row?.opening),
+      added: normalizeQuantity(row?.added),
+      closing: normalizeQuantity(row?.closing),
+      status: ['ok', 'restock', 'prep'].includes(row?.status) ? row.status : 'ok',
+    };
+  });
+  if (normalizedCounts.some((row) => [row.opening, row.added, row.closing].some((value) => value !== '' && (!Number.isFinite(value) || value < 0)))) {
+    return res.status(400).json({ error: 'Stock counts need valid non-negative quantities.' });
   }
   const notes = String(req.body?.notes || '').trim();
   const updatedInventoryIds = [];
+  const countedInventoryIds = [];
   try {
     const saveHandover = db.transaction(() => {
+      const savedRecord = db.prepare('SELECT inventory_counts_json FROM shift_handover_records WHERE shift_date = ? AND shift = ?').get(date, shift);
+      const existingCounts = savedRecord ? parseJson(savedRecord.inventory_counts_json, DEFAULT_HANDOVER_COUNTS) : DEFAULT_HANDOVER_COUNTS;
+      const existingFor = (row) => existingCounts.find((existing) => sameInventoryCountItem(row, existing));
+      const resolveInventoryItem = (row) => row.inventoryId
+        ? db.prepare("SELECT * FROM inventory WHERE id = ? AND COALESCE(deleted_at, '') = ''").get(row.inventoryId)
+        : db.prepare(`SELECT * FROM inventory WHERE lower(trim(name)) = lower(?) AND lower(trim(unit)) = lower(?)
+          AND COALESCE(deleted_at, '') = '' ORDER BY id LIMIT 1`).get(row.item, row.unit);
+      if (!['admin', 'manager', 'executive'].includes(req.user?.role)) {
+        const keepsExistingItems = existingCounts.every((existing) => normalizedCounts.some((row) => sameInventoryCountItem(row, existing)));
+        const additionsAreInInventory = normalizedCounts.every((row) => existingFor(row) || resolveInventoryItem(row));
+        if (!keepsExistingItems || !additionsAreInInventory) {
+          throw Object.assign(new Error('You can add items from inventory, but cannot remove existing shift count items.'), { status: 403 });
+        }
+      }
       const seenInventoryIds = new Set();
-      for (const row of normalizedCounts) {
-        if (row.closing === '') continue;
-        const item = row.inventoryId
-          ? db.prepare('SELECT * FROM inventory WHERE id = ? AND COALESCE(deleted_at, \'\') = \'\'').get(row.inventoryId)
-          : db.prepare(`SELECT * FROM inventory WHERE lower(trim(name)) = lower(?) AND lower(trim(unit)) = lower(?)
-            AND COALESCE(deleted_at, '') = '' ORDER BY id LIMIT 1`).get(row.item, row.unit);
-        if (!item) throw new Error(`Add “${row.item}” to inventory before reconciling its closing count.`);
+      for (const [index, row] of normalizedCounts.entries()) {
+        const existing = existingFor(row);
+        const item = resolveInventoryItem(row);
+        if (!item && row.closing !== '') throw new Error(`Add “${row.item}” to inventory before reconciling its closing count.`);
+        if (!item && !existing) throw Object.assign(new Error(`Select “${row.item}” from inventory before adding it to this shift.`), { status: 403 });
+        if (!item) {
+          normalizedCounts[index] = { ...row, ...existing, staffCounts: existing.staffCounts || [] };
+          continue;
+        }
         if (seenInventoryIds.has(item.id)) throw new Error(`${row.item} appears more than once in this handover.`);
         seenInventoryIds.add(item.id);
-        if (Number(item.quantity) !== row.closing) {
-          db.prepare('UPDATE inventory SET quantity = ? WHERE id = ?').run(row.closing, item.id);
+        const savedItem = existing || {};
+        const staffCounts = Array.isArray(savedItem.staffCounts) ? [...savedItem.staffCounts] : [];
+        const currentStaffCount = {
+          userId: Number(req.user.id),
+          staffName: req.user?.name || req.user?.username || 'Staff',
+          opening: row.opening,
+          added: row.added,
+          closing: row.closing,
+          status: row.status,
+          countedAt: now,
+        };
+        const hasCount = [row.opening, row.added, row.closing].some((value) => value !== '');
+        const staffCountIndex = staffCounts.findIndex((count) => String(count.userId) === String(req.user.id));
+        const previousStaffCount = staffCountIndex >= 0 ? staffCounts[staffCountIndex] : null;
+        if (hasCount) {
+          if (staffCountIndex >= 0) staffCounts[staffCountIndex] = currentStaffCount;
+          else staffCounts.push(currentStaffCount);
+        }
+        const confirmationStatus = inventoryCountStatus(staffCounts);
+        const updatedRow = {
+          ...savedItem,
+          item: item.name,
+          unit: item.unit || row.unit,
+          inventoryId: item.id,
+          staffCounts,
+        };
+        if (confirmationStatus === 'confirmed') {
+          const confirmedCounts = staffCounts.filter((count) => count.closing !== '' && count.closing != null);
+          const confirmedClosing = Number(confirmedCounts[0].closing);
+          updatedRow.opening = row.opening;
+          updatedRow.added = row.added;
+          updatedRow.closing = confirmedClosing;
+          updatedRow.status = row.status;
+          if (Math.abs(Number(item.quantity) - confirmedClosing) > 1e-9) {
+            db.prepare('UPDATE inventory SET quantity = ? WHERE id = ?').run(confirmedClosing, item.id);
+            updatedInventoryIds.push(item.id);
+          }
+          if (Number(item.quantity) > Number(item.threshold || 0) && confirmedClosing <= Number(item.threshold || 0)) {
+            db.prepare(`INSERT INTO notifications (type, title, message, read, created_at, audience_role)
+              VALUES ('warning', ?, ?, 0, ?, 'manager')`).run(
+              `Low stock: ${item.name}`,
+              `${item.name} was confirmed at ${confirmedClosing} ${item.unit || ''} during ${shift} shift handover. Reorder threshold: ${item.threshold}.`,
+              now
+            );
+          }
+        }
+        if (hasCount) {
+          const summarizeCount = (count) => count
+            ? `opening ${count.opening === '' ? '—' : count.opening}, added ${count.added === '' ? '—' : count.added}, closing ${count.closing === '' ? '—' : count.closing} ${item.unit || row.unit}`
+            : 'not recorded';
+          const changes = {
+            shiftCount: {
+              from: summarizeCount(previousStaffCount),
+              to: `${date} ${shift}: ${summarizeCount(currentStaffCount)} (${confirmationStatus})`,
+            },
+          };
+          if (confirmationStatus === 'confirmed' && Math.abs(Number(item.quantity) - Number(updatedRow.closing)) > 1e-9) {
+            changes.quantity = { from: item.quantity, to: updatedRow.closing };
+            changes.reason = { from: null, to: `${shift} shift count confirmed by multiple staff` };
+          }
           db.prepare(`INSERT INTO inventory_audit
             (inventory_id, action, changed_by_id, changed_by_name, changed_by_role, changes, created_at)
             VALUES (?, 'updated', ?, ?, ?, ?, ?)`).run(
             item.id,
             req.user?.id ?? null,
-            req.user?.name || req.user?.username || 'Staff',
+            currentStaffCount.staffName,
             req.user?.role || 'staff',
-            JSON.stringify({
-              quantity: { from: item.quantity, to: row.closing },
-              reason: { from: null, to: `${shift} shift handover stock count` },
-            }),
+            JSON.stringify(changes),
             now
           );
-          if (Number(item.quantity) > Number(item.threshold || 0) && row.closing <= Number(item.threshold || 0)) {
-            db.prepare(`INSERT INTO notifications (type, title, message, read, created_at, audience_role)
-              VALUES ('warning', ?, ?, 0, ?, 'manager')`).run(
-              `Low stock: ${item.name}`,
-              `${item.name} was counted at ${row.closing} ${item.unit || ''} during ${shift} shift handover. Reorder threshold: ${item.threshold}.`,
-              now
-            );
-          }
-          updatedInventoryIds.push(item.id);
+          countedInventoryIds.push(item.id);
         }
-        row.inventoryId = item.id;
-        row.unit = item.unit || row.unit;
+        normalizedCounts[index] = updatedRow;
       }
       db.prepare(`INSERT INTO shift_handover_records
         (shift_date, shift, manager_out, manager_in, reconciliation_json, inventory_counts_json, notes, created_by, created_at, updated_at)
@@ -368,11 +455,11 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
     });
     saveHandover();
   } catch (error) {
-    return res.status(400).json({ error: error.message || 'Shift handover could not be saved.' });
+    return res.status(error.status || 400).json({ error: error.message || 'Shift handover could not be saved.' });
   }
   broadcast('business:updated', { type: 'shift_handover_saved', date, shift });
-  if (updatedInventoryIds.length) broadcast('inventory:updated', { action: 'handover-counted', items: updatedInventoryIds });
-  res.json({ date, shift, managerOut, managerIn, reconciliation: req.body.reconciliation, inventoryCounts: normalizedCounts, notes, updatedAt: now, updatedInventoryItems: updatedInventoryIds.length });
+  if (countedInventoryIds.length) broadcast('inventory:updated', { action: 'handover-counted', items: countedInventoryIds });
+  res.json({ date, shift, managerOut, managerIn, reconciliation: req.body.reconciliation, inventoryCounts: decorateInventoryCounts(normalizedCounts, req.user.id), notes, updatedAt: now, updatedInventoryItems: updatedInventoryIds.length });
 });
 
 router.get('/expenses', authMiddleware, (_req, res) => {

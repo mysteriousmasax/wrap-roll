@@ -8,6 +8,7 @@ import useSettingsStore from '../../store/useSettingsStore';
 import { api } from '../../api/client';
 import Button from '../../components/ui/Button';
 import LipaPaymentModal from '../../components/public/LipaPaymentModal';
+import { normalizeTanzanianPhone } from '../../../shared/phone.js';
 
 export default function PaymentPage() {
   const [processing, setProcessing] = useState(false);
@@ -24,6 +25,8 @@ export default function PaymentPage() {
   const [availableTables, setAvailableTables] = useState([]);
   const [savedCustomers, setSavedCustomers] = useState([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+  const [activeCustomerIndex, setActiveCustomerIndex] = useState(-1);
   const [alternateTable, setAlternateTable] = useState('');
   const [showAlternateTables, setShowAlternateTables] = useState(false);
   const location = useLocation();
@@ -58,19 +61,24 @@ export default function PaymentPage() {
     api.getCustomers().then(setSavedCustomers).catch(() => setSavedCustomers([]));
   }, []);
 
-  const handleSavedCustomerChange = (event) => {
-    const customerId = event.target.value;
-    setSelectedCustomerId(customerId);
-    const customer = savedCustomers.find((entry) => String(entry.id) === customerId);
-    if (!customer) return;
+  const handleSavedCustomerSelect = (customer) => {
+    setSelectedCustomerId(String(customer.id));
     setCartCustomerName(customer.name || '');
-    setCartCustomerPhone(customer.phone || '');
+    setCartCustomerPhone(normalizeTanzanianPhone(customer.phone || ''));
     setCustomerEmail(customer.email || '');
     setCustomerType(customer.customerType || 'individual');
     setCompanyName(customer.companyName || '');
     setCustomerTin(customer.tin || '');
     setBillingAddress(customer.billingAddress || '');
+    setCustomerPickerOpen(false);
+    setActiveCustomerIndex(-1);
   };
+
+  const matchingSavedCustomers = savedCustomers.filter((customer) => {
+    const search = customerName.trim().toLowerCase();
+    return !search || [customer.name, customer.phone, customer.email]
+      .some((value) => String(value || '').toLowerCase().includes(search));
+  }).slice(0, 8);
 
   const handlePayment = async (tableNumberOverride) => {
     const selectedTableNumber = tableNumberOverride ?? checkoutTableNumber;
@@ -247,17 +255,68 @@ export default function PaymentPage() {
         <div className="card mb-6">
           <h3 className="font-bold text-sm mb-4">Customer Information</h3>
           <div className="space-y-3">
-            {savedCustomers.length > 0 && (
-              <label className="block text-xs font-semibold text-surface-on-variant">Saved customer
-                <span className="relative mt-1 block">
-                  <Users size={15} className="absolute left-3 top-1/2 -translate-y-1/2" />
-                  <select value={selectedCustomerId} onChange={handleSavedCustomerChange} className="input-field w-full pl-9">
-                    <option value="">Walk-in / enter manually</option>
-                    {savedCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}{customer.phone ? ` · ${customer.phone}` : ''}</option>)}
-                  </select>
-                </span>
-              </label>
-            )}
+            <div>
+              <label htmlFor="payment-customer-name" className="block text-xs font-semibold text-surface-on-variant">Customer name (Optional)</label>
+              <div className="relative mt-1">
+                <Users size={15} className="absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  id="payment-customer-name"
+                  type="text"
+                  value={customerName}
+                  onChange={(event) => {
+                    setSelectedCustomerId('');
+                    setCartCustomerName(event.target.value);
+                    setCustomerPickerOpen(true);
+                    setActiveCustomerIndex(-1);
+                  }}
+                  onFocus={() => setCustomerPickerOpen(true)}
+                  onBlur={() => setCustomerPickerOpen(false)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      setCustomerPickerOpen(false);
+                    } else if (event.key === 'ArrowDown' && matchingSavedCustomers.length > 0) {
+                      event.preventDefault();
+                      setCustomerPickerOpen(true);
+                      setActiveCustomerIndex((index) => Math.min(index + 1, matchingSavedCustomers.length - 1));
+                    } else if (event.key === 'ArrowUp' && activeCustomerIndex >= 0) {
+                      event.preventDefault();
+                      setActiveCustomerIndex((index) => Math.max(index - 1, 0));
+                    } else if (event.key === 'Enter' && activeCustomerIndex >= 0) {
+                      event.preventDefault();
+                      handleSavedCustomerSelect(matchingSavedCustomers[activeCustomerIndex]);
+                    }
+                  }}
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={customerPickerOpen && savedCustomers.length > 0}
+                  aria-controls="payment-customer-options"
+                  aria-activedescendant={activeCustomerIndex >= 0 ? `payment-customer-option-${matchingSavedCustomers[activeCustomerIndex]?.id}` : undefined}
+                  placeholder={savedCustomers.length > 0 ? 'Search saved customers or enter a name' : 'Enter customer name'}
+                  className="input-field w-full pl-9"
+                />
+                {customerPickerOpen && savedCustomers.length > 0 && (
+                  <div id="payment-customer-options" role="listbox" className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-outline-variant bg-white py-1 shadow-lg">
+                    {matchingSavedCustomers.length > 0 ? matchingSavedCustomers.map((customer, index) => (
+                      <button
+                        id={`payment-customer-option-${customer.id}`}
+                        key={customer.id}
+                        type="button"
+                        role="option"
+                        aria-selected={String(customer.id) === selectedCustomerId || index === activeCustomerIndex}
+                        onPointerDown={(event) => event.preventDefault()}
+                        onClick={() => handleSavedCustomerSelect(customer)}
+                        className={`block w-full px-3 py-2 text-left text-sm hover:bg-surface-container-low ${index === activeCustomerIndex ? 'bg-surface-container-low' : ''}`}
+                      >
+                        <span className="block font-semibold text-surface-on">{customer.name}</span>
+                        {(customer.phone || customer.email) && <span className="block text-xs text-surface-on-variant">{[customer.phone, customer.email].filter(Boolean).join(' · ')}</span>}
+                      </button>
+                    )) : (
+                      <p className="px-3 py-2 text-sm text-surface-on-variant">No matching saved customers. Your entered name will be used.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
             <div>
               <label className="block text-xs font-semibold text-surface-on-variant mb-1">Email Address (Optional)</label>
               <input
@@ -274,6 +333,7 @@ export default function PaymentPage() {
                 type="tel"
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
+                onBlur={(e) => setCustomerPhone(normalizeTanzanianPhone(e.target.value))}
                 placeholder="+255 700 000 000"
                 className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />

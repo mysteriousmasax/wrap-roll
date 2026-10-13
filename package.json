@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev --prefix server\" \"vite\"",
+    "dev": "node ./node_modules/concurrently/dist/bin/concurrently.js \"node --env-file=.env server/index.js\" \"node ./node_modules/vite/bin/vite.js\"",
     "dev:client": "vite",
     "dev:server": "npm run dev --prefix server",
     "mobile:android:add": "cap add android",

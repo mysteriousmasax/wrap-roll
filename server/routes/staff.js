@@ -5,6 +5,7 @@ import { hashPin } from '../utils/pins.js';
 import { broadcast } from '../ws.js';
 import { restaurantTime } from '../utils/localTime.js';
 import { getCustomRoleEntries, getRolePageAccess, normalizeCustomRole, normalizePageAccess, normalizeRoleName } from '../utils/roles.js';
+import { normalizeTanzanianPhone } from '../../shared/phone.js';
 
 const router = Router();
 
@@ -17,7 +18,7 @@ function mapStaff(row) {
     status: row.status,
     clockIn: row.clock_in,
     avatar: row.avatar,
-    phone: row.phone,
+    phone: normalizeTanzanianPhone(row.phone),
     userId: row.user_id,
     username: row.username,
     email: row.email,
@@ -163,12 +164,10 @@ function resolveRole(role) {
 
 function activityForStaff(staffId, userId) {
   const orderActivity = db.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(total), 0) AS value FROM orders WHERE staff_id = ? AND date(created_at) = date('now')").get(userId || -1);
-  const inventoryActivity = db.prepare("SELECT COUNT(*) AS count FROM inventory_audit WHERE changed_by_id = ? AND date(created_at) = date('now')").get(userId || -1);
   const taskActivity = db.prepare("SELECT COUNT(*) AS count FROM staff_tasks WHERE staff_id = ? AND status != 'completed'").get(staffId);
   return {
     orders: Number(orderActivity.count || 0),
     orderValue: Number(orderActivity.value || 0),
-    inventoryChanges: Number(inventoryActivity.count || 0),
     openTasks: Number(taskActivity.count || 0),
   };
 }
@@ -358,7 +357,7 @@ router.post('/', authMiddleware, requireRole('admin'), async (req, res) => {
     const result = db.prepare(`INSERT INTO staff
       (user_id, name, role, shift, status, avatar, phone, morning_start_time, morning_end_time, evening_start_time, evening_end_time)
       VALUES (?, ?, ?, ?, 'off-clock', ?, ?, ?, ?, ?, ?)`)
-      .run(userResult.lastInsertRowid, name, resolvedRole.label, shift || 'Morning', initials, phone || '', morningStartTime || null, morningEndTime || null, eveningStartTime || null, eveningEndTime || null);
+      .run(userResult.lastInsertRowid, name, resolvedRole.label, shift || 'Morning', initials, normalizeTanzanianPhone(phone), morningStartTime || null, morningEndTime || null, eveningStartTime || null, eveningEndTime || null);
     return { staffId: result.lastInsertRowid, userId: userResult.lastInsertRowid };
   });
   const { staffId } = createRecords();
@@ -382,7 +381,7 @@ router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
     shift ?? existing.shift,
     status ?? existing.status,
     clockIn !== undefined ? clockIn : existing.clock_in,
-    phone ?? existing.phone,
+    normalizeTanzanianPhone(phone ?? existing.phone),
     avatar ?? existing.avatar,
     morningStartTime ?? existing.morning_start_time,
     morningEndTime ?? existing.morning_end_time,

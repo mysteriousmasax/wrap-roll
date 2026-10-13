@@ -6,6 +6,7 @@ import { broadcast } from '../ws.js';
 import { generateCustomerChatReply } from '../utils/gemini.js';
 import { generateOfflineCustomerReply } from '../utils/offlineAssistant.js';
 import { aiProvider, recordAiActivity } from '../utils/aiActivity.js';
+import { normalizeTanzanianPhone } from '../../shared/phone.js';
 
 const router = Router();
 const staffRoles = ['admin', 'manager', 'foh', 'kitchen'];
@@ -59,7 +60,7 @@ function getCustomerContext(req, message) {
   const settings = db.prepare("SELECT key, value FROM settings WHERE key IN ('branch_location', 'weekly_hours', 'operating_hours')").all();
   const settingsMap = Object.fromEntries(settings.map((setting) => [setting.key, setting.value]));
   const menu = db.prepare('SELECT name, description, price, category FROM menu_items WHERE active = 1 ORDER BY category, name').all();
-  const phone = String(req.body.customerPhone || '').trim();
+  const phone = normalizeTanzanianPhone(req.body.customerPhone);
   const email = String(req.body.customerEmail || '').trim().toLowerCase();
   const customer = phone || email
     ? db.prepare('SELECT id, name, tier, lifetime_value, visits, customer_segment, loyalty_notes FROM customers WHERE (? != \'\' AND phone = ?) OR (? != \'\' AND lower(email) = ?) ORDER BY id DESC LIMIT 1').get(phone, phone, email, email)
@@ -77,7 +78,7 @@ function getCustomerContext(req, message) {
   const orderId = message.match(/\bWR-\d+\b/i)?.[0]?.toUpperCase();
   if (!orderId) return context;
   const order = db.prepare('SELECT id, status, payment_status, total, customer_phone, customer_email FROM orders WHERE upper(id) = ?').get(orderId);
-  const phoneMatches = order && req.body.customerPhone && order.customer_phone === String(req.body.customerPhone).trim();
+  const phoneMatches = order && req.body.customerPhone && order.customer_phone === normalizeTanzanianPhone(req.body.customerPhone);
   const emailMatches = order && req.body.customerEmail && order.customer_email && order.customer_email.toLowerCase() === String(req.body.customerEmail).trim().toLowerCase();
   if (order && (phoneMatches || emailMatches)) {
     context.orderStatus = { id: order.id, status: order.status, paymentStatus: order.payment_status, total: order.total };
@@ -106,6 +107,7 @@ function getMenuFactsReply(message, context) {
 
 function ensureConversation(id, customerName = '', customerPhone = '', customerEmail = '') {
   const now = new Date().toISOString();
+  const normalizedPhone = normalizeTanzanianPhone(customerPhone);
   const normalizedEmail = String(customerEmail || '').trim().toLowerCase();
   if (normalizedEmail) {
     const byEmail = db.prepare('SELECT id FROM chat_conversations WHERE lower(customer_email) = ? ORDER BY updated_at DESC LIMIT 1').get(normalizedEmail);
@@ -113,9 +115,9 @@ function ensureConversation(id, customerName = '', customerPhone = '', customerE
   }
   const existing = db.prepare('SELECT id FROM chat_conversations WHERE id = ?').get(id);
   if (!existing) {
-    db.prepare('INSERT INTO chat_conversations (id, customer_name, customer_phone, customer_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, customerName || null, customerPhone || null, customerEmail || null, now, now);
-  } else if (customerName || customerPhone || customerEmail) {
-    db.prepare('UPDATE chat_conversations SET customer_name = COALESCE(?, customer_name), customer_phone = COALESCE(?, customer_phone), customer_email = COALESCE(?, customer_email), updated_at = ? WHERE id = ?').run(customerName || null, customerPhone || null, customerEmail || null, now, id);
+    db.prepare('INSERT INTO chat_conversations (id, customer_name, customer_phone, customer_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, customerName || null, normalizedPhone || null, customerEmail || null, now, now);
+  } else if (customerName || normalizedPhone || customerEmail) {
+    db.prepare('UPDATE chat_conversations SET customer_name = COALESCE(?, customer_name), customer_phone = COALESCE(?, customer_phone), customer_email = COALESCE(?, customer_email), updated_at = ? WHERE id = ?').run(customerName || null, normalizedPhone || null, customerEmail || null, now, id);
   }
   return id;
 }

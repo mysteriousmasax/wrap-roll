@@ -6,7 +6,7 @@ import path from 'node:path';
 import express from 'express';
 import test from 'node:test';
 
-test('handover counts reconcile inventory and packaging is deducted only for takeout and delivery', async () => {
+test('handover counts require two staff confirmations and packaging is deducted only for takeout and delivery', async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'wrap-roll-inventory-workflows-'));
   const previousPath = process.env.DB_PATH;
   let setupDb;
@@ -20,6 +20,7 @@ test('handover counts reconcile inventory and packaging is deducted only for tak
     await database.ensureDatabase();
     db = (await import('../db/database.js')).default;
     const userId = db.prepare('INSERT INTO users (name, role, pin) VALUES (?, ?, ?)').run('Inventory Manager', 'manager', 'test-pin').lastInsertRowid;
+    const confirmingUserId = db.prepare('INSERT INTO users (name, role, pin) VALUES (?, ?, ?)').run('Inventory Staff', 'foh', 'test-pin').lastInsertRowid;
     const mozzarellaId = db.prepare('INSERT INTO inventory (name, quantity, unit, threshold, category) VALUES (?, ?, ?, ?, ?)').run('Test Mozzarella', 10, 'kg', 2, 'Stock items').lastInsertRowid;
     const flourId = db.prepare('INSERT INTO inventory (name, quantity, unit, threshold) VALUES (?, ?, ?, ?)').run('Test Flour', 20, 'kg', 2).lastInsertRowid;
     const boxId = db.prepare('INSERT INTO inventory (name, quantity, unit, threshold, category) VALUES (?, ?, ?, ?, ?)').run('Test Pizza Box', 10, 'pcs', 9, 'Test Packaging').lastInsertRowid;
@@ -46,6 +47,10 @@ test('handover counts reconcile inventory and packaging is deducted only for tak
       Authorization: `Bearer ${signToken({ id: userId, name: 'Inventory Manager', role: 'manager' })}`,
       'Content-Type': 'application/json',
     };
+    const confirmingHeaders = {
+      Authorization: `Bearer ${signToken({ id: confirmingUserId, name: 'Inventory Staff', role: 'foh' })}`,
+      'Content-Type': 'application/json',
+    };
 
     const createdCategory = await fetch(`${base}/inventory/categories`, {
       method: 'POST', headers, body: JSON.stringify({ name: 'Test Packaging' }),
@@ -61,21 +66,45 @@ test('handover counts reconcile inventory and packaging is deducted only for tak
     assert.equal(deletedCategory.status, 200);
     assert.equal(db.prepare('SELECT category FROM inventory WHERE id = ?').get(boxId).category, 'Stock items');
 
-    const saveHandover = (inventoryCounts) => fetch(`${base}/business/shift-handover`, {
-      method: 'PUT', headers,
+    const saveHandover = (inventoryCounts, requestHeaders = headers) => fetch(`${base}/business/shift-handover`, {
+      method: 'PUT', headers: requestHeaders,
       body: JSON.stringify({ date: '2026-10-10', shift: 'morning', reconciliation: {}, inventoryCounts }),
     });
     const saved = await saveHandover([{ item: 'Test Mozzarella', unit: 'kg', closing: 4 }]);
     assert.equal(saved.status, 200);
     const savedBody = await saved.json();
-    assert.equal(savedBody.updatedInventoryItems, 1);
-    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 4);
+    assert.equal(savedBody.updatedInventoryItems, 0);
+    assert.equal(savedBody.inventoryCounts[0].confirmationStatus, 'pending-confirmation');
+    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 10);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM inventory_audit WHERE inventory_id = ?').get(mozzarellaId).count, 1);
+
+    const mismatched = await saveHandover([{ item: 'Test Mozzarella', unit: 'kg', closing: 3 }], confirmingHeaders);
+    assert.equal(mismatched.status, 200);
+    assert.equal((await mismatched.json()).inventoryCounts[0].confirmationStatus, 'mismatch');
+    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 10);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM inventory_audit WHERE inventory_id = ?').get(mozzarellaId).count, 2);
+
+    const confirmed = await saveHandover([{ item: 'Test Mozzarella', unit: 'kg', closing: 4 }], confirmingHeaders);
+    assert.equal((await confirmed.json()).inventoryCounts[0].confirmationStatus, 'confirmed');
+    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 4);
+    const firstCountAudit = JSON.parse(db.prepare('SELECT changes FROM inventory_audit WHERE inventory_id = ? ORDER BY id LIMIT 1').get(mozzarellaId).changes);
+    assert.match(firstCountAudit.shiftCount.to, /2026-10-10 morning:.*closing 4 kg.*pending-confirmation/);
 
     const lowStockHandover = await saveHandover([{ item: 'Test Mozzarella', unit: 'kg', closing: 2 }]);
     assert.equal(lowStockHandover.status, 200);
+    assert.equal((await lowStockHandover.json()).inventoryCounts[0].confirmationStatus, 'mismatch');
+    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 4);
+    const lowStockConfirmation = await saveHandover([{ item: 'Test Mozzarella', unit: 'kg', closing: 2 }], confirmingHeaders);
+    assert.equal(lowStockConfirmation.status, 200);
     assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 2);
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM notifications WHERE title = 'Low stock: Test Mozzarella'").get().count, 1);
+
+    const selectedInventoryItem = await saveHandover([
+      { item: 'Test Mozzarella', unit: 'kg', closing: 2 },
+      { inventoryId: flourId, item: 'Test Flour', unit: 'kg', opening: '', added: '', closing: '' },
+    ], confirmingHeaders);
+    assert.equal(selectedInventoryItem.status, 200);
+    assert.ok((await selectedInventoryItem.json()).inventoryCounts.some((row) => row.inventoryId === flourId));
 
     const failedHandover = await saveHandover([
       { item: 'Test Mozzarella', unit: 'kg', closing: 1 },
