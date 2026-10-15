@@ -31,12 +31,18 @@ test('staff workspace clocks shifts, reports assigned POS totals, and permits sc
       .run('Shift Test Admin', 'admin', 'test-pin', 'shift.admin').lastInsertRowid;
     const otherUserId = db.prepare('INSERT INTO users (name, role, pin, username) VALUES (?, ?, ?, ?)')
       .run('Other Staff', 'foh', 'test-pin', 'other.staff').lastInsertRowid;
+    const browserUserId = db.prepare('INSERT INTO users (name, role, pin, username) VALUES (?, ?, ?, ?)')
+      .run('Browser Clock Staff', 'foh', 'test-pin', 'browser.clock').lastInsertRowid;
     const staffId = db.prepare(`INSERT INTO staff
       (user_id, name, role, shift, status, morning_start_time, morning_end_time, evening_start_time, evening_end_time)
       VALUES (?, ?, 'FOH', 'Morning', 'off-clock', '00:00', '00:01', '00:00', '00:01')`)
       .run(staffUserId, 'Shift Test Staff').lastInsertRowid;
     db.prepare("INSERT INTO staff (user_id, name, role, shift, status) VALUES (?, 'Other Staff', 'FOH', 'Morning', 'off-clock')")
       .run(otherUserId);
+    db.prepare(`INSERT INTO staff
+      (user_id, name, role, shift, status, morning_start_time, morning_end_time)
+      VALUES (?, 'Browser Clock Staff', 'FOH', 'Morning', 'off-clock', '00:00', '00:01')`)
+      .run(browserUserId);
     const createdAt = new Date(Date.parse(dayBounds.start) + 12 * 3600000).toISOString();
     const addOrder = (id, method, total, transactionTime = createdAt) => db.prepare(`INSERT INTO orders
       (id, order_type, subtotal, tax, total, payment_method, payment_status, order_source, status, created_at, updated_at, staff_id)
@@ -50,11 +56,13 @@ test('staff workspace clocks shifts, reports assigned POS totals, and permits sc
 
     const { default: staffRouter } = await import(`../routes/staff.js?staff-workspace=${Date.now()}`);
     const { default: businessRouter } = await import(`../routes/business.js?staff-workspace=${Date.now()}`);
+    const { default: authRouter } = await import(`../routes/auth.js?staff-workspace=${Date.now()}`);
     const { signToken } = await import('../middleware/auth.js');
     const app = express();
     app.use(express.json());
     app.use('/api/staff', staffRouter);
     app.use('/api/business', businessRouter);
+    app.use('/api/auth', authRouter);
     server = app.listen(0, '127.0.0.1');
     await once(server, 'listening');
     const base = `http://127.0.0.1:${server.address().port}/api`;
@@ -65,6 +73,32 @@ test('staff workspace clocks shifts, reports assigned POS totals, and permits sc
     const staffHeaders = headersFor(staffUserId, 'foh', 'Shift Test Staff');
     const managerHeaders = headersFor(managerUserId, 'manager', 'Shift Test Manager');
     const adminHeaders = headersFor(adminUserId, 'admin', 'Shift Test Admin');
+
+    const browserLoginResponse = await fetch(`${base}/auth/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'browser.clock', pin: 'test-pin' }),
+    });
+    assert.equal(browserLoginResponse.status, 200);
+    const browserLogin = await browserLoginResponse.json();
+    const browserShift = db.prepare("SELECT * FROM shift_logs WHERE staff_id = (SELECT id FROM staff WHERE user_id = ?) AND status = 'active'")
+      .get(browserUserId);
+    assert.equal(browserShift.scheduled_start_time, '00:00');
+    assert.equal(browserShift.scheduled_end_time, '00:01');
+    const minutesOfDay = (value) => {
+      const match = String(value).match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+      const hour = Number(match[1]) % 12 + (match[3].toUpperCase() === 'PM' ? 12 : 0);
+      return hour * 60 + Number(match[2]);
+    };
+    assert.equal(browserShift.late_minutes, Math.max(0, minutesOfDay(browserShift.start_time)));
+
+    const browserLogoutResponse = await fetch(`${base}/auth/logout`, {
+      method: 'POST', headers: { Authorization: `Bearer ${browserLogin.token}` },
+    });
+    assert.equal(browserLogoutResponse.status, 200);
+    const completedBrowserShift = db.prepare("SELECT * FROM shift_logs WHERE staff_id = (SELECT id FROM staff WHERE user_id = ?) AND status = 'completed'")
+      .get(browserUserId);
+    assert.ok(completedBrowserShift.ended_at);
+    assert.equal(completedBrowserShift.overtime_minutes, Math.max(0, minutesOfDay(completedBrowserShift.end_time) - 1));
 
     const scheduleEditResponse = await fetch(`${base}/staff/${staffId}`, {
       method: 'PUT', headers: adminHeaders,

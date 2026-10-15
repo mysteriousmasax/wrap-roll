@@ -77,22 +77,22 @@ export default function OrderTypeSelector({ isOpen, onClose, onComplete }) {
   return (
     <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}>
       <div className={`fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${isClosing ? 'opacity-0' : 'opacity-100'}`} onClick={onClose} />
-      <div className={`relative flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-elevated ${isClosing ? 'animate-slide-down' : 'animate-slide-up'}`}>
-        <div className="flex shrink-0 items-center justify-between border-b border-outline-variant p-5">
+      <div className={`relative flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-elevated md:max-h-[90dvh] md:max-w-4xl ${isClosing ? 'animate-slide-down' : 'animate-slide-up'}`}>
+        <div className="flex shrink-0 items-center justify-between border-b border-outline-variant p-5 md:px-7 md:py-4">
           <h2 className="text-lg font-display font-bold">Order Type</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-surface-container">
             <X size={18} />
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
-          <div className="grid grid-cols-3 gap-3">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5 md:grid md:grid-cols-2 md:gap-x-6 md:gap-y-4 md:space-y-0 md:p-7">
+          <div className="grid grid-cols-3 gap-3 md:col-span-2 md:gap-4">
             {orderTypes.map((type) => (
               <button
                 key={type.id}
                 onClick={() => { setSelectedType(type.id); setValidationMessage(''); }}
                 className={
-                  'p-4 rounded-xl text-center transition-all border-2 ' +
+                  'min-h-28 rounded-xl border-2 p-3 text-center transition-all md:p-4 ' +
                   (selectedType === type.id
                     ? 'border-primary bg-primary/5'
                     : 'border-outline-variant hover:border-outline')
@@ -153,24 +153,24 @@ export default function OrderTypeSelector({ isOpen, onClose, onComplete }) {
           {selectedType === 'dine-in' && fulfillmentMode !== 'roadside_handoff' && (
             <Input label="Table Number" type="number" min="1" placeholder="e.g. 5" value={localTable} onChange={(e) => { setLocalTable(e.target.value); setValidationMessage(''); }} required />
           )}
-          <div><label className="block text-xs font-semibold text-surface-on-variant uppercase mb-1.5">Order source</label><select className="input-field" value={source} onChange={(e) => { setSource(e.target.value); setValidationMessage(''); }}><option value="foh">FOH / Walk-in</option><option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option></select></div>
+          <div><label className="mb-1.5 block text-xs font-semibold uppercase text-surface-on-variant">Order source</label><select className="input-field min-h-12 w-full" value={source} onChange={(e) => { setSource(e.target.value); setValidationMessage(''); }}><option value="foh">FOH / Walk-in</option><option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option></select></div>
           {source === 'whatsapp' && (
             <Input label="WhatsApp Number" type="tel" placeholder="e.g. 0712 345 678" value={localPhone} onChange={(e) => { setLocalPhone(e.target.value); setValidationMessage(''); }} onBlur={(e) => setLocalPhone(normalizeTanzanianPhone(e.target.value))} required />
           )}
           {selectedType === 'delivery' && fulfillmentMode !== 'roadside_handoff' && (
-            <>
+            <div className="space-y-4 md:col-span-2 md:grid md:grid-cols-2 md:items-start md:gap-5 md:space-y-0">
               <Input label="Customer Name" placeholder="Full name" value={localName} onChange={(e) => setLocalName(e.target.value)} required />
               <div><label className="mb-1.5 block text-xs font-semibold uppercase text-surface-on-variant">Drop-off location</label><DeliveryLocationPicker value={deliveryAddress} latitude={deliveryLatitude} longitude={deliveryLongitude} onChange={({ address, latitude, longitude }) => { setDeliveryAddress(address); setDeliveryLatitude(latitude); setDeliveryLongitude(longitude); setValidationMessage(''); }} /></div>
-            </>
+            </div>
           )}
           {(selectedType === 'takeout' || fulfillmentMode === 'roadside_handoff') && (
             <Input label={fulfillmentMode === 'roadside_handoff' ? 'Customer Name' : 'Customer Name (Optional)'} placeholder="Full name" value={localName} onChange={(e) => setLocalName(e.target.value)} required={fulfillmentMode === 'roadside_handoff'} />
           )}
           {fulfillmentMode === 'roadside_handoff' && <Input label="Customer Phone" type="tel" placeholder="+255 7XX XXX XXX" value={localPhone} onChange={(event) => { setLocalPhone(event.target.value); setValidationMessage(''); }} onBlur={(event) => setLocalPhone(normalizeTanzanianPhone(event.target.value))} required />}
-          {validationMessage && <p className="text-sm text-primary" role="alert">{validationMessage}</p>}
+          {validationMessage && <p className="text-sm text-primary md:col-span-2" role="alert">{validationMessage}</p>}
         </div>
 
-        <div className="shrink-0 border-t border-outline-variant bg-white p-5">
+        <div className="shrink-0 border-t border-outline-variant bg-white p-5 md:px-7 md:py-4">
           <Button
             onClick={handleConfirm}
             className="w-full"
