@@ -1647,7 +1647,7 @@ button, input, select, textarea { max-width: 100%; }
   .pos-toolbar > div:first-child { flex-wrap: wrap; align-items: flex-start; }
   .pos-toolbar > div:first-child > div:last-child { flex-wrap: wrap; justify-content: flex-end; }
   .pos-cart-panel { position: fixed; top: 76px; right: 12px; bottom: 12px; z-index: 35; width: min(380px, calc(100vw - 24px)); margin: 0; }
-  .pos-order-toggle { top: auto; right: 12px; bottom: 88px; z-index: 40; transform: none; border-radius: 9999px; }
+  .pos-order-toggle { top: auto; right: 12px; bottom: 112px; z-index: 40; transform: none; border-radius: 9999px; }
 }
 
 @media (max-width: 1100px) {
