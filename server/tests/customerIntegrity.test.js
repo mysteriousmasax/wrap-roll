@@ -82,7 +82,9 @@ test('deleteCustomerCascade removes customer loyalty records and point ledger da
 test('lookupPublicCustomerProfile only resolves a customer by physical NFC tag', () => {
   const db = createTestDb();
   const customerId = db.prepare('INSERT INTO customers (name, phone, email, nfc_tag_code, roll_points_balance, lifetime_value, preferred_channel) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run('Alice Jones', '+255 712 345 678', 'alice@example.com', 'WR-9001', 320, 125000, 'website').lastInsertRowid;
+    .run('Alice Jones', '+255 712 345 678', 'alice@example.com', 'WR-9001', 0, 125000, 'website').lastInsertRowid;
+  db.prepare('INSERT INTO customer_points_ledger (customer_id, points_delta, reason, order_id, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(customerId, 320, 'order_paid', 'ORDER-9001', new Date().toISOString());
 
   const byPhone = lookupPublicCustomerProfile(db, '+255712345678');
   const byNfc = lookupPublicCustomerProfile(db, 'WR-9001');

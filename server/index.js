@@ -30,6 +30,7 @@ import { startPrinterAgent } from './utils/printerAgent.js';
 import { checkPostgresConnection } from './db/postgres.js';
 import { startEmailMarketingWorker } from './utils/emailAutomationWorker.js';
 import { releaseExpiredCleaningTables } from './utils/tableAvailability.js';
+import { reconcileRollPoints } from './utils/rollPoints.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' || process.env.PORT || process.env.RAILWAY_ENVIRONMENT ? '0.0.0.0' : '127.0.0.1');
@@ -46,6 +47,13 @@ const isAllowedOrigin = (origin) => {
 };
 
 await ensureDatabase();
+const pointsReconciliation = reconcileRollPoints();
+if (pointsReconciliation.processedOrders > 0) {
+  console.info(`Reconciled Roll Points for ${pointsReconciliation.processedOrders} paid orders (${pointsReconciliation.pointsAwarded} points).`);
+}
+if (pointsReconciliation.repairedBalances > 0) {
+  console.info(`Repaired ${pointsReconciliation.repairedBalances} Roll Points customer balances from the ledger.`);
+}
 
 const app = express();
 const server = createServer(app);

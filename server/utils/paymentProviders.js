@@ -7,7 +7,6 @@
 
 import crypto from 'crypto';
 import db from '../db/database.js';
-import { awardRollPoints } from './rollPoints.js';
 import { applyOrderFulfillmentEffects } from './orderFulfillment.js';
 
 export const PAYMENT_STATUSES = {
@@ -304,7 +303,6 @@ export class ManualLipaProvider extends BasePaymentProvider {
       WHERE id = ? OR payment_reference = ?
     `).run(PAYMENT_STATUSES.PAID, ORDER_STATUSES.CONFIRMED, now, now, payment.order_id, paymentReference);
     applyOrderFulfillmentEffects(payment.order_id);
-    awardRollPoints(payment.order_id);
 
     // Add order audit event
     db.prepare(`

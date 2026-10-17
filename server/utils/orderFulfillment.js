@@ -1,5 +1,6 @@
 import db from '../db/database.js';
 import { broadcast } from '../ws.js';
+import { awardRollPoints } from './rollPoints.js';
 
 function parseIngredients(value) {
   if (Array.isArray(value)) return value;
@@ -76,5 +77,8 @@ export function applyOrderFulfillmentEffects(orderId, { allowInvoiceTerms = fals
     }
     return true;
   });
-  return apply();
+  const result = apply();
+  const order = db.prepare('SELECT payment_status FROM orders WHERE id = ?').get(orderId);
+  if (order && ['paid', 'completed'].includes(order.payment_status)) awardRollPoints(orderId);
+  return result;
 }

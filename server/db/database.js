@@ -1378,6 +1378,7 @@ function migrateSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_orders_ref ON orders(payment_reference);
     CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
     CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders(payment_status);
+    CREATE INDEX IF NOT EXISTS idx_points_ledger_order_reason ON customer_points_ledger(order_id, reason);
     CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
     CREATE INDEX IF NOT EXISTS idx_payments_ref ON payments(payment_reference);
     CREATE INDEX IF NOT EXISTS idx_payments_txn ON payments(transaction_id);

@@ -14,6 +14,11 @@ export function normalizePublicCustomerIdentifier(value) {
   return String(value ?? '').trim();
 }
 
+function getRollPointsBalance(targetDb, customer) {
+  const ledger = targetDb.prepare('SELECT SUM(points_delta) AS balance FROM customer_points_ledger WHERE customer_id = ?').get(customer.id);
+  return ledger.balance === null ? Number(customer.roll_points_balance || 0) : Number(ledger.balance || 0);
+}
+
 export function lookupPublicCustomerProfile(targetDb = db, identifier) {
   const rawValue = normalizePublicCustomerIdentifier(identifier);
   if (!rawValue) return null;
@@ -26,7 +31,7 @@ export function lookupPublicCustomerProfile(targetDb = db, identifier) {
   return {
     id: customer.id,
     name: customer.name,
-    rollPoints: Number(customer.roll_points_balance || 0),
+    rollPoints: getRollPointsBalance(targetDb, customer),
     customerSegment: customer.customer_segment || 'regular',
   };
 }
@@ -89,7 +94,7 @@ function mapVerifiedCustomer(targetDb, customer) {
     name: customer.name,
     email: customer.email || '',
     phone: normalizeTanzanianPhone(customer.phone || ''),
-    rollPoints: Number(customer.roll_points_balance || 0),
+    rollPoints: getRollPointsBalance(targetDb, customer),
     favoriteItems,
     favoriteOrders: getFavoriteOrders(targetDb, customer.id),
   };
@@ -206,8 +211,7 @@ function mapCustomer(row, extra = {}) {
     tin: row.tin || '',
     billingAddress: row.billing_address || '',
     visits: Number(row.visits || 0),
-    rollPoints: Number(row.roll_points_balance || 0),
-    rollPoints: Number(row.roll_points_balance || 0),
+    rollPoints: extra.rollPoints ?? getRollPointsBalance(db, row),
     atRisk: !!row.at_risk,
     totalOrders: Number(extra.totalOrders || 0),
     tableVisits: Number(extra.tableVisits || 0),
@@ -231,6 +235,11 @@ function mapCustomer(row, extra = {}) {
 
 function aggregateCustomerData(customerRows, orderRows, orderItemsByOrder) {
   const customerMap = new Map();
+  const ledgerBalances = new Map(db.prepare(`
+    SELECT customer_id, SUM(points_delta) AS balance
+    FROM customer_points_ledger
+    GROUP BY customer_id
+  `).all().map((entry) => [Number(entry.customer_id), Number(entry.balance || 0)]));
 
   customerRows.forEach((customer) => {
     const orders = orderRows.filter((order) => {
@@ -274,6 +283,7 @@ function aggregateCustomerData(customerRows, orderRows, orderItemsByOrder) {
 
     customerMap.set(customer.id, mapCustomer(customer, {
       totalOrders: orders.length,
+      rollPoints: ledgerBalances.get(Number(customer.id)) ?? Number(customer.roll_points_balance || 0),
       tableVisits: orders.filter((order) => order.order_type === 'dine-in' && order.table_number).length,
       dineInVisits: orders.filter((order) => order.order_type === 'dine-in').length,
       preferredCategory,

@@ -608,7 +608,7 @@ export default function POSPage() {
   const [wifiQrLoading, setWifiQrLoading] = useState(false);
   const [wifiQrError, setWifiQrError] = useState('');
   const [showMobileCart, setShowMobileCart] = useState(false);
-  const [showDesktopCart, setShowDesktopCart] = useState(true);
+  const [showDesktopCart, setShowDesktopCart] = useState(() => window.innerWidth >= 1024);
   const desktopCartRef = useRef(null);
   const floatingOrderRef = useRef(null);
   const [menuItems, setMenuItems] = useState([]);
@@ -703,6 +703,14 @@ export default function POSPage() {
     document.addEventListener('pointerdown', closeOnOutsideClick);
     return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
   }, [showMobileCart]);
+
+  useEffect(() => {
+    const closeTabletCart = () => {
+      if (window.innerWidth >= 768 && window.innerWidth < 1024) setShowDesktopCart(false);
+    };
+    window.addEventListener('resize', closeTabletCart);
+    return () => window.removeEventListener('resize', closeTabletCart);
+  }, []);
 
   const filteredItems = menuItems.filter((item) => {
     const matchCategory = activeCategory === 'all' || (item.categories || [item.category]).includes(activeCategory);
@@ -996,7 +1004,7 @@ export default function POSPage() {
         ref={floatingOrderRef}
         type="button"
         onClick={() => setShowDesktopCart((visible) => !visible)}
-        className="fixed right-0 top-1/2 z-30 hidden -translate-y-1/2 items-center gap-2 rounded-l-2xl bg-[#ae002a] px-3 py-3 text-white shadow-xl transition-transform hover:-translate-x-1 md:flex"
+        className="pos-order-toggle fixed right-0 top-1/2 z-30 hidden -translate-y-1/2 items-center gap-2 rounded-l-2xl bg-[#ae002a] px-3 py-3 text-white shadow-xl transition-transform hover:-translate-x-1 md:flex"
         aria-label={showDesktopCart ? 'Hide current order' : `Show current order with ${getItemCount()} items`}
       >
         <ShoppingCart size={18} />
