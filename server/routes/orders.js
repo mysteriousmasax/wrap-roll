@@ -658,6 +658,23 @@ router.patch('/tracking/:id', (req, res) => {
   res.json({ customerName, customerPhone, customerEmail });
 });
 
+router.post('/:id/share-link', authMiddleware, requireRole('admin', 'manager', 'foh'), (req, res) => {
+  const order = db.prepare('SELECT id, fulfillment_mode FROM orders WHERE id = ? OR order_number = ?').get(req.params.id, req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found.' });
+
+  const isRoadsideOrder = order.fulfillment_mode === 'roadside_handoff';
+  const token = isRoadsideOrder ? createRoadsideAccessToken(order.id) : createCustomerOrderTrackingToken(order.id);
+  const now = new Date().toISOString();
+  db.prepare(`INSERT INTO customer_order_tracking_links (order_id, access_token_hash, created_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(order_id) DO UPDATE SET access_token_hash = excluded.access_token_hash`)
+    .run(order.id, hashRoadsideAccessToken(token), now);
+
+  const baseUrl = String(process.env.PUBLIC_APP_URL || 'https://wrapandrolltz.com').replace(/\/+$/, '');
+  const trackingPath = isRoadsideOrder ? 'roadside-track' : 'order-track';
+  res.json({ url: `${baseUrl}/${trackingPath}/${encodeURIComponent(order.id)}#${encodeURIComponent(token)}` });
+});
+
 /**
  * Authenticated Single Order Lookup
  * GET /api/orders/:id

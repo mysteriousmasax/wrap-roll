@@ -6,6 +6,7 @@ import path from 'node:path';
 import express from 'express';
 import test from 'node:test';
 import { hashRoadsideAccessToken } from '../utils/roadsideAccess.js';
+import { signToken } from '../middleware/auth.js';
 
 test('shared order link returns timer and contact data and securely updates contact details', async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'wrap-roll-customer-tracking-'));
@@ -70,6 +71,18 @@ test('shared order link returns timer and contact data and securely updates cont
       phone: '+255623456789',
       email: 'buyer@example.com',
     });
+
+    const staffToken = signToken({ id: 42, role: 'foh' });
+    const shareResponse = await fetch(new URL('/api/orders/WR-20261013-1001/share-link', url), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${staffToken}` },
+    });
+    assert.equal(shareResponse.status, 200);
+    const { url: shareUrl } = await shareResponse.json();
+    assert.match(shareUrl, /\/order-track\/WR-20261013-1001#/);
+    const trackingToken = decodeURIComponent(new URL(shareUrl).hash.slice(1));
+    const sharedTrackingResponse = await fetch(url, { headers: { 'X-Order-Tracking-Token': trackingToken } });
+    assert.equal(sharedTrackingResponse.status, 200);
 
     const invalidTokenResponse = await fetch(url, {
       method: 'PATCH',
