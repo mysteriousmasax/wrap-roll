@@ -60,7 +60,7 @@ export default function PaymentSuccessPage() {
   const trackingToken = confirmedOrder?.customerTrackingToken || order?.customerTrackingToken || confirmedOrder?.roadsideAccessToken || order?.roadsideAccessToken;
   const isRoadsideOrder = (confirmedOrder || order)?.fulfillmentMode === 'roadside_handoff';
   const customerTrackingUrl = trackingToken
-    ? `${window.location.origin}/order-track/${encodeURIComponent(trackedOrderId)}#${encodeURIComponent(trackingToken)}`
+    ? `${window.location.origin}/${isRoadsideOrder ? 'roadside-track' : 'order-progress'}/${encodeURIComponent(trackedOrderId)}#${encodeURIComponent(trackingToken)}`
     : '';
 
   const shareCustomerTracking = async () => {

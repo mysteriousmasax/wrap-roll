@@ -671,7 +671,7 @@ router.post('/:id/share-link', authMiddleware, requireRole('admin', 'manager', '
     .run(order.id, hashRoadsideAccessToken(token), now);
 
   const baseUrl = String(process.env.PUBLIC_APP_URL || 'https://wrapandrolltz.com').replace(/\/+$/, '');
-  const trackingPath = isRoadsideOrder ? 'roadside-track' : 'order-track';
+  const trackingPath = isRoadsideOrder ? 'roadside-track' : 'order-progress';
   res.json({ url: `${baseUrl}/${trackingPath}/${encodeURIComponent(order.id)}#${encodeURIComponent(token)}` });
 });
 

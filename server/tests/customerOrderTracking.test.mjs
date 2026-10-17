@@ -79,7 +79,7 @@ test('shared order link returns timer and contact data and securely updates cont
     });
     assert.equal(shareResponse.status, 200);
     const { url: shareUrl } = await shareResponse.json();
-    assert.match(shareUrl, /\/order-track\/WR-20261013-1001#/);
+    assert.match(shareUrl, /\/order-progress\/WR-20261013-1001#/);
     const trackingToken = decodeURIComponent(new URL(shareUrl).hash.slice(1));
     const sharedTrackingResponse = await fetch(url, { headers: { 'X-Order-Tracking-Token': trackingToken } });
     assert.equal(sharedTrackingResponse.status, 200);

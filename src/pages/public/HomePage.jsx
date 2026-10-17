@@ -153,11 +153,12 @@ function OrderTrackingCard({ order, onOpenPayment, onPrintInvoice, now, settings
 }
 
 export default function HomePage() {
-  const { tagId } = useParams();
+  const { tagId, orderId: sharedOrderId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const heroHeadingRef = useRef(null);
   const menuHeadingRef = useRef(null);
+  const deliveryTrackingRef = useRef(null);
   const reorderedFavoriteRef = useRef('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
@@ -217,6 +218,8 @@ export default function HomePage() {
   const [orderStatus, setOrderStatus] = useState('');
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [activePlacedOrder, setActivePlacedOrder] = useState(null);
+  const [sharedTrackingToken, setSharedTrackingToken] = useState('');
+  const [sharedOrderError, setSharedOrderError] = useState('');
   const [trackingNow, setTrackingNow] = useState(Date.now());
   const [publicMenu, setPublicMenu] = useState([]);
   const [publicModifiers, setPublicModifiers] = useState([]);
@@ -269,6 +272,50 @@ export default function HomePage() {
     const interval = window.setInterval(() => setTrackingNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, [activePlacedOrder]);
+
+  useEffect(() => {
+    if (!sharedOrderId) return undefined;
+    const storageKey = `wraproll_customer_order_tracking_${sharedOrderId}`;
+    const token = decodeURIComponent(location.hash.slice(1)) || localStorage.getItem(storageKey) || '';
+    if (!token) {
+      setSharedOrderError('This order link is incomplete. Ask the staff member to share it again.');
+      return undefined;
+    }
+
+    let active = true;
+    setSharedTrackingToken(token);
+    setSharedOrderError('');
+    const refreshSharedOrder = async () => {
+      try {
+        const order = await api.getCustomerOrderTracking(sharedOrderId, token);
+        if (!active) return;
+        localStorage.setItem(storageKey, token);
+        setActivePlacedOrder({
+          ...order,
+          customer: order.customerName,
+          completedAt: order.status === 'completed' ? order.updatedAt : null,
+        });
+        setSharedOrderError('');
+      } catch (error) {
+        if (active) setSharedOrderError(error.message || 'This order link is unavailable.');
+      }
+    };
+
+    refreshSharedOrder();
+    const interval = window.setInterval(refreshSharedOrder, 8000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [sharedOrderId, location.hash]);
+
+  useEffect(() => {
+    if (!sharedOrderId || activePlacedOrder?.id !== sharedOrderId) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      deliveryTrackingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [sharedOrderId, activePlacedOrder?.id]);
 
   // Invoice is generated on demand via the "View / Print invoice" action in the
   // order tracker, instead of auto-opening a disruptive print dialog on payment.
@@ -872,9 +919,21 @@ export default function HomePage() {
         </section>
       )}
 
-      <section className="reference-delivery-section public-reveal-section px-6 pb-14 pt-0 sm:px-12 sm:pb-20" aria-label="Delivery and catering">
-        {activePlacedOrder ? (
-          <OrderTrackingCard order={activePlacedOrder} now={trackingNow} settings={publicSettings} onOpenPayment={() => setPaymentModalOpen(true)} onPrintInvoice={() => printFiscalInvoice(activePlacedOrder, publicSettings)} />
+      <section ref={deliveryTrackingRef} className="reference-delivery-section public-reveal-section px-6 pb-14 pt-0 sm:px-12 sm:pb-20" aria-label="Delivery and catering">
+        {sharedOrderId && !activePlacedOrder ? (
+          <div role={sharedOrderError ? 'alert' : 'status'} className="reference-delivery-card p-6 text-center text-sm text-white">
+            {sharedOrderError || 'Loading your live order progress…'}
+          </div>
+        ) : activePlacedOrder ? (
+          <OrderTrackingCard
+            order={activePlacedOrder}
+            now={trackingNow}
+            settings={publicSettings}
+            onOpenPayment={() => sharedOrderId
+              ? navigate(`/order-track/${encodeURIComponent(sharedOrderId)}#${encodeURIComponent(sharedTrackingToken)}`)
+              : setPaymentModalOpen(true)}
+            onPrintInvoice={sharedOrderId ? undefined : () => printFiscalInvoice(activePlacedOrder, publicSettings)}
+          />
         ) : (
           <div className="reference-delivery-card">
             <div className="reference-delivery-visual" aria-hidden="true" />
@@ -1339,7 +1398,7 @@ export default function HomePage() {
         />
       )}
 
-      {activePlacedOrder && !paymentModalOpen && (
+      {!sharedOrderId && activePlacedOrder && !paymentModalOpen && (
         <button
           type="button"
           onClick={() => setPaymentModalOpen(true)}

@@ -124,6 +124,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/table/:tagId" element={<HomePage />} />
+      <Route path="/order-progress/:orderId" element={<HomePage />} />
       <Route path="/roadside-track/:orderId" element={<RoadsideTrackingPage />} />
       <Route path="/order-track/:orderId" element={<OrderTrackingPage />} />
       <Route path="/customer-rewards" element={<CustomerRewardsPage />} />
