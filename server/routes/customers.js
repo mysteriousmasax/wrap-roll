@@ -5,6 +5,7 @@ import { broadcast } from '../ws.js';
 import { printReceipt } from '../utils/escposPrinter.js';
 import { sendCrmMessage } from '../utils/crmMessaging.js';
 import { createCustomerAccessService } from '../utils/customerAccess.js';
+import { createCustomerOrderMatcher } from '../utils/customerOrderMatching.js';
 import { isEmailDeliveryConfigured, resolveEmailSender, sendEmail } from '../utils/emailDelivery.js';
 import { normalizeTanzanianPhone } from '../../shared/phone.js';
 
@@ -235,6 +236,7 @@ function mapCustomer(row, extra = {}) {
 
 function aggregateCustomerData(customerRows, orderRows, orderItemsByOrder) {
   const customerMap = new Map();
+  const resolveOrderCustomer = createCustomerOrderMatcher(customerRows);
   const ledgerBalances = new Map(db.prepare(`
     SELECT customer_id, SUM(points_delta) AS balance
     FROM customer_points_ledger
@@ -242,21 +244,7 @@ function aggregateCustomerData(customerRows, orderRows, orderItemsByOrder) {
   `).all().map((entry) => [Number(entry.customer_id), Number(entry.balance || 0)]));
 
   customerRows.forEach((customer) => {
-    const orders = orderRows.filter((order) => {
-      if (Number(order.customer_id) === Number(customer.id)) return true;
-      const customerName = (customer.name || '').trim().toLowerCase();
-      const orderName = (order.customer_name || '').trim().toLowerCase();
-      const customerPhone = (customer.phone || '').replace(/\D/g, '');
-      const orderPhone = (order.customer_phone || '').replace(/\D/g, '');
-      const customerEmail = (customer.email || '').trim().toLowerCase();
-      const orderEmail = (order.customer_email || '').trim().toLowerCase();
-
-      return (
-        (customerName && orderName && customerName === orderName) ||
-        (customerPhone && orderPhone && customerPhone === orderPhone) ||
-        (customerEmail && orderEmail && customerEmail === orderEmail)
-      );
-    });
+    const orders = orderRows.filter((order) => Number(resolveOrderCustomer(order)?.id) === Number(customer.id));
 
     const channelCounts = { whatsapp: 0, sms: 0, email: 0, instagram: 0, facebook: 0, pos: 0, website: 0, 'dine-in': 0 };
     const orderTypeBreakdown = { dineIn: 0, delivery: 0, pickup: 0 };
@@ -309,7 +297,7 @@ function aggregateCustomerData(customerRows, orderRows, orderItemsByOrder) {
 router.get('/', authMiddleware, (req, res) => {
   const customerRows = db.prepare('SELECT * FROM customers ORDER BY name').all();
   const orderRows = db.prepare(
-    'SELECT id, customer_id, customer_name, customer_phone, customer_email, order_type, table_number, order_source, created_at, total FROM orders WHERE customer_name IS NOT NULL OR customer_phone IS NOT NULL OR customer_email IS NOT NULL ORDER BY created_at DESC'
+    'SELECT id, customer_id, customer_name, customer_phone, customer_email, order_type, table_number, order_source, created_at, total FROM orders WHERE customer_id IS NOT NULL OR customer_name IS NOT NULL OR customer_phone IS NOT NULL OR customer_email IS NOT NULL ORDER BY created_at DESC'
   ).all();
   const orderItems = db.prepare(
     `SELECT oi.order_id, mi.category AS category
@@ -370,17 +358,10 @@ router.get('/public/:identifier', (req, res) => {
 router.get('/:id/orders', authMiddleware, (req, res) => {
   const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
-  const phone = String(customer.phone || '').replace(/\D/g, '');
-  const email = String(customer.email || '').trim().toLowerCase();
-  const name = String(customer.name || '').trim().toLowerCase();
-  const orders = db.prepare(`
-    SELECT * FROM orders
-     WHERE customer_id = ?
-       OR (? <> '' AND replace(replace(replace(replace(customer_phone, ' ', ''), '+', ''), '-', ''), '(', '') LIKE '%' || ?)
-       OR (? <> '' AND lower(trim(customer_email)) = ?)
-       OR (? <> '' AND lower(trim(customer_name)) = ?)
-    ORDER BY created_at DESC
-    `).all(customer.id, phone, phone, email, email, name, name);
+  const customers = db.prepare('SELECT id, name, phone, email FROM customers').all();
+  const resolveOrderCustomer = createCustomerOrderMatcher(customers);
+  const candidateOrders = db.prepare('SELECT * FROM orders WHERE customer_id = ? OR customer_id IS NULL ORDER BY created_at DESC').all(customer.id);
+  const orders = candidateOrders.filter((order) => Number(resolveOrderCustomer(order)?.id) === Number(customer.id));
   const items = orders.length
     ? db.prepare('SELECT * FROM order_items WHERE order_id IN (' + orders.map(() => '?').join(',') + ') ORDER BY id').all(...orders.map((order) => order.id))
     : [];
