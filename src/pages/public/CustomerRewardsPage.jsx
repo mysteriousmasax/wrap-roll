@@ -8,15 +8,34 @@ import { normalizeTanzanianPhone } from '../../../shared/phone.js';
 export default function CustomerRewardsPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const [identifier, setIdentifier] = useState(() => searchParams.get('identifier') || localStorage.getItem('wraproll_customer_phone') || localStorage.getItem('wraproll_customer_email') || '');
+  const tagCode = searchParams.get('tag') || '';
+  const [identifier, setIdentifier] = useState(() => tagCode ? '' : searchParams.get('identifier') || localStorage.getItem('wraproll_customer_phone') || localStorage.getItem('wraproll_customer_email') || '');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [customer, setCustomer] = useState(null);
+  const [tagProfile, setTagProfile] = useState(null);
+  const [tagLoading, setTagLoading] = useState(false);
+  const [tagError, setTagError] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
   useEffect(() => {
+    if (!tagCode) return undefined;
+    let active = true;
+    setTagLoading(true);
+    setTagError('');
+    api.getPublicCustomerPoints(tagCode)
+      .then((profile) => { if (active) setTagProfile(profile); })
+      .catch((lookupError) => {
+        if (active) setTagError(lookupError.message || 'This NFC tag is not assigned to a customer.');
+      })
+      .finally(() => { if (active) setTagLoading(false); });
+    return () => { active = false; };
+  }, [tagCode]);
+
+  useEffect(() => {
+    if (tagCode) return undefined;
     const token = localStorage.getItem('wraproll_customer_session');
     if (!token) return;
     let active = true;
@@ -27,7 +46,7 @@ export default function CustomerRewardsPage() {
         if (active) setCustomer(null);
       });
     return () => { active = false; };
-  }, []);
+  }, [tagCode]);
 
   const requestCode = async (event) => {
     event.preventDefault();
@@ -84,6 +103,23 @@ export default function CustomerRewardsPage() {
           <h1 className="mt-2 text-2xl font-black">Your Roll Points</h1>
           <p className="mt-2 text-sm text-white/80">Verify your email or phone to see your points and saved favorites.</p>
         </header>
+
+        {tagCode && (
+          <section className="mb-5 rounded-2xl border border-[#f2d9dd] bg-white p-5 shadow-sm" aria-live="polite">
+            {tagLoading ? (
+              <p className="text-sm text-slate-500">Looking up this loyalty tag…</p>
+            ) : tagProfile ? (
+              <>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">NFC loyalty tag</p>
+                <h2 className="mt-1 text-lg font-black text-[#ae002a]">Welcome, {tagProfile.name}</h2>
+                <p className="mt-2 text-sm">Roll Points balance: <strong>{tagProfile.rollPoints}</strong></p>
+                <p className="mt-2 text-[11px] text-slate-500">This tag link shows your public points balance only. Verify your email or phone below to access saved favorites and your full rewards profile.</p>
+              </>
+            ) : (
+              <p role="alert" className="text-sm text-red-700">{tagError || 'This NFC tag is not assigned to a customer.'}</p>
+            )}
+          </section>
+        )}
 
         {!customer ? (
           <section className="rounded-2xl border border-[#f2d9dd] bg-white p-5 shadow-sm">

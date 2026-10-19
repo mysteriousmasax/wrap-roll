@@ -9,10 +9,11 @@ export function normalizeTraReceiptUrl(value) {
     throw new Error('Scan a valid TRA receipt verification link.');
   }
 
-  if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== TRA_RECEIPT_HOST
+  if (!['http:', 'https:'].includes(url.protocol) || url.hostname.toLowerCase() !== TRA_RECEIPT_HOST
     || url.username || url.password || url.port || url.search || url.hash
     || !TRA_RECEIPT_PATH.test(url.pathname)) {
-    throw new Error('Only secure receipt links from verify.tra.go.tz are supported.');
+    throw new Error('Only receipt links from verify.tra.go.tz are supported.');
   }
+  url.protocol = 'https:';
   return url.href;
 }

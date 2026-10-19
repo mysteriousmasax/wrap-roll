@@ -4,11 +4,12 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
+import NfcTagWriter from '../../components/NfcTagWriter';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import importPhoto from '../../utils/importPhoto';
 import { downloadAsset } from '../../utils/downloadAsset';
-import { Users, Clock, MapPin, Wifi, Camera, NotebookPen, Upload, X, Download, Copy, Radio } from 'lucide-react';
+import { Users, Clock, MapPin, Wifi, Camera, NotebookPen, Upload, X, Download } from 'lucide-react';
 
 const defaultTableImage = 'https://images.unsplash.com/photo-1559339352-11d035aa65de?w=800&h=600&fit=crop';
 const emptyForm = { number: '', seats: '4', status: 'available', tagId: '', zone: 'Main Dining', imageUrl: '', reservation: '', note: '' };
@@ -20,6 +21,7 @@ export default function TableManagementPage() {
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [customNfcUrl, setCustomNfcUrl] = useState('');
 
   const load = () => api.getTables().then(setTables).finally(() => setLoading(false));
   useEffect(() => { load(); }, []);
@@ -104,27 +106,6 @@ export default function TableManagementPage() {
     }
   };
 
-  const copyNfcUrl = async (table) => {
-    const url = table.nfcUrl || `${window.location.origin}/table/${table.tagId || `WR-T${table.number}`}`;
-    await navigator.clipboard.writeText(url);
-    setError(`NFC link copied for Table ${table.number}. Write this URL to the NFC tag with a phone NFC writer app.`);
-  };
-
-  const writeNfcUrl = async (table) => {
-    const url = table.nfcUrl || `${window.location.origin}/table/${table.tagId || `WR-T${table.number}`}`;
-    if (!('NDEFReader' in window)) {
-      setError('Direct NFC writing is unavailable on this device. Open the POS over HTTPS on Android Chrome, or use Copy NFC URL on the desktop POS.');
-      return;
-    }
-    try {
-      const writer = new window.NDEFReader();
-      await writer.write({ records: [{ recordType: 'url', data: url }] });
-      setError(`NFC tag written successfully for Table ${table.number}.`);
-    } catch (writeError) {
-      setError(writeError.message || 'NFC writing was cancelled or the tag could not be reached.');
-    }
-  };
-
   if (loading) return <div className="p-6 text-sm text-surface-on-variant">Loading tables...</div>;
 
   return (
@@ -136,6 +117,16 @@ export default function TableManagementPage() {
         <div className="card"><p className="text-xs font-semibold uppercase text-surface-on-variant">Available</p><p className="mt-1 text-2xl font-bold text-success">{stats.available}</p></div>
         <div className="card"><p className="text-xs font-semibold uppercase text-surface-on-variant">Occupied</p><p className="mt-1 text-2xl font-bold text-primary">{stats.occupied}</p></div>
         <div className="card"><p className="text-xs font-semibold uppercase text-surface-on-variant">Reserved</p><p className="mt-1 text-2xl font-bold text-secondary">{stats.reserved}</p></div>
+      </div>
+
+      <div className="card mb-6 space-y-3">
+        <div>
+          <h2 className="font-bold">Write a custom NFC link</h2>
+          <p className="mt-1 text-xs text-surface-on-variant">Use this for any public website link. Table and customer links are available on their own records below.</p>
+        </div>
+        <label className="block text-xs font-semibold">Website URL<input type="url" value={customNfcUrl} onChange={(event) => setCustomNfcUrl(event.target.value)} placeholder="https://example.com/page" className="input-field mt-1 w-full" /></label>
+        <NfcTagWriter url={customNfcUrl} label="Custom link" />
+        <p className="text-[11px] text-surface-on-variant">Direct writing needs NFC-enabled Android Chrome, an HTTPS page, and a writable NDEF tag. Press Write, then hold the tag against the back of the phone.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -178,7 +169,10 @@ export default function TableManagementPage() {
                 <span className="inline-flex items-center gap-1.5"><Camera size={12} /> Table view</span>
                 <span className="font-semibold text-on-surface">{table.note || 'Tap NFC tag to identify guest table'}</span>
               </div>
-              <div className="flex gap-2"><Button variant="ghost" size="sm" className="flex-1" onClick={() => openEdit(table)}>Edit Table</Button><button type="button" title="Write NFC tag directly" onClick={() => writeNfcUrl(table)} className="rounded-lg border border-primary/30 px-3 text-primary hover:bg-primary/5"><Radio size={15} /></button><button type="button" title="Copy NFC scan URL" onClick={() => copyNfcUrl(table)} className="rounded-lg border border-outline-variant px-3 text-primary hover:bg-surface-container-low"><Copy size={15} /></button><button type="button" title="Download table image" onClick={() => downloadTableImage(table)} disabled={!table.imageUrl} className="rounded-lg border border-outline-variant px-3 text-primary hover:bg-surface-container-low disabled:opacity-30"><Download size={15} /></button></div>
+              <div className="space-y-3">
+                <NfcTagWriter url={table.nfcUrl || `${window.location.origin}/table/${table.tagId || `WR-T${table.number}`}`} label={`Table ${table.number} link`} />
+                <div className="flex gap-2"><Button variant="ghost" size="sm" className="flex-1" onClick={() => openEdit(table)}>Edit Table</Button><button type="button" title="Download table image" onClick={() => downloadTableImage(table)} disabled={!table.imageUrl} className="rounded-lg border border-outline-variant px-3 text-primary hover:bg-surface-container-low disabled:opacity-30"><Download size={15} /></button></div>
+              </div>
             </div>
           </div>
         ))}

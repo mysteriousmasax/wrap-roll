@@ -396,6 +396,13 @@ router.patch('/:id/loyalty', authMiddleware, (req, res) => {
   const { tier, birthday, anniversary, customerSegment, nfcTagCode, nfcTagType, loyaltyNotes, preferredChannel, customerType, companyName, tin, billingAddress, socialLinks, itemType, itemName, itemCode, status } = req.body;
   const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
+  const normalizedNfcTagCode = nfcTagCode == null ? null : String(nfcTagCode).trim();
+  if (normalizedNfcTagCode) {
+    const duplicateTag = db.prepare(`SELECT id FROM customers
+      WHERE id != ? AND upper(trim(COALESCE(nfc_tag_code, ''))) = upper(?) LIMIT 1`)
+      .get(req.params.id, normalizedNfcTagCode);
+    if (duplicateTag) return res.status(409).json({ error: 'That NFC tag code is already assigned to another customer.' });
+  }
 
   db.prepare(
     `UPDATE customers SET
@@ -413,7 +420,7 @@ router.patch('/:id/loyalty', authMiddleware, (req, res) => {
       billing_address = COALESCE(?, billing_address)
       ,social_links = COALESCE(?, social_links)
     WHERE id = ?`
-  ).run(tier ?? null, birthday ?? null, anniversary ?? null, customerSegment ?? null, nfcTagCode ?? null, nfcTagType ?? null, loyaltyNotes ?? null, preferredChannel ?? null, customerType ?? null, companyName ?? null, tin ?? null, billingAddress ?? null, socialLinks === undefined ? null : JSON.stringify(socialLinks || {}), req.params.id);
+  ).run(tier ?? null, birthday ?? null, anniversary ?? null, customerSegment ?? null, normalizedNfcTagCode, nfcTagType ?? null, loyaltyNotes ?? null, preferredChannel ?? null, customerType ?? null, companyName ?? null, tin ?? null, billingAddress ?? null, socialLinks === undefined ? null : JSON.stringify(socialLinks || {}), req.params.id);
 
   if (itemName || itemType || itemCode) {
     const now = new Date().toISOString();

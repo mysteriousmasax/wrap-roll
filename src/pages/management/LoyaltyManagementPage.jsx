@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import PageHeader from '../../components/layout/PageHeader';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
+import NfcTagWriter from '../../components/NfcTagWriter';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency } from '../../utils/format';
@@ -36,6 +37,14 @@ export default function LoyaltyManagementPage() {
     const haystack = `${customer.name} ${customer.nfcTagCode || ''} ${customer.customerSegment || ''}`.toLowerCase();
     return haystack.includes(search.toLowerCase());
   });
+
+  const assignNfcTagCode = async (customer) => {
+    if (typeof globalThis.crypto?.randomUUID !== 'function') {
+      setStatus('This browser cannot securely generate a tag ID. Enter a unique NFC tag code manually.');
+      return;
+    }
+    await updateItem(customer.id, 'nfcTagCode', `WR-${globalThis.crypto.randomUUID().slice(0, 8).toUpperCase()}`);
+  };
 
   const updateItem = async (customerId, field, value) => {
     const customer = items.find((item) => item.id === customerId);
@@ -135,6 +144,14 @@ export default function LoyaltyManagementPage() {
                 <span className="text-surface-on-variant mb-1 block">NFC tag code</span>
                 <input value={customer.nfcTagCode || ''} onChange={(e) => updateItem(customer.id, 'nfcTagCode', e.target.value)} className="input-field w-full" placeholder="WR-0001-123456" />
               </label>
+              {customer.nfcTagCode ? (
+                <div className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low p-3">
+                  <p className="break-all text-[11px] text-surface-on-variant">{`${window.location.origin}/customer-rewards?tag=${encodeURIComponent(customer.nfcTagCode)}`}</p>
+                  <NfcTagWriter url={`${window.location.origin}/customer-rewards?tag=${encodeURIComponent(customer.nfcTagCode)}`} label={`${customer.name} loyalty link`} />
+                </div>
+              ) : (
+                <Button type="button" size="sm" variant="secondary" onClick={() => assignNfcTagCode(customer)}>Assign new NFC tag code</Button>
+              )}
 
               <label className="block text-xs">
                 <span className="text-surface-on-variant mb-1 block">Tag type</span>
