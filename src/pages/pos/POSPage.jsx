@@ -119,7 +119,7 @@ function CustomItemModal({ isOpen, onClose, onAdd }) {
                 required
                 type="number"
                 min="0"
-                step="500"
+                step="1"
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
                 placeholder="25000"

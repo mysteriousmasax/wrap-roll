@@ -7,7 +7,9 @@ import Input from '../../components/ui/Input';
 import Modal from '../../components/ui/Modal';
 import { api } from '../../api/client';
 import useAuthStore from '../../store/useAuthStore';
+import useSettingsStore from '../../store/useSettingsStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { getBusinessDate } from '../../utils/businessDate';
 
 const rolePhases = {
   admin: ['morning-kitchen', 'foh-digital', 'lunch-rush', 'midday-handover', 'evening-close'],
@@ -22,7 +24,6 @@ const phasesByShift = {
   evening: ['lunch-rush', 'midday-handover', 'evening-close'],
 };
 
-const today = () => new Date().toLocaleDateString('en-CA');
 const inventoryName = (item) => String(item?.name || '').trim().toLowerCase();
 const normalizeShift = (value, fallback = 'morning') => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -57,8 +58,9 @@ function displayMinutes(value) {
 
 export default function StaffShiftWorkspace() {
   const currentUser = useAuthStore((state) => state.currentUser);
+  const timezone = useSettingsStore((state) => state.settings.timezone);
   const role = currentUser?.role || 'foh';
-  const [date, setDate] = useState(today());
+  const [date, setDate] = useState(() => getBusinessDate(new Date(), timezone));
   const [shift, setShift] = useState('morning');
   const [workspace, setWorkspace] = useState(null);
   const [inventoryItems, setInventoryItems] = useState([]);
@@ -82,7 +84,7 @@ export default function StaffShiftWorkspace() {
       .then(([nextWorkspace, items]) => {
         if (cancelled) return;
         setWorkspace(nextWorkspace);
-        setDate(nextWorkspace.date || today());
+        setDate(nextWorkspace.date || getBusinessDate(new Date(), timezone));
         setShift(normalizeShift(nextWorkspace.active?.notes, normalizeShift(nextWorkspace.shift?.label)));
         setInventoryItems(items || []);
         setInventoryReady(true);
@@ -141,9 +143,10 @@ export default function StaffShiftWorkspace() {
       ));
     }
     try {
-      const result = await api.clockMyShift(workspace?.active ? 'out' : 'in', location, shift);
+      const result = await api.clockMyShift(workspace?.active ? 'out' : 'in', location);
       setWorkspace(result);
       const event = result.clockEvent;
+      if (result.shift?.label) setShift(result.shift.label);
       setMessage(event?.action === 'clock_in'
         ? event.lateMinutes ? `Clocked in ${event.lateMinutes} minutes late.` : 'Clocked in. Your shift has started.'
         : event?.overtimeMinutes ? `Clocked out. ${event.overtimeMinutes} minutes of overtime recorded.` : 'Clocked out. Shift complete.');
@@ -287,9 +290,7 @@ export default function StaffShiftWorkspace() {
   const actualTotal = reconciliationRows.filter(([key, row]) => key !== 'cashFloat' && row.actual !== '').reduce((sum, [, row]) => sum + (Number(row.actual) || 0), 0);
   const schedule = workspace.active
     ? { start: workspace.active.scheduled_start_time, end: workspace.active.scheduled_end_time }
-    : shift === 'evening'
-      ? { start: workspace.staff.eveningStartTime, end: workspace.staff.eveningEndTime }
-      : { start: workspace.staff.morningStartTime, end: workspace.staff.morningEndTime };
+    : { start: workspace.shift?.start, end: workspace.shift?.end };
   const canClockToday = date === workspace.date;
 
   return (
@@ -303,7 +304,7 @@ export default function StaffShiftWorkspace() {
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-surface-on-variant">Shift</span>
           <div className="flex rounded-lg border border-outline-variant p-1" role="group" aria-label="Select shift">
-            {['morning', 'evening'].map((option) => <button key={option} type="button" onClick={() => setShift(option)} aria-pressed={shift === option} className={`rounded-md px-3 py-2 text-xs font-bold capitalize ${shift === option ? 'bg-primary text-white' : 'text-surface-on-variant'}`}>{option}</button>)}
+            {['morning', 'evening'].map((option) => <button key={option} type="button" disabled={Boolean(workspace.active)} onClick={() => setShift(option)} aria-pressed={shift === option} className={`rounded-md px-3 py-2 text-xs font-bold capitalize disabled:cursor-not-allowed disabled:opacity-60 ${shift === option ? 'bg-primary text-white' : 'text-surface-on-variant'}`}>{option}</button>)}
           </div>
         </div>
       </div>
@@ -311,11 +312,11 @@ export default function StaffShiftWorkspace() {
       <section className="grid gap-4 lg:grid-cols-[1.2fr_2fr]" aria-label="Shift attendance and timing analytics">
         <Card className="border-l-4 border-l-primary p-4 sm:p-5">
           <div className="flex items-start justify-between gap-3">
-            <div><p className="text-[10px] font-bold uppercase tracking-wider text-primary">{workspace.active ? 'Shift in progress' : 'Shift status'}</p><h2 className="mt-1 font-display text-lg font-bold">{workspace.active ? 'You are clocked in' : 'Ready to clock in'}</h2><p className="mt-1 text-xs text-surface-on-variant">{schedule.start || 'Schedule not set'}{schedule.end ? ` to ${schedule.end}` : ''}</p></div>
+            <div><p className="text-[10px] font-bold uppercase tracking-wider text-primary">{workspace.active ? `${workspace.active.notes || shift} shift in progress` : 'Shift status'}</p><h2 className="mt-1 font-display text-lg font-bold">{workspace.active ? 'You are clocked in' : `Ready for ${workspace.shift?.label || shift} shift`}</h2><p className="mt-1 text-xs text-surface-on-variant">{schedule.start || 'Schedule not set'}{schedule.end ? ` to ${schedule.end}` : ''}</p></div>
             <Clock3 size={22} className={workspace.active ? 'text-success' : 'text-surface-on-variant'} />
           </div>
           {workspace.active?.late_minutes > 0 && <p className="mt-3 flex items-center gap-2 rounded-md bg-amber-50 p-2 text-xs font-semibold text-amber-900"><AlertTriangle size={14} />{workspace.active.late_minutes} minutes late at clock-in</p>}
-          <Button type="button" disabled={working || !canClockToday} onClick={clock} className="mt-4 w-full">{workspace.active ? <LogOut size={15} /> : <LogIn size={15} />}{!canClockToday ? 'Clock actions are for today' : working ? 'Recording...' : workspace.active ? 'Clock out' : `Clock in · ${shift}`}</Button>
+          <Button type="button" disabled={working || !canClockToday} onClick={clock} className="mt-4 w-full">{workspace.active ? <LogOut size={15} /> : <LogIn size={15} />}{!canClockToday ? 'Clock actions are for today' : working ? 'Recording...' : workspace.active ? 'Clock out' : `Clock in · ${workspace.shift?.label || shift}`}</Button>
           <p className="mt-2 text-[10px] text-surface-on-variant">Clock times use the restaurant timezone. Late arrival and overtime compare against the schedule set by your manager.</p>
         </Card>
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">

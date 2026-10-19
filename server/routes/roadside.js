@@ -144,6 +144,8 @@ router.get('/:orderId/customer', (req, res) => {
     reservationStatus: order.reservation_status,
     fulfillmentMode: order.fulfillment_mode,
     scheduledFor: order.delivery_scheduled_for,
+    scheduledReleaseAt: order.scheduled_release_at,
+    kitchenReleasedAt: order.kitchen_released_at,
     tripStatus: trip.status,
     rating: trip.rating,
     items: db.prepare('SELECT name, qty FROM order_items WHERE order_id = ?').all(order.id),

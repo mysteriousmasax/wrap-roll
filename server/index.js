@@ -29,6 +29,7 @@ import emailMarketingRoutes from './routes/emailMarketing.js';
 import { startPrinterAgent } from './utils/printerAgent.js';
 import { checkPostgresConnection } from './db/postgres.js';
 import { startEmailMarketingWorker } from './utils/emailAutomationWorker.js';
+import { startReservationWorker } from './utils/reservationWorker.js';
 import { releaseExpiredCleaningTables } from './utils/tableAvailability.js';
 import { reconcileRollPoints } from './utils/rollPoints.js';
 
@@ -104,6 +105,7 @@ app.use('/api/email-marketing', emailMarketingRoutes);
 
 if (process.env.PRINTER_AGENT_ENABLED === 'true') startPrinterAgent();
 startEmailMarketingWorker();
+const stopReservationWorker = startReservationWorker();
 
 app.use(express.static(clientDist, { index: false, setHeaders: (res, filePath) => {
   // index.html must never be cached so each refresh fetches the newest asset manifest.
@@ -146,6 +148,7 @@ const httpServer = server.listen(PORT, HOST, () => {
 function shutdown(signal) {
   console.log(`${signal} received, shutting down`);
   clearInterval(tableAvailabilityTimer);
+  stopReservationWorker();
   httpServer.close(() => process.exit(0));
 }
 

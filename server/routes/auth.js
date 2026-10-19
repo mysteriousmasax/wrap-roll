@@ -7,6 +7,7 @@ import { hashPin, verifyPin } from '../utils/pins.js';
 import { normalizeUserRole, getRolePageAccess, normalizePageAccess, expandImpliedPageAccess } from '../utils/roles.js';
 import { broadcast } from '../ws.js';
 import { restaurantTime } from '../utils/localTime.js';
+import { getShiftScheduleForTime, lateMinutesAt, overtimeMinutesAt } from '../utils/shiftTime.js';
 
 const router = Router();
 
@@ -15,45 +16,6 @@ const loginLimiter = rateLimit({
   max: 20,
   message: { error: 'Too many login attempts. Try again later.' },
 });
-
-function timeMinutes(value) {
-  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})(?:\s*(A\.?M\.?|P\.?M\.?))?$/i);
-  if (!match) return null;
-  let hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (minute > 59 || hour > 23) return null;
-  if (match[3]) {
-    if (hour < 1 || hour > 12) return null;
-    hour = hour % 12 + (match[3].replace(/\./g, '').toUpperCase() === 'PM' ? 12 : 0);
-  }
-  return hour * 60 + minute;
-}
-
-function assignedSchedule(staff) {
-  const evening = String(staff.shift || '').toLowerCase().includes('evening');
-  return {
-    label: evening ? 'evening' : 'morning',
-    start: evening ? staff.evening_start_time : staff.morning_start_time,
-    end: evening ? staff.evening_end_time : staff.morning_end_time,
-  };
-}
-
-function lateMinutes(actualTime, scheduledStart) {
-  const actual = timeMinutes(actualTime);
-  const planned = timeMinutes(scheduledStart);
-  if (actual == null || planned == null) return 0;
-  const adjustedActual = planned - actual > 720 ? actual + 1440 : actual;
-  return Math.max(0, adjustedActual - planned);
-}
-
-function overtimeMinutes(actualTime, scheduledStart, scheduledEnd) {
-  const actual = timeMinutes(actualTime);
-  const start = timeMinutes(scheduledStart);
-  let end = timeMinutes(scheduledEnd);
-  if (actual == null || start == null || end == null) return 0;
-  if (end <= start) end += 1440;
-  return Math.max(0, (actual < start ? actual + 1440 : actual) - end);
-}
 
 router.post('/login', loginLimiter, async (req, res) => {
   const { username, password, pin, location } = req.body;
@@ -119,14 +81,14 @@ router.post('/login', loginLimiter, async (req, res) => {
         activeShift.id
       );
     } else {
-      const schedule = assignedSchedule(staff);
+      const schedule = getShiftScheduleForTime(staff, loginTime);
       db.prepare(`INSERT INTO shift_logs
         (staff_id, staff_name, shift_date, start_time, status, notes, clock_in_latitude, clock_in_longitude, started_at,
           scheduled_start_time, scheduled_end_time, late_minutes, overtime_minutes)
         VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, 0)`)
         .run(staff.id, staff.name, shiftDate, loginTime, schedule.label,
           Number.isFinite(latitude) ? latitude : null, Number.isFinite(longitude) ? longitude : null, now.toISOString(),
-          schedule.start || null, schedule.end || null, lateMinutes(loginTime, schedule.start));
+          schedule.start || null, schedule.end || null, lateMinutesAt(loginTime, schedule.start));
     }
   }
 
@@ -166,7 +128,7 @@ router.post('/logout', authMiddleware, (req, res) => {
     if (activeShift) {
       const startedAt = activeShift.started_at ? new Date(activeShift.started_at) : null;
       const hours = startedAt && !Number.isNaN(startedAt.getTime()) ? Math.max(0, (now.getTime() - startedAt.getTime()) / 3600000) : 0;
-      const overtime = overtimeMinutes(local.time, activeShift.scheduled_start_time, activeShift.scheduled_end_time);
+      const overtime = overtimeMinutesAt(local.time, activeShift.scheduled_start_time, activeShift.scheduled_end_time);
       db.prepare(`UPDATE shift_logs SET end_time = ?, hours_worked = ?, status = 'completed', ended_at = ?, overtime_minutes = ? WHERE id = ?`)
         .run(local.time, hours, now.toISOString(), overtime, activeShift.id);
     }

@@ -20,8 +20,11 @@ import Card from '../../components/ui/Card';
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import useAuthStore from '../../store/useAuthStore';
+import useSettingsStore from '../../store/useSettingsStore';
 import { isPageAllowedForUser } from '../../utils/roleAccess';
 import { formatCurrency } from '../../utils/format';
+import { summarizeStockCounts } from '../../utils/stockCountSummary';
+import { getBusinessDate } from '../../utils/businessDate';
 import {
   ArrowRight,
   DollarSign,
@@ -72,15 +75,33 @@ export default function AnalyticsPage() {
   const [salesSummaryMeta, setSalesSummaryMeta] = useState({ shift: '', checkedBy: '', approvedBy: '', wastage: ['', '', '', ''] });
   const navigate = useNavigate();
   const currentUser = useAuthStore((state) => state.currentUser);
+  const timezone = useSettingsStore((state) => state.settings.timezone);
   const [summaryMessage, setSummaryMessage] = useState('');
+  const [analyticsError, setAnalyticsError] = useState('');
   const [exporting, setExporting] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = useState(() => getBusinessDate(new Date(), useSettingsStore.getState().settings.timezone));
+  const businessDateRef = useRef(selectedDate);
+  const businessDate = getBusinessDate(new Date(), timezone);
   const [dayOrders, setDayOrders] = useState(null);
   const [dayOrdersLoading, setDayOrdersLoading] = useState(false);
   const [shiftHandovers, setShiftHandovers] = useState({ morning: null, evening: null });
   const [shiftSummaryLoading, setShiftSummaryLoading] = useState(false);
   const [shiftSummaryError, setShiftSummaryError] = useState('');
   const refreshTimerRef = useRef(null);
+
+  useEffect(() => {
+    const updateBusinessDate = () => {
+      const nextBusinessDate = getBusinessDate(new Date(), timezone);
+      const previousBusinessDate = businessDateRef.current;
+      if (nextBusinessDate !== previousBusinessDate) {
+        setSelectedDate((currentDate) => currentDate === previousBusinessDate ? nextBusinessDate : currentDate);
+        businessDateRef.current = nextBusinessDate;
+      }
+    };
+    const timer = window.setInterval(updateBusinessDate, 60000);
+    updateBusinessDate();
+    return () => window.clearInterval(timer);
+  }, [timezone]);
 
   const exportAnalytics = async (format) => {
     if (exporting) return;
@@ -135,20 +156,33 @@ export default function AnalyticsPage() {
   const loadAnalytics = async (showLoader = false) => {
     if (showLoader) setRefreshing(true);
     try {
-      const [sales, categories, sum, orders] = await Promise.all([
+      const results = await Promise.allSettled([
         api.getSales(),
         api.getCategorySales(),
         api.getAnalyticsSummary(selectedDate),
         api.getOrders(),
       ]);
-      setSalesData(sales || []);
-      setCategorySales(categories || []);
-      setSummary(sum || {});
-      const operational = sum?.operational || {};
-      setPettyCashRows((operational.pettyCash || []).map((row, index) => ({ ...row, id: row.id || index + 1, rate: String(row.rate || ''), quantity: String(row.quantity || 1) })));
-      setSalesSummaryRows((operational.dailySales || []).map((row, index) => ({ ...row, id: row.id || index + 1, quantity: String(row.quantity || ''), openingStock: String(row.openingStock || ''), closingStock: String(row.closingStock || ''), price: String(row.price || '') })));
-      setRecentOrders((orders || []).filter((order) => order.status === 'completed' && ['paid', 'completed'].includes(order.paymentStatus)).slice(0, 5));
-      setLastUpdated(new Date());
+      const errors = [];
+      const labels = ['Sales trend', 'Category sales', 'Analytics summary', 'Recent orders'];
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') errors.push(`${labels[index]}: ${result.reason?.message || 'API request failed.'}`);
+      });
+
+      const [salesResult, categoriesResult, summaryResult, ordersResult] = results;
+      if (salesResult.status === 'fulfilled') setSalesData(salesResult.value || []);
+      if (categoriesResult.status === 'fulfilled') setCategorySales(categoriesResult.value || []);
+      if (summaryResult.status === 'fulfilled') {
+        const sum = summaryResult.value || {};
+        setSummary(sum);
+        const operational = sum.operational || {};
+        setPettyCashRows((operational.pettyCash || []).map((row, index) => ({ ...row, id: row.id || index + 1, rate: String(row.rate || ''), quantity: String(row.quantity || 1) })));
+        setSalesSummaryRows((operational.dailySales || []).map((row, index) => ({ ...row, id: row.id || index + 1, quantity: String(row.quantity || ''), openingStock: String(row.openingStock || ''), closingStock: String(row.closingStock || ''), price: String(row.price || '') })));
+      }
+      if (ordersResult.status === 'fulfilled') {
+        setRecentOrders((ordersResult.value || []).filter((order) => order.status === 'completed' && ['paid', 'completed'].includes(order.paymentStatus)).slice(0, 5));
+      }
+      setAnalyticsError(errors.join(' '));
+      if (results.some((result) => result.status === 'fulfilled')) setLastUpdated(new Date());
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -161,10 +195,15 @@ export default function AnalyticsPage() {
     return () => window.clearInterval(refreshTimer);
   }, [selectedDate]);
 
-  useWebSocket((event) => {
+  useWebSocket((event, data) => {
     if (['order:created', 'order:updated', 'order:deleted', 'order:confirmed', 'payment:confirmed', 'payment:manual_review', 'payment:rejected', 'business:updated', 'staff:updated', 'inventory:updated', 'customer:updated', 'menu:updated', 'table:updated', 'settings:updated'].includes(event)) {
       window.clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = window.setTimeout(() => loadAnalytics(), 50);
+    }
+    if (event === 'business:updated' && data?.type === 'shift_handover_saved' && data.date === selectedDate) {
+      Promise.all(['morning', 'evening'].map((shift) => api.getShiftHandover(selectedDate, shift)))
+        .then(([morning, evening]) => setShiftHandovers({ morning, evening }))
+        .catch((error) => setShiftSummaryError(error.message || 'Unable to refresh shift stock counts.'));
     }
   });
 
@@ -187,17 +226,7 @@ export default function AnalyticsPage() {
     const handover = shiftHandovers[shift];
     return handover?.id || handover?.updated_at ? (handover.inventoryCounts || []) : [];
   });
-  const dailyStockItems = new Map();
-  dailyStockRows.forEach((row) => {
-    const itemName = String(row.item || 'Stock item').trim();
-    const key = itemName.toLowerCase();
-    const item = dailyStockItems.get(key) || { counted: false, needsAttention: false };
-    item.counted ||= ['opening', 'added', 'closing'].some((field) => row[field] !== '' && row[field] !== null && row[field] !== undefined);
-    item.needsAttention ||= ['restock', 'prep', 'low'].includes(row.status) || (row.closing !== '' && row.closing !== null && row.closing !== undefined && Number(row.closing) <= 0);
-    dailyStockItems.set(key, item);
-  });
-  const dailyStockItemsCounted = [...dailyStockItems.values()].filter((item) => item.counted).length;
-  const dailyStockAttentionCount = [...dailyStockItems.values()].filter((item) => item.needsAttention).length;
+  const { itemsCounted: dailyStockItemsCounted, attentionCount: dailyStockAttentionCount } = summarizeStockCounts(dailyStockRows);
   const dailyDifference = (row) => (Number(row.openingStock) || 0) - (Number(row.closingStock) || 0);
   const updatePettyCashRow = (id, field, value) => setPettyCashRows((rows) => rows.map((row) => row.id === id ? { ...row, [field]: value } : row));
   const updateSalesSummaryRow = (id, field, value) => setSalesSummaryRows((rows) => rows.map((row) => row.id === id ? { ...row, [field]: value } : row));
@@ -244,7 +273,7 @@ export default function AnalyticsPage() {
               <input
                 type="date"
                 value={selectedDate}
-                max={new Date().toISOString().slice(0, 10)}
+                max={businessDate}
                 onChange={(event) => setSelectedDate(event.target.value)}
                 className="rounded-xl border border-[#ebdccb] bg-white px-3 py-2 text-xs font-semibold text-[#554e46] focus:outline-none focus:border-[#ae002a]"
                 aria-label="Select day"
@@ -275,6 +304,8 @@ export default function AnalyticsPage() {
           </div>
         }
       />
+
+      {analyticsError && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">Some analytics data could not be refreshed: {analyticsError}</div>}
 
       {/* KPI Stats Banner */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -606,7 +637,7 @@ export default function AnalyticsPage() {
             <input
               type="date"
               value={selectedDate}
-              max={new Date().toISOString().slice(0, 10)}
+              max={businessDate}
               onChange={(event) => setSelectedDate(event.target.value)}
               className="mt-1 block rounded-xl border border-[#ebdccb] bg-white px-3 py-2 text-xs font-semibold focus:border-[#ae002a] focus:outline-none"
               aria-label="Daily and shift summary date"
@@ -640,8 +671,7 @@ export default function AnalyticsPage() {
             const expectedTotal = expectedRows.reduce((total, [, row]) => total + Number(row.expected), 0);
             const actualTotal = actualRows.reduce((total, [, row]) => total + Number(row.actual), 0);
             const inventoryCounts = Array.isArray(handover?.inventoryCounts) ? handover.inventoryCounts : [];
-            const countedItems = inventoryCounts.filter((row) => ['opening', 'added', 'closing'].some((field) => row[field] !== '' && Number.isFinite(Number(row[field])))).length;
-            const lowStockItems = inventoryCounts.filter((row) => ['restock', 'prep', 'low'].includes(row.status) || (row.closing !== '' && Number(row.closing) <= 0)).length;
+            const { itemsCounted: countedItems, attentionCount: lowStockItems } = summarizeStockCounts(inventoryCounts);
             const isSaved = Boolean(handover?.id || handover?.updated_at);
 
             return (
@@ -656,7 +686,7 @@ export default function AnalyticsPage() {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   <div className="rounded-xl bg-[#fbf6ee] p-3">
                     <p className="text-[9px] font-bold uppercase text-[#746e67]">Expected takings</p>
                     <p className="mt-1 text-sm font-bold text-[#1f1d1b]">{expectedRows.length ? formatCurrency(expectedTotal) : '—'}</p>
@@ -672,8 +702,12 @@ export default function AnalyticsPage() {
                     </p>
                   </div>
                   <div className="rounded-xl bg-[#fbf6ee] p-3">
-                    <p className="text-[9px] font-bold uppercase text-[#746e67]">Stock check</p>
-                    <p className="mt-1 text-sm font-bold text-[#1f1d1b]">{countedItems} counted · {lowStockItems} attention</p>
+                    <p className="text-[9px] font-bold uppercase text-[#746e67]">Items counted</p>
+                    <p className="mt-1 text-sm font-bold text-[#1f1d1b]">{shiftSummaryLoading ? 'Loading…' : countedItems}</p>
+                  </div>
+                  <div className="rounded-xl bg-[#fbf6ee] p-3">
+                    <p className="text-[9px] font-bold uppercase text-[#746e67]">Stock attention</p>
+                    <p className={`mt-1 text-sm font-bold ${lowStockItems ? 'text-[#ae002a]' : 'text-[#1f1d1b]'}`}>{shiftSummaryLoading ? 'Loading…' : lowStockItems}</p>
                   </div>
                 </div>
                 <p className="mt-3 text-[10px] text-[#746e67]">{handover?.updated_at ? `Last saved ${new Date(handover.updated_at).toLocaleString()}` : 'Shift sales are not inferred from order timestamps; enter and save reconciliation in Shift Handover.'}</p>

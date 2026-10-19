@@ -15,12 +15,14 @@ function parseAmount(value) {
 export function parseReceiptText(source) {
   const lines = String(source || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const dateLine = lines.find((line) => parseDate(line));
-  const referenceLine = lines.find((line) => /\b(receipt|invoice|reference|ref|transaction|trans\.?\s*id)\b/i.test(line));
-  const reference = referenceLine?.match(/\b(?:receipt|invoice|reference|ref|transaction|trans\.?\s*id)\b\s*(?:no\.?\s*)?[:#-]?\s*([A-Z0-9][A-Z0-9/-]{2,})/i)?.[1] || '';
+  const referencePattern = /\b(?:receipt|invoice|reference|ref|transaction|trans\.?\s*id)\b(?:\s+(?:no\.?|number|code))?\s*[:#-]\s*[A-Z0-9][A-Z0-9/-]{2,}/i;
+  const referenceLine = lines.find((line) => referencePattern.test(line));
+  const reference = referenceLine?.match(/\b(?:receipt|invoice|reference|ref|transaction|trans\.?\s*id)\b(?:\s+(?:no\.?|number|code))?\s*[:#-]\s*([A-Z0-9][A-Z0-9/-]{2,})/i)?.[1] || '';
   const totalLines = lines.filter((line) => /\b(grand\s+total|amount\s+due|total\s+due|net\s+total|total|amount\s+paid)\b/i.test(line));
-  const totalLine = totalLines.at(-1) || '';
-  const amountMatches = totalLine.match(/\d[\d,]*(?:\.\d{1,2})?/g) || [];
-  const amount = parseAmount(amountMatches.at(-1));
+  const amount = totalLines.map((line) => {
+    const amountMatches = line.match(/\d[\d,]*(?:\.\d{1,2})?/g) || [];
+    return parseAmount(amountMatches.at(-1));
+  }).reverse().find(Boolean) || '';
   const ignoredLine = (line) => line === dateLine || line === referenceLine || /\b(grand\s+total|amount\s+due|total\s+due|net\s+total|total|amount\s+paid)\b/i.test(line);
   const supplier = lines.find((line) => !ignoredLine(line) && !/^\d/.test(line)) || '';
   const description = lines.filter((line) => line !== supplier && !ignoredLine(line)).join(' · ').slice(0, 500);

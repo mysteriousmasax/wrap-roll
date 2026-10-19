@@ -6,6 +6,7 @@ import RoadsideTrackingPanel from '../../components/public/RoadsideTrackingPanel
 import CustomerChat from '../../components/public/CustomerChat';
 import { api } from '../../api/client';
 import useTranslation from '../../i18n/useTranslation';
+import { formatReservationCountdown } from '../../utils/reservationCountdown';
 import { normalizeTanzanianPhone } from '../../../shared/phone.js';
 
 const paymentLabel = (status) => ({
@@ -19,9 +20,9 @@ const paymentLabel = (status) => ({
 const orderLabel = (order) => {
   if (order.status === 'cancelled') return 'Order cancelled';
   if (order.status === 'completed') return order.fulfillmentMode === 'roadside_handoff' ? 'Handoff complete' : 'Order complete';
-  if (order.reservationStatus === 'released') return 'Handoff team alerted';
   if (order.status === 'ready') return 'Ready';
   if (order.status === 'preparing') return 'Being prepared';
+  if (order.reservationStatus === 'released') return 'Sent to kitchen';
   if (order.status === 'confirmed') return order.fulfillmentMode === 'roadside_handoff' ? 'Handoff confirmed' : 'Order confirmed';
   if (order.status === 'pending_payment') return 'Awaiting payment';
   return 'Order received';
@@ -129,6 +130,17 @@ export default function OrderTrackingPage() {
 
   const isRoadside = order?.fulfillmentMode === 'roadside_handoff';
   const canTrackRoadside = isRoadside && (['paid', 'completed'].includes(order?.paymentStatus) || order?.paymentTerms === 'invoice');
+  const isScheduledReservation = Boolean(order?.scheduledFor);
+  const scheduledCountdown = order?.scheduledFor ? formatReservationCountdown(order.scheduledFor, now) : '';
+  const reservationReleaseTime = order?.scheduledReleaseAt || (order?.scheduledFor ? new Date(new Date(order.scheduledFor).getTime() - 30 * 60 * 1000).toISOString() : null);
+  const reservationCountdown = reservationReleaseTime ? formatReservationCountdown(reservationReleaseTime, now) : '';
+  const reservationMessage = !isScheduledReservation
+    ? ''
+    : order.reservationStatus === 'awaiting_payment'
+      ? 'Your reservation is waiting for payment confirmation.'
+      : order.reservationStatus === 'released' || order.kitchenReleasedAt
+        ? 'Your order has been sent to the kitchen. The handoff team has been alerted.'
+        : `Kitchen preparation starts in ${reservationCountdown || 'less than a minute'}.`;
   const elapsedEnd = order?.status === 'completed' ? new Date(order.updatedAt || now).getTime() : now;
   const elapsedSeconds = order?.createdAt ? Math.max(0, Math.floor((elapsedEnd - new Date(order.createdAt).getTime()) / 1000)) : 0;
   const elapsedMinutes = Math.floor(elapsedSeconds / 60);
@@ -155,13 +167,13 @@ export default function OrderTrackingPage() {
         {!order && token && !error && <p className="p-5 text-sm text-[#746e67]">Loading order details…</p>}
         {order && <div aria-live="polite" className="space-y-5 p-5">
           <div className={`rounded-lg p-3 text-sm font-semibold ${order.status === 'ready' ? 'bg-[#eaf5ed] text-[#227653]' : overdue ? 'bg-amber-50 text-amber-900' : 'bg-[#fbf6ee] text-[#554e46]'}`}>
-            {order.status === 'ready' ? 'Ready now. Please collect your order.' : order.status === 'completed' ? 'This order is complete.' : order.status === 'cancelled' ? 'This order was cancelled.' : overdue ? 'Taking longer than expected. Please check with our staff.' : `Estimated ready in about ${remainingMinutes} min (around ${new Date(new Date(order.createdAt).getTime() + etaMinutes * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}).`}
+            {order.status === 'ready' ? 'Ready now. Please collect your order.' : order.status === 'completed' ? 'This order is complete.' : order.status === 'cancelled' ? 'This order was cancelled.' : reservationMessage || (overdue ? 'Taking longer than expected. Please check with our staff.' : `Estimated ready in about ${remainingMinutes} min (around ${new Date(new Date(order.createdAt).getTime() + etaMinutes * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}).`)}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg bg-[#fbf6ee] p-3"><p className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-[#746e67]"><WalletCards size={12} />Payment</p><p className="mt-1 text-xs font-semibold">{paymentLabel(order.paymentStatus)}</p></div>
             <div className="rounded-lg bg-[#fbf6ee] p-3"><p className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-[#746e67]"><MapPin size={12} />Fulfillment</p><p className="mt-1 text-xs font-semibold capitalize">{isRoadside ? 'Roadside handoff' : String(order.type || 'order').replaceAll('-', ' ')}</p></div>
           </div>
-          {order.scheduledFor && <p className="flex items-center gap-2 text-xs text-[#554e46]"><CalendarClock size={14} />Scheduled for {new Date(order.scheduledFor).toLocaleString()}</p>}
+          {order.scheduledFor && <p className="flex items-center gap-2 text-xs text-[#554e46]"><CalendarClock size={14} />Scheduled for {new Date(order.scheduledFor).toLocaleString()}{order.reservationStatus === 'confirmed' && scheduledCountdown && ` · In ${scheduledCountdown}`}{order.reservationStatus === 'confirmed' && reservationCountdown && ` · Kitchen starts in ${reservationCountdown}`}</p>}
           {order.items?.length > 0 && <div><h2 className="mb-2 text-[10px] font-bold uppercase tracking-wide text-[#746e67]">Order items</h2><ul className="space-y-1">{order.items.map((item, index) => <li key={`${item.name}-${index}`} className="flex justify-between gap-3 text-xs"><span>{item.qty}x {item.name}</span></li>)}</ul></div>}
           <p className="flex items-start gap-2 border-t border-[#eee4d5] pt-3 text-[11px] leading-5 text-[#746e67]"><Clock3 size={13} className="mt-0.5 shrink-0" />Order status refreshes automatically.</p>
           {order.status === 'completed' && <p className="flex items-center gap-2 rounded-lg bg-[#eaf5ed] p-3 text-xs font-semibold text-[#227653]"><CircleCheck size={15} />This order is complete.</p>}

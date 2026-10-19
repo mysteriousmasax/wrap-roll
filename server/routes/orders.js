@@ -12,6 +12,7 @@ import { releaseExpiredCleaningTables } from '../utils/tableAvailability.js';
 import { parseMenuVariants } from '../utils/menuVariants.js';
 import { applyOrderFulfillmentEffects } from '../utils/orderFulfillment.js';
 import { createCustomerOrderTrackingToken, createRoadsideAccessToken, hashRoadsideAccessToken } from '../utils/roadsideAccess.js';
+import { getReservationReleaseTime } from '../utils/reservationTiming.js';
 import { normalizeTanzanianPhone } from '../../shared/phone.js';
 
 const router = Router();
@@ -135,9 +136,6 @@ function createOrderRecord(
   if (scheduledFor && (!scheduledDate || Number.isNaN(scheduledDate.getTime()) || scheduledDate <= new Date())) {
     throw new Error('Choose a future pickup or delivery time');
   }
-  if (scheduledDate && scheduledDate.getTime() > Date.now() + 14 * 24 * 60 * 60 * 1000) {
-    throw new Error('Orders can only be scheduled up to 14 days ahead');
-  }
   const normalizedPaymentTerms = String(paymentTerms || 'prepaid');
   if (!['prepaid', 'invoice'].includes(normalizedPaymentTerms)) throw new Error('Choose valid payment terms');
   let approvedInvoiceTerms = null;
@@ -176,9 +174,8 @@ function createOrderRecord(
   const reservationStatus = scheduledDate || normalizedFulfillmentMode === 'roadside_handoff'
     ? (isStaffCashImmediate || isInvoiceTerms ? 'confirmed' : 'awaiting_payment')
     : 'none';
-  const maxPrepMinutes = Math.max(...priced.items.map((item) => item.prepTimeMinutes || 8));
   const scheduledReleaseAt = scheduledDate
-    ? new Date(scheduledDate.getTime() - (maxPrepMinutes + 5) * 60 * 1000).toISOString()
+    ? getReservationReleaseTime(scheduledDate)
     : null;
   const roadsideAccessToken = normalizedFulfillmentMode === 'roadside_handoff' ? createRoadsideAccessToken(id) : null;
   const customerTrackingToken = roadsideAccessToken || createCustomerOrderTrackingToken(id);
@@ -626,6 +623,8 @@ router.get('/tracking/:id', (req, res) => {
     createdAt: order.created_at,
     updatedAt: order.updated_at,
     scheduledFor: order.delivery_scheduled_for,
+    scheduledReleaseAt: order.scheduled_release_at,
+    kitchenReleasedAt: order.kitchen_released_at,
     reservationStatus: order.reservation_status,
     roadsideStatus: trip?.status || null,
     items: db.prepare('SELECT name, qty, prep_time_minutes AS prepTimeMinutes FROM order_items WHERE order_id = ?').all(order.id),
@@ -770,8 +769,7 @@ router.patch('/:id/reservation', authMiddleware, requireRole('admin', 'manager',
   }
   let releaseAt = existing.scheduled_release_at;
   if (action === 'reschedule') {
-    const prepTime = Number(db.prepare('SELECT COALESCE(MAX(prep_time_minutes), 8) AS minutes FROM order_items WHERE order_id = ?').get(existing.id)?.minutes || 8);
-    releaseAt = new Date(new Date(scheduledFor).getTime() - (prepTime + 5) * 60000).toISOString();
+    releaseAt = getReservationReleaseTime(scheduledFor);
   }
   db.prepare(`UPDATE orders SET reservation_status = ?, delivery_scheduled_for = ?, scheduled_release_at = ?,
     status = CASE WHEN ? = 'cancel' THEN 'cancelled' ELSE status END, updated_at = ? WHERE id = ?`)

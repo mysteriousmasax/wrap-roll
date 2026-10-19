@@ -3,6 +3,7 @@ import db from '../db/database.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
 import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/deletionPolicy.js';
+import { normalizeTraReceiptUrl } from '../utils/traReceiptUrl.js';
 
 const router = Router();
 
@@ -147,6 +148,42 @@ router.delete('/storage-locations/:id', authMiddleware, (req, res) => {
 
 router.get('/', authMiddleware, (req, res) => {
   res.json(db.prepare('SELECT * FROM inventory WHERE COALESCE(deleted_at, \'\') = \'\' ORDER BY name').all().map(mapInventory));
+});
+
+router.post('/receipt-qr', authMiddleware, async (req, res) => {
+  let receiptUrl;
+  try {
+    receiptUrl = normalizeTraReceiptUrl(req.body?.url);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  try {
+    const response = await fetch(receiptUrl, {
+      headers: { Accept: 'text/html' },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(10000),
+    });
+    if (response.status >= 300 && response.status < 400) return res.status(502).json({ error: 'TRA redirected this receipt link; open the receipt in TRA and try its current QR link.' });
+    if (!response.ok) return res.status(502).json({ error: `TRA receipt verification returned HTTP ${response.status}.` });
+    if (!(response.headers.get('content-type') || '').toLowerCase().includes('text/html')) {
+      return res.status(502).json({ error: 'TRA did not return a readable receipt page.' });
+    }
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength > 1024 * 1024) return res.status(413).json({ error: 'The TRA receipt page is too large to process.' });
+    const html = await response.text();
+    if (Buffer.byteLength(html, 'utf8') > 1024 * 1024) return res.status(413).json({ error: 'The TRA receipt page is too large to process.' });
+    if (!/START OF LEGAL RECEIPT/i.test(html) || !/RECEIPT VERIFICATION CODE/i.test(html)) {
+      return res.status(422).json({ error: 'That TRA page does not contain a verified EFD receipt.' });
+    }
+    res.set('Cache-Control', 'no-store');
+    return res.json({ url: receiptUrl, html });
+  } catch (error) {
+    const message = error.name === 'TimeoutError' || error.name === 'AbortError'
+      ? 'TRA receipt verification timed out. Try again or upload a receipt photo.'
+      : 'Unable to fetch the TRA receipt. Check your connection or upload a receipt photo.';
+    return res.status(502).json({ error: message });
+  }
 });
 
 router.post('/receive-receipt', authMiddleware, (req, res) => {

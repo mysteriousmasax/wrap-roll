@@ -4,6 +4,7 @@ import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { hashPin } from '../utils/pins.js';
 import { broadcast } from '../ws.js';
 import { restaurantTime } from '../utils/localTime.js';
+import { attendanceMetrics, getShiftSchedule, getShiftScheduleForTime, lateMinutesAt, overtimeMinutesAt, timeMinutes } from '../utils/shiftTime.js';
 import { getCustomRoleEntries, getRolePageAccess, normalizeCustomRole, normalizePageAccess, normalizeRoleName } from '../utils/roles.js';
 import { normalizeTanzanianPhone } from '../../shared/phone.js';
 
@@ -32,50 +33,6 @@ function mapStaff(row) {
 
 function today() { return restaurantTime().date; }
 
-function timeMinutes(value) {
-  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})(?:\s*(A\.?M\.?|P\.?M\.?))?$/i);
-  if (!match) return null;
-  let hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (minute > 59 || hour > 23) return null;
-  if (match[3]) {
-    if (hour < 1 || hour > 12) return null;
-    hour = hour % 12 + (match[3].replace(/\./g, '').toUpperCase() === 'PM' ? 12 : 0);
-  }
-  return hour * 60 + minute;
-}
-
-function shiftSchedule(staff, shiftOverride = '') {
-  const evening = shiftOverride === 'evening' || (!['morning', 'evening'].includes(shiftOverride) && String(staff.shift || '').toLowerCase().includes('evening'));
-  return {
-    label: evening ? 'evening' : 'morning',
-    start: evening ? staff.evening_start_time : staff.morning_start_time,
-    end: evening ? staff.evening_end_time : staff.morning_end_time,
-  };
-}
-
-function overtimeAt(time, start, end) {
-  const actual = timeMinutes(time);
-  const startMinute = timeMinutes(start);
-  let endMinute = timeMinutes(end);
-  if (actual == null || startMinute == null || endMinute == null) return 0;
-  if (endMinute <= startMinute) endMinute += 1440;
-  const actualMinute = actual < startMinute ? actual + 1440 : actual;
-  return Math.max(0, actualMinute - endMinute);
-}
-
-function attendanceMetrics(startTime, endTime, scheduledStart, scheduledEnd) {
-  const start = timeMinutes(startTime);
-  const end = timeMinutes(endTime);
-  const shiftStart = timeMinutes(scheduledStart);
-  const shiftEnd = timeMinutes(scheduledEnd);
-  const wrapsMidnight = start != null && end != null && end < start;
-  const elapsed = start == null || end == null ? 0 : (wrapsMidnight ? end + 1440 - start : end - start);
-  const late = start == null || shiftStart == null ? 0 : Math.max(0, start - shiftStart);
-  const overtime = end == null || shiftStart == null || shiftEnd == null ? 0 : overtimeAt(endTime, scheduledStart, scheduledEnd);
-  return { hours: Math.max(0, elapsed / 60), late, overtime };
-}
-
 function applyClockAction(staff, action, latitude, longitude, shiftOverride = '') {
   if (!['in', 'out'].includes(action)) throw new Error('Choose clock in or clock out.');
   const now = new Date();
@@ -85,10 +42,8 @@ function applyClockAction(staff, action, latitude, longitude, shiftOverride = ''
   if (action === 'in') {
     const alreadyActive = db.prepare("SELECT id FROM shift_logs WHERE staff_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1").get(staff.id);
     if (alreadyActive) throw new Error('You are already clocked in.');
-    const schedule = shiftSchedule(staff, shiftOverride);
-    const actualStart = timeMinutes(local.time);
-    const plannedStart = timeMinutes(schedule.start);
-    const late = actualStart == null || plannedStart == null ? 0 : Math.max(0, actualStart - plannedStart);
+    const schedule = shiftOverride ? getShiftSchedule(staff, shiftOverride) : getShiftScheduleForTime(staff, local.time);
+    const late = lateMinutesAt(local.time, schedule.start);
     db.transaction(() => {
       db.prepare('UPDATE staff SET status = ?, clock_in = ? WHERE id = ?').run('on-clock', local.time, staff.id);
       db.prepare(`INSERT INTO shift_logs
@@ -104,7 +59,7 @@ function applyClockAction(staff, action, latitude, longitude, shiftOverride = ''
   if (!openShift) throw new Error('No active shift was found to clock out.');
   const startedAt = openShift.started_at ? new Date(openShift.started_at) : null;
   const hours = startedAt && !Number.isNaN(startedAt.getTime()) ? Math.max(0, (now.getTime() - startedAt.getTime()) / 3600000) : 0;
-  const overtime = overtimeAt(local.time, openShift.scheduled_start_time, openShift.scheduled_end_time);
+  const overtime = overtimeMinutesAt(local.time, openShift.scheduled_start_time, openShift.scheduled_end_time);
   db.transaction(() => {
     db.prepare('UPDATE staff SET status = ?, clock_in = NULL WHERE id = ?').run('off-clock', staff.id);
     db.prepare(`UPDATE shift_logs SET end_time = ?, hours_worked = ?, status = 'completed',
@@ -123,12 +78,21 @@ function buildShiftWorkspace(staff) {
   const attendance = db.prepare('SELECT * FROM shift_logs WHERE staff_id = ? AND shift_date = ? ORDER BY id DESC').all(staff.id, date);
   const history = db.prepare('SELECT * FROM shift_logs WHERE staff_id = ? AND shift_date >= date(?, \'-30 days\') ORDER BY shift_date DESC, id DESC').all(staff.id, date);
   const completed = history.filter((row) => row.status === 'completed');
+  const active = db.prepare("SELECT * FROM shift_logs WHERE staff_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1").get(staff.id) || null;
+  const now = restaurantTime();
+  const activeStartedAt = active?.started_at ? new Date(active.started_at) : null;
+  const activeHours = activeStartedAt && !Number.isNaN(activeStartedAt.getTime())
+    ? Math.max(0, (Date.now() - activeStartedAt.getTime()) / 3600000)
+    : 0;
+  const activeOvertime = active
+    ? overtimeMinutesAt(now.time, active.scheduled_start_time, active.scheduled_end_time)
+    : 0;
   const metrics = {
     shifts: completed.length,
-    hours: Number(completed.reduce((sum, row) => sum + Number(row.hours_worked || 0), 0).toFixed(2)),
+    hours: Number((completed.reduce((sum, row) => sum + Number(row.hours_worked || 0), 0) + activeHours).toFixed(2)),
     lateShifts: completed.filter((row) => Number(row.late_minutes || 0) > 0).length,
     lateMinutes: completed.reduce((sum, row) => sum + Number(row.late_minutes || 0), 0),
-    overtimeMinutes: completed.reduce((sum, row) => sum + Number(row.overtime_minutes || 0), 0),
+    overtimeMinutes: completed.reduce((sum, row) => sum + Number(row.overtime_minutes || 0), 0) + activeOvertime,
     punctuality: completed.length ? Math.round((completed.filter((row) => !Number(row.late_minutes || 0)).length / completed.length) * 100) : null,
   };
   const tasks = db.prepare(`SELECT id, title, description, category, priority, task_type, status, due_date
@@ -137,8 +101,10 @@ function buildShiftWorkspace(staff) {
   return {
     staff: mapStaff(staff),
     date,
-    shift: shiftSchedule(staff),
-    active: attendance.find((row) => row.status === 'active') || null,
+    shift: active
+      ? getShiftSchedule(staff, active.notes)
+      : getShiftScheduleForTime(staff, now.time),
+    active,
     attendance: attendance.map((row) => ({ ...row, late_minutes: Number(row.late_minutes || 0), overtime_minutes: Number(row.overtime_minutes || 0) })),
     history: history.map((row) => ({ ...row, late_minutes: Number(row.late_minutes || 0), overtime_minutes: Number(row.overtime_minutes || 0) })),
     metrics,
@@ -210,7 +176,8 @@ router.patch('/me/clock', authMiddleware, (req, res) => {
   const staff = getLinkedStaff(req.user.id);
   if (!staff) return res.status(404).json({ error: 'Your login is not linked to an active staff profile.' });
   try {
-    const result = applyClockAction(staff, req.body?.action, req.body?.latitude, req.body?.longitude, req.body?.shift);
+    const shiftOverride = ['morning', 'evening'].includes(req.body?.shift) ? req.body.shift : '';
+    const result = applyClockAction(staff, req.body?.action, req.body?.latitude, req.body?.longitude, shiftOverride);
     const updated = db.prepare('SELECT * FROM staff WHERE id = ?').get(staff.id);
     const now = new Date().toISOString();
     db.prepare('INSERT INTO notifications (type, title, message, read, created_at, audience_role) VALUES (?, ?, ?, 0, ?, ?)')

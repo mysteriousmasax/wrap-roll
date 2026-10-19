@@ -13,6 +13,7 @@ import db from '../db/database.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { calculateDailyStockSummary } from '../utils/dailyStockReport.js';
 import { getOrders } from '../utils/orders.js';
+import { restaurantDateBounds, restaurantTime } from '../utils/localTime.js';
 import { generateOfflineAgentReply, generateOperationsReport, generateStaffAssistantReply } from '../utils/gemini.js';
 import { aiProvider, recordAiActivity } from '../utils/aiActivity.js';
 import { broadcast } from '../ws.js';
@@ -44,15 +45,18 @@ function getSeriesForRange(range) {
   const payroll = db.prepare("SELECT pay_period, net_pay FROM payroll_records").all();
 
   const periodKey = (dateValue) => {
-    const date = new Date(dateValue);
-    if (range === 'day') return date.toISOString().slice(0, 10);
+    const businessDate = /^\d{4}-\d{2}-\d{2}$/.test(String(dateValue))
+      ? String(dateValue)
+      : restaurantTime(new Date(dateValue)).date;
+    const date = new Date(`${businessDate}T00:00:00Z`);
+    if (range === 'day') return businessDate;
     if (range === 'week') {
       const start = new Date(date);
       const diff = (start.getUTCDay() + 6) % 7;
       start.setUTCDate(start.getUTCDate() - diff);
       return start.toISOString().slice(0, 10);
     }
-    return date.toISOString().slice(0, 7);
+    return businessDate.slice(0, 7);
   };
 
   for (const order of orders) {
@@ -99,6 +103,16 @@ function getLiveOrders() {
 
 function getCurrentPeriodRevenue(start, end) {
   return db.prepare("SELECT COALESCE(SUM(total), 0) AS revenue, COUNT(*) AS orders FROM orders WHERE created_at >= ? AND created_at < ? AND status = 'completed' AND payment_status IN ('paid', 'completed')").get(start, end);
+}
+
+function addBusinessDays(date, offset) {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + offset)).toISOString().slice(0, 10);
+}
+
+function addBusinessMonths(date, offset) {
+  const [year, month] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1 + offset, 1)).toISOString().slice(0, 10);
 }
 
 function getIngredientUsage(reportDate) {
@@ -243,14 +257,19 @@ router.patch('/operational-summary/:type/:date/approve', authMiddleware, require
 
 router.get('/summary', authMiddleware, (req, res) => {
   const now = new Date();
-  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
-  const tomorrowStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)).toISOString();
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-  const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
+  const businessDate = restaurantTime(now).date;
+  const [year, month] = businessDate.split('-');
+  const monthStartDate = `${year}-${month}-01`;
+  const nextMonthStartDate = addBusinessMonths(monthStartDate, 1);
+  const previousMonthStartDate = addBusinessMonths(monthStartDate, -1);
+  const { start: todayStart, end: tomorrowStart } = restaurantDateBounds(businessDate);
+  const { start: monthStart } = restaurantDateBounds(monthStartDate);
+  const { start: nextMonthStart } = restaurantDateBounds(nextMonthStartDate);
+  const { start: previousMonthStart } = restaurantDateBounds(previousMonthStartDate);
   const todayTotals = getCurrentPeriodRevenue(todayStart, tomorrowStart);
   const monthTotals = getCurrentPeriodRevenue(monthStart, nextMonthStart);
-  const monthExpenses = Number(db.prepare("SELECT COALESCE(SUM(amount), 0) AS amount FROM business_expenses WHERE status NOT IN ('rejected', 'deleted') AND expense_date >= ? AND expense_date < ?").get(monthStart.slice(0, 10), nextMonthStart.slice(0, 10)).amount || 0);
-  const monthPayroll = Number(db.prepare("SELECT COALESCE(SUM(net_pay), 0) AS amount FROM payroll_records WHERE substr(pay_period, 1, 7) = ?").get(monthStart.slice(0, 7)).amount || 0);
+  const monthExpenses = Number(db.prepare("SELECT COALESCE(SUM(amount), 0) AS amount FROM business_expenses WHERE status NOT IN ('rejected', 'deleted') AND expense_date >= ? AND expense_date < ?").get(monthStartDate, nextMonthStartDate).amount || 0);
+  const monthPayroll = Number(db.prepare("SELECT COALESCE(SUM(net_pay), 0) AS amount FROM payroll_records WHERE substr(pay_period, 1, 7) = ?").get(monthStartDate.slice(0, 7)).amount || 0);
   const activeOrders = getOrders({ status: 'pending,preparing,ready' });
   const todayOrders = getOrders({}).filter((o) => o.createdAt >= todayStart && o.createdAt < tomorrowStart);
   const summaryRanges = {
@@ -261,7 +280,7 @@ router.get('/summary', authMiddleware, (req, res) => {
 
   const todayRevenue = Number(todayTotals.revenue || 0);
   const avgOrder = todayOrders.length ? todayRevenue / todayOrders.length : 0;
-  const yesterdayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1)).toISOString();
+  const yesterdayStart = restaurantDateBounds(addBusinessDays(businessDate, -1)).start;
   const yesterdayTotals = getCurrentPeriodRevenue(yesterdayStart, todayStart);
   const percentChange = (current, previous) => previous ? Number((((current - previous) / previous) * 100).toFixed(1)) : null;
   const allOrders = getLiveOrders();
@@ -290,7 +309,7 @@ router.get('/summary', authMiddleware, (req, res) => {
     changes: {
       todayRevenue: percentChange(todayRevenue, Number(yesterdayTotals.revenue || 0)),
       avgOrderValue: percentChange(avgOrder, yesterdayTotals.orders ? Number(yesterdayTotals.revenue || 0) / yesterdayTotals.orders : 0),
-      monthlyRevenue: percentChange(Number(monthTotals.revenue || 0), Number(getCurrentPeriodRevenue(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString(), monthStart).revenue || 0)),
+      monthlyRevenue: percentChange(Number(monthTotals.revenue || 0), Number(getCurrentPeriodRevenue(previousMonthStart, monthStart).revenue || 0)),
       activeKitchenOrders: null,
     },
     operational: getOperationalSummaries(req.query.date),
@@ -634,20 +653,21 @@ function buildAnalyticsExport(range, requestedDate) {
 
 // JSON list of completed orders for one specific day (powers the day drill-down preview).
 router.get('/orders-by-day', authMiddleware, (req, res) => {
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : new Date().toISOString().slice(0, 10);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : restaurantTime().date;
+  const bounds = restaurantDateBounds(date);
   const orders = db.prepare(`
     SELECT id, created_at, order_type, order_source, payment_method, total, table_number, customer_name
     FROM orders
-    WHERE status = 'completed' AND payment_status IN ('paid', 'completed') AND substr(created_at, 1, 10) = ?
+    WHERE status = 'completed' AND payment_status IN ('paid', 'completed') AND created_at >= ? AND created_at < ?
     ORDER BY created_at ASC
-  `).all(date);
+  `).all(bounds.start, bounds.end);
   res.json({
     date,
     count: orders.length,
     totalRevenue: orders.reduce((sum, order) => sum + Number(order.total || 0), 0),
     orders: orders.map((order) => ({
       id: order.id,
-      time: new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      time: restaurantTime(new Date(order.created_at)).time,
       createdAt: order.created_at,
       type: order.order_type || '',
       source: order.order_source || '',

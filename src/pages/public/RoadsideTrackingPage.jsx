@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import BrandLogo from '../../components/brand/BrandLogo';
 import RoadsideTrackingPanel from '../../components/public/RoadsideTrackingPanel';
 import { api } from '../../api/client';
+import { formatReservationCountdown } from '../../utils/reservationCountdown';
 
 export default function RoadsideTrackingPage() {
   const { orderId } = useParams();
@@ -13,6 +14,10 @@ export default function RoadsideTrackingPage() {
   });
   const [order, setOrder] = useState(null);
   const [error, setError] = useState('');
+  const [now, setNow] = useState(Date.now());
+  const scheduledCountdown = order?.scheduledFor ? formatReservationCountdown(order.scheduledFor, now) : '';
+  const reservationReleaseTime = order?.scheduledReleaseAt || (order?.scheduledFor ? new Date(new Date(order.scheduledFor).getTime() - 30 * 60 * 1000).toISOString() : null);
+  const reservationCountdown = reservationReleaseTime ? formatReservationCountdown(reservationReleaseTime, now) : '';
   const orderStatusLabel = order?.reservationStatus === 'released'
     ? 'Handoff team alerted'
     : order?.status === 'completed'
@@ -62,6 +67,11 @@ export default function RoadsideTrackingPage() {
     };
   }, [orderId, accessToken]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   return <main className="min-h-screen bg-[#faf7f2] px-4 py-5 text-[#24211e]">
     <div className="mx-auto max-w-xl">
       <a href="/" aria-label="Wrap and Roll home"><BrandLogo /></a>
@@ -76,7 +86,7 @@ export default function RoadsideTrackingPage() {
             <div><p className="text-[10px] font-bold uppercase tracking-wide text-[#746e67]">Order status</p><p className="mt-1 text-sm font-semibold">{orderStatusLabel}</p></div>
             <div><p className="text-[10px] font-bold uppercase tracking-wide text-[#746e67]">Payment</p><p className="mt-1 text-sm font-semibold capitalize">{order.paymentStatus === 'manual_review' ? 'Verification pending' : String(order.paymentStatus || 'pending').replaceAll('_', ' ')}</p></div>
           </div>
-          <p className="rounded-lg bg-[#fbf6ee] p-3 text-xs font-semibold text-[#554e46]">{locationStatusLabel}{order.scheduledFor ? ` · Handoff ${new Date(order.scheduledFor).toLocaleString()}` : ''}</p>
+          <p className="rounded-lg bg-[#fbf6ee] p-3 text-xs font-semibold text-[#554e46]">{locationStatusLabel}{order.scheduledFor ? ` · Handoff ${new Date(order.scheduledFor).toLocaleString()}` : ''}{order.reservationStatus === 'confirmed' && scheduledCountdown ? ` · In ${scheduledCountdown}` : ''}{order.reservationStatus === 'confirmed' && reservationCountdown ? ` · Kitchen starts in ${reservationCountdown}` : ''}</p>
           {order.items?.length > 0 && <div><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-[#746e67]">Order items</p><p className="text-xs leading-5">{order.items.map((item) => `${item.qty}x ${item.name}`).join(', ')}</p></div>}
         </div>}
         {order && !['paid', 'completed'].includes(order.paymentStatus) && order.paymentTerms !== 'invoice' && <p className="mt-3 rounded-lg bg-[#fbf6ee] p-3 text-sm text-[#554e46]">Live tracking will be available after payment is verified.</p>}
