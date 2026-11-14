@@ -1394,6 +1394,7 @@ function migrateSchema(db) {
   if (!orderCols.some((c) => c.name === 'discount_offer_id')) db.exec('ALTER TABLE orders ADD COLUMN discount_offer_id TEXT');
   if (!orderCols.some((c) => c.name === 'discount_approved_by_user_id')) db.exec('ALTER TABLE orders ADD COLUMN discount_approved_by_user_id INTEGER');
   const refundCols = db.prepare('PRAGMA table_info(refunds)').all();
+  if (!refundCols.some((c) => c.name === 'refund_reference')) db.exec('ALTER TABLE refunds ADD COLUMN refund_reference TEXT');
   if (!refundCols.some((c) => c.name === 'requested_by_user_id')) db.exec('ALTER TABLE refunds ADD COLUMN requested_by_user_id INTEGER');
   if (!refundCols.some((c) => c.name === 'approved_by_user_id')) db.exec('ALTER TABLE refunds ADD COLUMN approved_by_user_id INTEGER');
   if (!refundCols.some((c) => c.name === 'processed_by_user_id')) db.exec('ALTER TABLE refunds ADD COLUMN processed_by_user_id INTEGER');

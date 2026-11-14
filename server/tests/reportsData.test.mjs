@@ -47,10 +47,19 @@ test('compliance reports aggregate real paid orders and recorded audit activity'
     db.prepare(`INSERT INTO inventory_audit (inventory_id, action, changed_by_id, changed_by_name, changed_by_role, changes, created_at)
       VALUES (?, 'updated', ?, ?, 'manager', '{}', ?)`).run(inventoryId, userId, 'Reports Test User', '2026-03-09T10:02:00.000Z');
 
+    db.exec('ALTER TABLE refunds DROP COLUMN refund_reference');
+    await database.ensureDatabase();
+    assert.ok(
+      db.prepare('PRAGMA table_info(refunds)').all().some((column) => column.name === 'refund_reference'),
+      'database startup restores refund_reference on legacy production databases',
+    );
+
     const { default: analyticsRouter } = await import(`../routes/analytics.js?reports=${Date.now()}`);
+    const { default: ordersRouter } = await import(`../routes/orders.js?reports=${Date.now()}`);
     const { signToken } = await import('../middleware/auth.js');
     const app = express();
     app.use('/api/analytics', analyticsRouter);
+    app.use('/api/orders', ordersRouter);
     server = app.listen(0, '127.0.0.1');
     await once(server, 'listening');
 
@@ -88,6 +97,16 @@ test('compliance reports aggregate real paid orders and recorded audit activity'
       { method: 'cash', amount: 208 },
       { method: 'lipa_namba', amount: 166 },
     ]);
+
+    const dashboardSummaryResponse = await fetch(`${base}/summary?date=2026-03-09`, { headers: authHeaders });
+    assert.equal(dashboardSummaryResponse.status, 200, 'dashboard analytics summary works with a migrated legacy refund table');
+    const dashboardSummary = await dashboardSummaryResponse.json();
+    assert.ok(Number.isFinite(dashboardSummary.todayRevenue));
+
+    const recentOrdersResponse = await fetch(`${base.replace('/analytics', '')}/orders`, { headers: authHeaders });
+    assert.equal(recentOrdersResponse.status, 200, 'recent orders endpoint works with a migrated legacy refund table');
+    const recentOrders = await recentOrdersResponse.json();
+    assert.equal(recentOrders.length, 4);
 
     const dailyPreviewResponse = await fetch(`${base}/export/preview?range=day&date=2026-03-09`, { headers: authHeaders });
     assert.equal(dailyPreviewResponse.status, 200);
