@@ -212,8 +212,10 @@ test('staff workspace clocks shifts, reports assigned POS totals, and permits sc
     const handoverResponse = await fetch(`${base}/business/shift-handover?date=${businessDate}&shift=morning`, { headers: staffHeaders });
     assert.equal(handoverResponse.status, 200);
     const handover = await handoverResponse.json();
-    assert.equal(handover.reconciliation.cashSales.expected, 41000);
-    assert.equal(handover.reconciliation.mobileMoney.expected, 42000);
+    assert.deepEqual({
+      expectedCashTakings: handover.reconciliation.cashSales.expected,
+      expectedLipaNamba: handover.reconciliation.mobileMoney.expected,
+    }, { expectedCashTakings: 41000, expectedLipaNamba: 42000 });
     assert.equal(handover.reconciliation.cashSales.expectedSource, 'transactions');
     const eveningHandoverResponse = await fetch(`${base}/business/shift-handover?date=${businessDate}&shift=evening`, { headers: staffHeaders });
     assert.equal(eveningHandoverResponse.status, 200);

@@ -341,7 +341,10 @@ export default function ReportsPage() {
                   primaryColumn={reportPreview.columns.includes('order') ? 'order' : reportPreview.columns.includes('period') ? 'period' : reportPreview.columns[0]}
                   renderCell={(row, column) => {
                     const value = row[column];
-                    return ['total', 'revenue', 'profit', 'orderTax'].includes(column) && typeof value === 'number'
+                    if (column === 'method') {
+                      return value === 'cash' ? 'Cash' : value === 'lipa_namba' ? 'Lipa Namba' : value;
+                    }
+                    return ['total', 'revenue', 'profit', 'amount', 'orderTax'].includes(column) && typeof value === 'number'
                       ? formatCurrency(value)
                       : value ?? '—';
                   }}

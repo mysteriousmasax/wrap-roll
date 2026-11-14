@@ -30,6 +30,16 @@ test('compliance reports aggregate real paid orders and recorded audit activity'
     addOrder.run('paid-order-1', 'R-1001', 'Actual Customer', 100, 8, 108, 'paid', 'completed', '2026-03-09T10:00:00.000Z', '2026-03-09T10:00:00.000Z');
     addOrder.run('paid-order-2', 'R-1002', 'Another Customer', 200, 16, 216, 'completed', 'completed', '2026-03-09T11:00:00.000Z', '2026-03-09T11:00:00.000Z');
     addOrder.run('unpaid-order', 'R-1003', 'Unpaid Customer', 1000, 80, 1080, 'pending', 'completed', '2026-03-09T12:00:00.000Z', '2026-03-09T12:00:00.000Z');
+    db.prepare(`INSERT INTO orders
+      (id, order_number, order_type, subtotal, tax, total, payment_method, payment_status, status, created_at, updated_at)
+      VALUES ('legacy-mobile-order', 'R-1004', 'takeaway', 50, 0, 50, 'lipa_namba_1', 'paid', 'completed', '2026-04-10T13:00:00.000Z', '2026-04-10T13:00:00.000Z')`).run();
+    const addPayment = db.prepare(`INSERT INTO payments
+      (id, order_id, payment_reference, provider, payment_method, amount, status, paid_at, created_at, updated_at)
+      VALUES (?, ?, ?, 'test', ?, ?, ?, ?, ?, ?)`);
+    addPayment.run('payment-cash-1', 'paid-order-1', 'REF-CASH-1', 'cash', 108, 'paid', '2026-03-09T10:00:00.000Z', '2026-03-09T10:00:00.000Z', '2026-03-09T10:00:00.000Z');
+    addPayment.run('payment-cash-2', 'paid-order-2', 'REF-CASH-2', 'cash', 100, 'completed', '2026-03-09T11:00:00.000Z', '2026-03-09T11:00:00.000Z', '2026-03-09T11:00:00.000Z');
+    addPayment.run('payment-lipa-2', 'paid-order-2', 'REF-LIPA-2', 'lipa_namba_2', 116, 'paid', '2026-03-09T11:00:00.000Z', '2026-03-09T11:00:00.000Z', '2026-03-09T11:00:00.000Z');
+    addPayment.run('payment-unpaid', 'unpaid-order', 'REF-UNPAID', 'lipa_namba', 1080, 'pending', null, '2026-03-09T12:00:00.000Z', '2026-03-09T12:00:00.000Z');
     db.prepare('INSERT INTO order_items (order_id, name, qty, price) VALUES (?, ?, ?, ?)')
       .run('paid-order-1', 'Test Item', 2, 54);
     db.prepare(`INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at)
@@ -63,6 +73,22 @@ test('compliance reports aggregate real paid orders and recorded audit activity'
     assert.deepEqual(report.auditRows.map((row) => row.userRole).sort(), ['manager', 'manager']);
 
     const base = `http://127.0.0.1:${server.address().port}/api/analytics`;
+    const paymentReportResponse = await fetch(`${base}/reports/data?type=payments`, { headers: authHeaders });
+    assert.equal(paymentReportResponse.status, 200);
+    const paymentReport = await paymentReportResponse.json();
+    assert.deepEqual(paymentReport.rows, [
+      { method: 'cash', orders: 2, paid_orders: 2, amount: 208 },
+      { method: 'lipa_namba', orders: 2, paid_orders: 2, amount: 166 },
+    ], 'reconciliation groups settled tender records, including split and Lipa Namba payments, and ignores unpaid intents');
+
+    const analyticsSummaryResponse = await fetch(`${base}/reports`, { headers: authHeaders });
+    assert.equal(analyticsSummaryResponse.status, 200);
+    const analyticsSummary = await analyticsSummaryResponse.json();
+    assert.deepEqual(analyticsSummary.paymentMethods.map(({ method, amount }) => ({ method, amount })), [
+      { method: 'cash', amount: 208 },
+      { method: 'lipa_namba', amount: 166 },
+    ]);
+
     const dailyPreviewResponse = await fetch(`${base}/export/preview?range=day&date=2026-03-09`, { headers: authHeaders });
     assert.equal(dailyPreviewResponse.status, 200);
     const dailyPreview = await dailyPreviewResponse.json();

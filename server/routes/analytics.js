@@ -367,13 +367,7 @@ router.get('/reports', authMiddleware, (req, res) => {
     LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
     GROUP BY mi.category
   `).all();
-  const paymentRows = db.prepare(`
-    SELECT payment_method AS method, COALESCE(SUM(total), 0) AS amount
-    FROM orders
-    WHERE status = 'completed' AND payment_status IN ('paid', 'completed') AND payment_method IS NOT NULL
-    GROUP BY payment_method
-    ORDER BY amount DESC
-  `).all();
+  const paymentRows = getSettledPaymentTotals();
   const expenseRows = db.prepare(`
     SELECT category, COALESCE(SUM(amount), 0) AS amount
     FROM business_expenses
@@ -487,7 +481,7 @@ function getFinancialReport(type) {
   const expenses = db.prepare("SELECT expense_date, category, description, supplier, amount, payment_method, status FROM business_expenses WHERE status NOT IN ('rejected', 'deleted') ORDER BY expense_date DESC").all();
   const payroll = db.prepare('SELECT pay_period, staff_name, basic_pay, overtime, allowances, deductions, net_pay, status FROM payroll_records ORDER BY pay_period DESC').all();
   const inventory = db.prepare('SELECT name, sku, category, quantity, unit, unit_cost, quantity * unit_cost AS value, supplier, expiry_date FROM inventory ORDER BY value DESC').all();
-  const payments = db.prepare("SELECT payment_method AS method, COUNT(*) AS orders, COALESCE(SUM(total), 0) AS amount, SUM(CASE WHEN payment_status IN ('paid', 'completed') THEN 1 ELSE 0 END) AS paid_orders FROM orders WHERE status != 'cancelled' AND payment_method IS NOT NULL GROUP BY payment_method ORDER BY amount DESC").all();
+  const payments = getSettledPaymentTotals();
   const orderPerformance = db.prepare("SELECT status, order_type, order_source, COUNT(*) AS orders, COALESCE(SUM(total), 0) AS revenue FROM orders GROUP BY status, order_type, order_source ORDER BY revenue DESC").all();
   const expenseTotal = expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const payrollTotal = payroll.reduce((sum, item) => sum + Number(item.net_pay || 0), 0);
@@ -513,6 +507,48 @@ function getFinancialReport(type) {
     orders: { title: 'Order Performance', columns: ['status', 'order_type', 'order_source', 'orders', 'revenue'], rows: orderPerformance },
   };
   return reports[type] || reports.sales;
+}
+
+function getSettledPaymentTotals() {
+  return db.prepare(`
+    WITH settled_tenders AS (
+      SELECT p.order_id,
+        CASE
+          WHEN lower(p.payment_method) = 'cash' OR lower(p.payment_method) LIKE 'cash_%' THEN 'cash'
+          WHEN lower(p.payment_method) LIKE 'lipa_namba%' OR lower(p.payment_method) IN
+            ('mobile', 'mobile_money', 'mpesa', 'm-pesa', 'mixx', 'tigopesa', 'airtel_money', 'halopesa')
+            THEN 'lipa_namba'
+          ELSE lower(p.payment_method)
+        END AS method,
+        p.amount
+      FROM payments p
+      JOIN orders o ON o.id = p.order_id
+      WHERE p.status IN ('paid', 'completed') AND o.status != 'cancelled'
+
+      UNION ALL
+
+      SELECT o.id AS order_id,
+        CASE
+          WHEN lower(o.payment_method) = 'cash' OR lower(o.payment_method) LIKE 'cash_%' THEN 'cash'
+          WHEN lower(o.payment_method) LIKE 'lipa_namba%' OR lower(o.payment_method) IN
+            ('mobile', 'mobile_money', 'mpesa', 'm-pesa', 'mixx', 'tigopesa', 'airtel_money', 'halopesa')
+            THEN 'lipa_namba'
+          ELSE lower(o.payment_method)
+        END AS method,
+        o.total AS amount
+      FROM orders o
+      WHERE o.status != 'cancelled'
+        AND o.payment_status IN ('paid', 'completed')
+        AND o.payment_method IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)
+    )
+    SELECT method, COUNT(DISTINCT order_id) AS orders,
+      COUNT(DISTINCT order_id) AS paid_orders, COALESCE(SUM(amount), 0) AS amount
+    FROM settled_tenders
+    WHERE method IS NOT NULL AND method != ''
+    GROUP BY method
+    ORDER BY amount DESC
+  `).all();
 }
 
 router.get('/reports/data', authMiddleware, (req, res) => {

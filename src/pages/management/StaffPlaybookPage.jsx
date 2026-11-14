@@ -563,7 +563,7 @@ export default function StaffPlaybookPage() {
 
               <Card className="min-w-0 p-4 sm:p-5">
                 <h2 className="mb-3 font-display font-bold">Payment reconciliation · TZS</h2>
-                <p className="mb-3 text-xs text-surface-on-variant">Expected sales are calculated from settled cash and Lipa Namba payments recorded against this shift, including split table-tab payments. Two staff members must independently count each channel. Your count stays hidden from the other person until both counts are submitted, and a mismatch is logged without blocking the next shift.</p>
+                <p className="mb-3 text-xs text-surface-on-variant">Expected cash and Lipa Namba sales load automatically from settled POS payments recorded against this shift, including split table-tab payments. Enter the cash physically counted and the Lipa Namba statement total. Two staff members count independently; each count stays hidden until both are submitted, and mismatches are logged without blocking the next shift.</p>
                 {Object.entries(handover.reconciliation || {}).some(([key, row]) => key !== 'cashFloat' && row.actual !== '' && Number(row.actual) < Number(row.expected || 0)) && (
                   <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
                     <ShieldAlert size={15} className="mt-0.5 shrink-0" />
@@ -576,7 +576,7 @@ export default function StaffPlaybookPage() {
                       <tr className="border-b border-outline-variant text-surface-on-variant">
                         <th className="py-2">Payment channel</th>
                         <th className="py-2">Expected sales total</th>
-                        <th className="py-2">Actual count</th>
+                        <th className="py-2">Actual cash / account count</th>
                         <th className="py-2">Variance</th>
                         <th className="py-2">Notes</th>
                         <th className="py-2">Independent check</th>

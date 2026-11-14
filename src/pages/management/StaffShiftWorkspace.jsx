@@ -284,14 +284,19 @@ export default function StaffShiftWorkspace() {
   const checklistTasks = visiblePhases.flatMap((phase) => phase.tasks);
   const completedTasks = checklistTasks.filter((task) => task.completed).length;
   const reconciliationRows = Object.entries(handover?.reconciliation || {});
+  const paymentChannelLabels = { cashFloat: 'Cash float', cashSales: 'Cash takings', mobileMoney: 'Lipa Namba', nfc: 'NFC' };
   const shortfalls = reconciliationRows.filter(([key, row]) => key !== 'cashFloat' && row.actual !== '' && Number(row.actual) < Number(row.expected || 0));
   const inventoryCounts = handover?.inventoryCounts || [];
   const inventoryDiscrepancies = inventoryCounts.filter((row) => row.confirmationStatus === 'mismatch');
   const availableInventoryItems = inventoryItems.filter((item) => !inventoryCounts.some((row) => (
     Number(row.inventoryId) === Number(item.id) || inventoryName(row) === inventoryName(item)
   )));
-  const expectedTotal = reconciliationRows.filter(([key]) => key !== 'cashFloat').reduce((sum, [, row]) => sum + (Number(row.expected) || 0), 0);
-  const actualTotal = reconciliationRows.filter(([key, row]) => key !== 'cashFloat' && row.actual !== '').reduce((sum, [, row]) => sum + (Number(row.actual) || 0), 0);
+  const paymentSummaries = ['cashSales', 'mobileMoney', 'nfc'].map((key) => {
+    const row = handover?.reconciliation?.[key] || {};
+    const expected = Number(row.expected) || 0;
+    const actual = row.actual === '' || row.actual == null ? null : Number(row.actual) || 0;
+    return { key, label: paymentChannelLabels[key], expected, actual };
+  });
   const schedule = workspace.active
     ? { start: workspace.active.scheduled_start_time, end: workspace.active.scheduled_end_time }
     : { start: workspace.shift?.start, end: workspace.shift?.end };
@@ -353,13 +358,21 @@ export default function StaffShiftWorkspace() {
 
       <form onSubmit={saveHandover} className="space-y-4">
         <Card className="min-w-0 p-4 sm:p-5">
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-primary">Till close · TZS</p><h2 className="mt-1 font-display font-bold">Payment reconciliation</h2><p className="mt-1 text-xs text-surface-on-variant">Expected amounts pull from paid POS transactions for staff assigned to this shift. Cash float is counted separately.</p></div><CircleDollarSign size={20} className="text-primary" /></div>
-          {shortfalls.length > 0 && <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900"><ShieldAlert size={15} className="mt-0.5 shrink-0" /><span>{shortfalls.map(([key]) => key.replace(/([A-Z])/g, ' $1')).join(', ')} is below the expected POS total. Recount the till and add a handover note.</span></div>}
-          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3"><div className="rounded-lg bg-surface-container-low p-3"><p className="text-[10px] font-bold uppercase text-surface-on-variant">Expected takings</p><p className="mt-1 text-sm font-bold">{expectedTotal.toLocaleString()} TZS</p></div><div className="rounded-lg bg-surface-container-low p-3"><p className="text-[10px] font-bold uppercase text-surface-on-variant">Counted</p><p className="mt-1 text-sm font-bold">{actualTotal.toLocaleString()} TZS</p></div><div className="col-span-2 rounded-lg bg-surface-container-low p-3 sm:col-span-1"><p className="text-[10px] font-bold uppercase text-surface-on-variant">Variance</p><p className={`mt-1 text-sm font-bold ${actualTotal >= expectedTotal ? 'text-success' : 'text-error'}`}>{(actualTotal - expectedTotal).toLocaleString()} TZS</p></div></div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-xs"><thead><tr className="border-b border-outline-variant text-surface-on-variant"><th className="py-2">Payment channel</th><th className="py-2">Expected POS total</th><th className="py-2">Actual count</th><th className="py-2">Variance</th><th className="py-2">Notes</th></tr></thead><tbody>{reconciliationRows.map(([key, row]) => {
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-primary">Till close · TZS</p><h2 className="mt-1 font-display font-bold">Payment reconciliation</h2><p className="mt-1 text-xs text-surface-on-variant">Expected cash and Lipa Namba totals load automatically from settled POS payments for this shift, including split table-tab payments. Enter the cash physically counted and the Lipa Namba statement total; cash float is separate.</p></div><CircleDollarSign size={20} className="text-primary" /></div>
+          {shortfalls.length > 0 && <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900"><ShieldAlert size={15} className="mt-0.5 shrink-0" /><span>{shortfalls.map(([key]) => paymentChannelLabels[key] || key.replace(/([A-Z])/g, ' $1')).join(', ')} is below the expected POS total. Recount the till and add a handover note.</span></div>}
+          <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{paymentSummaries.map(({ key, label, expected, actual }) => {
+            const variance = actual === null ? null : actual - expected;
+            return <div key={key} className="rounded-lg bg-surface-container-low p-3" aria-label={`Expected ${label} summary`}>
+              <p className="text-[10px] font-bold uppercase text-surface-on-variant">Expected {label}</p>
+              <p className="mt-1 text-sm font-bold">{expected.toLocaleString()} TZS</p>
+              <p className="mt-1 text-[11px] text-surface-on-variant">Counted: {actual === null ? '—' : `${actual.toLocaleString()} TZS`}</p>
+              <p className={`mt-1 text-[11px] font-semibold ${variance === null ? 'text-surface-on-variant' : variance === 0 ? 'text-success' : 'text-error'}`}>Variance: {variance === null ? '—' : `${variance.toLocaleString()} TZS`}</p>
+            </div>;
+          })}</div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-xs"><thead><tr className="border-b border-outline-variant text-surface-on-variant"><th className="py-2">Payment channel</th><th className="py-2">Expected POS total</th><th className="py-2">Actual cash / account count</th><th className="py-2">Variance</th><th className="py-2">Notes</th></tr></thead><tbody>{reconciliationRows.map(([key, row]) => {
             const expected = Number(row.expected) || 0;
             const actual = Number(row.actual) || 0;
-            return <tr key={key} className="border-b border-outline-variant/50"><td className="py-2 font-semibold capitalize">{key.replace(/([A-Z])/g, ' $1')}</td><td className="py-2"><input aria-label={`Expected POS total for ${key}`} type="number" min="0" step="1" value={row.expected ?? ''} onChange={(event) => updateReconciliation(key, 'expected', event.target.value)} className="input-field w-36" /></td><td className="py-2"><input aria-label={`Actual count for ${key}`} type="number" min="0" step="1" value={row.actual ?? ''} onChange={(event) => updateReconciliation(key, 'actual', event.target.value)} className="input-field w-32" /></td><td className={`py-2 font-bold ${row.actual === '' ? '' : actual - expected === 0 ? 'text-success' : 'text-error'}`}>{row.actual === '' ? '—' : `${(actual - expected).toLocaleString()} TZS`}</td><td className="py-2"><input aria-label={`Notes for ${key}`} value={row.notes || ''} onChange={(event) => updateReconciliation(key, 'notes', event.target.value)} className="input-field min-w-24" /></td></tr>;
+            return <tr key={key} className="border-b border-outline-variant/50"><td className="py-2 font-semibold capitalize">{paymentChannelLabels[key] || key.replace(/([A-Z])/g, ' $1')}</td><td className="py-2">{key === 'cashFloat' ? <input aria-label={`Expected cash float for ${key}`} type="number" min="0" step="1" value={row.expected ?? ''} onChange={(event) => updateReconciliation(key, 'expected', event.target.value)} className="input-field w-36" /> : <span aria-label={`Auto-calculated expected POS total for ${paymentChannelLabels[key] || key}`} className="font-semibold">{expected.toLocaleString()} TZS</span>}</td><td className="py-2"><input aria-label={`Actual ${key === 'cashSales' ? 'cash takings counted' : key === 'mobileMoney' ? 'Lipa Namba statement total' : 'count'} for ${paymentChannelLabels[key] || key}`} type="number" min="0" step="1" value={row.actual ?? ''} onChange={(event) => updateReconciliation(key, 'actual', event.target.value)} className="input-field w-32" /></td><td className={`py-2 font-bold ${row.actual === '' ? '' : actual - expected === 0 ? 'text-success' : 'text-error'}`}>{row.actual === '' ? '—' : `${(actual - expected).toLocaleString()} TZS`}</td><td className="py-2"><input aria-label={`Notes for ${paymentChannelLabels[key] || key}`} value={row.notes || ''} onChange={(event) => updateReconciliation(key, 'notes', event.target.value)} className="input-field min-w-24" /></td></tr>;
           })}</tbody></table></div>
         </Card>
 
