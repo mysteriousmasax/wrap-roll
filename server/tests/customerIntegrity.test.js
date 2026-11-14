@@ -111,6 +111,10 @@ test('updateCustomerContact updates saved contact details and rejects duplicates
   const duplicate = updateCustomerContact(db, firstId, { phone: '0713 456 789' });
   assert.equal(duplicate.ok, false);
   assert.match(duplicate.error, /already uses/);
+  const nameless = updateCustomerContact(db, firstId, { name: '', phone: '+255710111222', email: 'alice@example.com' });
+  assert.equal(nameless.ok, true);
+  assert.equal(nameless.customer.name, '');
+  assert.equal(updateCustomerContact(db, firstId, { name: '', phone: '', email: '' }).ok, false);
   assert.equal(updateCustomerContact(db, 999, { name: 'Missing' }).ok, false);
   assert.equal(db.prepare('SELECT name FROM customers WHERE id = ?').get(secondId).name, 'Benson Peter');
 });
@@ -131,6 +135,10 @@ test('createCustomerContact normalizes fields and rejects duplicate contacts', (
   assert.equal(created.ok, true);
   const saved = db.prepare('SELECT name, phone, email FROM customers WHERE id = ?').get(created.customerId);
   assert.deepEqual(saved, { name: 'Alice Jones', phone: '+255712345678', email: 'alice@example.com' });
+  const nameless = createCustomerContact(db, { phone: '+255 714 567 890' });
+  assert.equal(nameless.ok, true);
+  assert.equal(db.prepare('SELECT name, phone, email FROM customers WHERE id = ?').get(nameless.customerId).name, '');
+  assert.equal(createCustomerContact(db, {}).status, 400);
   assert.equal(createCustomerContact(db, { name: 'Duplicate', phone: '0712 345 678' }).status, 409);
   assert.equal(createCustomerContact(db, { name: 'Invalid', email: 'not-an-email' }).status, 400);
   db.close();

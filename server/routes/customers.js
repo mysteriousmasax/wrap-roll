@@ -146,7 +146,7 @@ export function updateCustomerContact(targetDb = db, customerId, input = {}) {
   const name = String(input.name ?? current.name).trim();
   const phone = normalizeTanzanianPhone(input.phone ?? current.phone ?? '');
   const email = String(input.email ?? current.email ?? '').trim().toLowerCase();
-  if (!name) return { ok: false, error: 'Customer name is required' };
+  if (!phone && !email) return { ok: false, error: 'Add a phone number or email address to identify this customer' };
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Enter a valid email address' };
 
   const duplicate = findDuplicateCustomerContact(targetDb, current.id, email, phone);
@@ -169,7 +169,7 @@ export function createCustomerContact(targetDb = db, input = {}) {
   const name = String(input.name || '').trim();
   const phone = normalizeTanzanianPhone(input.phone || '');
   const email = String(input.email || '').trim().toLowerCase();
-  if (!name) return { ok: false, status: 400, error: 'Name required' };
+  if (!phone && !email) return { ok: false, status: 400, error: 'Add a phone number or email address to identify this customer' };
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, status: 400, error: 'Enter a valid email address' };
   if (findDuplicateCustomerContact(targetDb, null, email, phone)) {
     return { ok: false, status: 409, error: 'A customer already uses that email or phone number' };

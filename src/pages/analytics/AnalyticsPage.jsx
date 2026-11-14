@@ -222,6 +222,7 @@ export default function AnalyticsPage() {
   const pettyCashTotal = summary?.operational?.pettyCashTotal ?? pettyCashRows.reduce((sum, row) => sum + (Number(row.rate) || 0) * (Number(row.quantity) || 0), 0);
   const dailySalesTotal = summary?.operational?.dailySalesTotal ?? salesSummaryRows.reduce((sum, row) => sum + (Number(row.quantity) || 0) * (Number(row.price) || 0), 0);
   const ingredientUsage = summary?.operational?.ingredientUsage || [];
+  const ingredientUsageWarnings = summary?.operational?.ingredientUsageWarnings || [];
   const dailyStockRows = ['morning', 'evening'].flatMap((shift) => {
     const handover = shiftHandovers[shift];
     return handover?.id || handover?.updated_at ? (handover.inventoryCounts || []) : [];
@@ -730,6 +731,18 @@ export default function AnalyticsPage() {
               </table>
             </div>
           ) : <p className="text-xs text-[#746e67]">No fulfilled orders recorded for this date.</p>}
+          {ingredientUsageWarnings.length > 0 && (
+            <div role="alert" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+              <p className="font-bold">Some recipe usage could not be calculated because its unit does not match inventory.</p>
+              <ul className="mt-1 list-inside list-disc">
+                {ingredientUsageWarnings.map((warning) => (
+                  <li key={`${warning.inventoryId}-${warning.recipeUnit}-${warning.stockUnit}`}>
+                    {warning.menuItem}: {warning.ingredient} uses {warning.recipeUnit || 'unspecified units'} in the recipe; stock is measured in {warning.stockUnit || 'unspecified units'}. Review the recipe units.
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Card>
 
         <div className="flex items-end justify-between gap-4">
@@ -748,4 +761,3 @@ export default function AnalyticsPage() {
     </div>
   );
 }
-

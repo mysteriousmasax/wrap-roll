@@ -75,8 +75,24 @@ export async function initDatabase() {
       x REAL DEFAULT 0,
       y REAL DEFAULT 0,
       current_order_id TEXT,
-      reservation TEXT
+      reservation TEXT,
+      current_tab_id TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS dine_in_tabs (
+      id TEXT PRIMARY KEY,
+      table_number INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      customer_name TEXT,
+      customer_phone TEXT,
+      customer_email TEXT,
+      opened_at TEXT NOT NULL,
+      closed_at TEXT,
+      closed_by TEXT,
+      FOREIGN KEY (table_number) REFERENCES tables(number)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_one_open_dine_in_tab_per_table
+      ON dine_in_tabs(table_number) WHERE status = 'open';
 
     CREATE TABLE IF NOT EXISTS customers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,6 +126,14 @@ export async function initDatabase() {
       tin TEXT,
       billing_address TEXT,
       subtotal REAL NOT NULL,
+      discount_amount REAL NOT NULL DEFAULT 0,
+      manual_discount_amount REAL NOT NULL DEFAULT 0,
+      offer_discount_amount REAL NOT NULL DEFAULT 0,
+      discount_label TEXT,
+      discount_reason TEXT,
+      discount_source TEXT,
+      discount_offer_id TEXT,
+      discount_approved_by_user_id INTEGER,
       tax REAL NOT NULL,
       total REAL NOT NULL,
       currency TEXT NOT NULL DEFAULT 'TZS',
@@ -204,6 +228,7 @@ export async function initDatabase() {
       scheduled_end_time TEXT,
       late_minutes INTEGER DEFAULT 0,
       overtime_minutes INTEGER DEFAULT 0,
+      attendance_source TEXT,
       FOREIGN KEY (staff_id) REFERENCES staff(id)
     );
 
@@ -291,6 +316,18 @@ export async function initDatabase() {
       UNIQUE(shift_date, shift)
     );
 
+    CREATE TABLE IF NOT EXISTS shift_payment_reconciliation_counts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      shift_date TEXT NOT NULL,
+      shift TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      actual_amount REAL NOT NULL,
+      notes TEXT DEFAULT '',
+      submitted_at TEXT NOT NULL,
+      UNIQUE(shift_date, shift, channel, user_id)
+    );
+
     CREATE TABLE IF NOT EXISTS training_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       staff_name TEXT NOT NULL,
@@ -359,6 +396,35 @@ export async function initDatabase() {
 
     CREATE INDEX IF NOT EXISTS idx_inventory_audit_item ON inventory_audit(inventory_id, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS inventory_purchase_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      inventory_id INTEGER,
+      item_name TEXT NOT NULL,
+      item_sku TEXT,
+      supplier TEXT,
+      receipt_ref TEXT,
+      purchase_date TEXT NOT NULL,
+      purchase_quantity REAL NOT NULL,
+      purchase_unit TEXT NOT NULL,
+      unit_cost_purchase REAL NOT NULL,
+      quantity_base REAL NOT NULL,
+      base_unit TEXT NOT NULL,
+      unit_cost_base REAL NOT NULL,
+      total_cost REAL NOT NULL,
+      previous_average_cost REAL NOT NULL,
+      new_average_cost REAL NOT NULL,
+      source TEXT NOT NULL DEFAULT 'receipt',
+      received_by_id INTEGER,
+      received_by_name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (inventory_id) REFERENCES inventory(id) ON DELETE SET NULL,
+      FOREIGN KEY (received_by_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_inventory_purchase_history_item
+      ON inventory_purchase_history(inventory_id, purchase_date DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_inventory_purchase_history_sku
+      ON inventory_purchase_history(item_sku, purchase_date DESC);
+
     CREATE TABLE IF NOT EXISTS orders (
       id TEXT PRIMARY KEY,
       order_number TEXT,
@@ -387,6 +453,7 @@ export async function initDatabase() {
       reservation_status TEXT NOT NULL DEFAULT 'none',
       payment_terms TEXT NOT NULL DEFAULT 'prepaid',
       scheduled_release_at TEXT,
+      dine_in_tab_id TEXT,
       kitchen_released_at TEXT,
       fulfillment_effects_applied_at TEXT,
       customer_value_applied_at TEXT,
@@ -828,6 +895,7 @@ export async function initDatabase() {
       payment_method TEXT NOT NULL DEFAULT 'lipa_namba',
       amount REAL NOT NULL,
       currency TEXT DEFAULT 'TZS',
+      received_by_user_id INTEGER,
       transaction_id TEXT,
       sender_phone TEXT,
       sender_name TEXT,
@@ -852,9 +920,36 @@ export async function initDatabase() {
       status TEXT DEFAULT 'pending',
       requested_at TEXT NOT NULL,
       processed_at TEXT,
+      requested_by_user_id INTEGER,
+      approved_by_user_id INTEGER,
+      processed_by_user_id INTEGER,
+      payout_method TEXT,
+      payout_reference TEXT,
+      approval_notes TEXT,
       FOREIGN KEY (payment_id) REFERENCES payments(id),
       FOREIGN KEY (order_id) REFERENCES orders(id)
     );
+
+    CREATE TABLE IF NOT EXISTS promotions (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      code TEXT,
+      discount_type TEXT NOT NULL CHECK (discount_type IN ('percentage', 'fixed', 'buy_x_get_y')),
+      discount_value REAL NOT NULL DEFAULT 0,
+      minimum_subtotal REAL NOT NULL DEFAULT 0,
+      eligible_menu_item_ids TEXT NOT NULL DEFAULT '[]',
+      qualifying_quantity INTEGER NOT NULL DEFAULT 2,
+      reward_quantity INTEGER NOT NULL DEFAULT 1,
+      starts_at TEXT,
+      ends_at TEXT,
+      max_uses INTEGER,
+      use_count INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_by_user_id INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_promotions_code ON promotions(code) WHERE code IS NOT NULL;
   `);
 
   const inventoryColumns = [
@@ -864,6 +959,9 @@ export async function initDatabase() {
     ['front_sandwich', 'REAL DEFAULT 0'],
     ['front_pizza', 'REAL DEFAULT 0'],
     ['front_burger', 'REAL DEFAULT 0'],
+    ['purchase_unit', "TEXT DEFAULT ''"],
+    ['purchase_unit_factor', 'REAL DEFAULT 1'],
+    ['purchase_unit_cost', 'REAL DEFAULT 0'],
   ];
   const ensureInventoryColumns = (targetDb) => {
     const existingInventoryColumns = new Set(targetDb.prepare('PRAGMA table_info(inventory)').all().map((column) => column.name));
@@ -1036,6 +1134,9 @@ function migrateSchema(db) {
     ['front_sandwich', 'REAL DEFAULT 0'],
     ['front_pizza', 'REAL DEFAULT 0'],
     ['front_burger', 'REAL DEFAULT 0'],
+    ['purchase_unit', "TEXT DEFAULT ''"],
+    ['purchase_unit_factor', 'REAL DEFAULT 1'],
+    ['purchase_unit_cost', 'REAL DEFAULT 0'],
   ];
   const ensureInventoryColumns = (targetDb) => {
     const existingInventoryColumns = new Set(targetDb.prepare('PRAGMA table_info(inventory)').all().map((column) => column.name));
@@ -1112,7 +1213,7 @@ function migrateSchema(db) {
   if (!shiftCols.some((col) => col.name === 'clock_out_longitude')) db.exec('ALTER TABLE shift_logs ADD COLUMN clock_out_longitude REAL');
   if (!shiftCols.some((col) => col.name === 'started_at')) db.exec('ALTER TABLE shift_logs ADD COLUMN started_at TEXT');
   if (!shiftCols.some((col) => col.name === 'ended_at')) db.exec('ALTER TABLE shift_logs ADD COLUMN ended_at TEXT');
-  for (const [column, type] of [['scheduled_start_time', 'TEXT'], ['scheduled_end_time', 'TEXT'], ['late_minutes', 'INTEGER DEFAULT 0'], ['overtime_minutes', 'INTEGER DEFAULT 0']]) {
+  for (const [column, type] of [['scheduled_start_time', 'TEXT'], ['scheduled_end_time', 'TEXT'], ['late_minutes', 'INTEGER DEFAULT 0'], ['overtime_minutes', 'INTEGER DEFAULT 0'], ['attendance_source', 'TEXT']]) {
     if (!shiftCols.some((col) => col.name === column)) db.exec(`ALTER TABLE shift_logs ADD COLUMN ${column} ${type}`);
   }
   const taskCols = db.prepare('PRAGMA table_info(staff_tasks)').all();
@@ -1163,6 +1264,21 @@ function migrateSchema(db) {
   if (!tableCols.some((col) => col.name === 'image_url')) db.exec('ALTER TABLE tables ADD COLUMN image_url TEXT');
   if (!tableCols.some((col) => col.name === 'zone')) db.exec('ALTER TABLE tables ADD COLUMN zone TEXT');
   if (!tableCols.some((col) => col.name === 'note')) db.exec('ALTER TABLE tables ADD COLUMN note TEXT');
+  if (!tableCols.some((col) => col.name === 'current_tab_id')) db.exec('ALTER TABLE tables ADD COLUMN current_tab_id TEXT');
+  db.exec(`CREATE TABLE IF NOT EXISTS dine_in_tabs (
+    id TEXT PRIMARY KEY,
+    table_number INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    customer_name TEXT,
+    customer_phone TEXT,
+    customer_email TEXT,
+    opened_at TEXT NOT NULL,
+    closed_at TEXT,
+    closed_by TEXT,
+    FOREIGN KEY (table_number) REFERENCES tables(number)
+  )`);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_one_open_dine_in_tab_per_table
+    ON dine_in_tabs(table_number) WHERE status = 'open'`);
   const chatConversationCols = db.prepare('PRAGMA table_info(chat_conversations)').all();
   if (!chatConversationCols.some((col) => col.name === 'customer_phone')) db.exec('ALTER TABLE chat_conversations ADD COLUMN customer_phone TEXT');
   if (!chatConversationCols.some((col) => col.name === 'customer_email')) db.exec('ALTER TABLE chat_conversations ADD COLUMN customer_email TEXT');
@@ -1265,9 +1381,25 @@ function migrateSchema(db) {
   if (!orderCols.some((c) => c.name === 'reservation_status')) db.exec("ALTER TABLE orders ADD COLUMN reservation_status TEXT NOT NULL DEFAULT 'none'");
   if (!orderCols.some((c) => c.name === 'payment_terms')) db.exec("ALTER TABLE orders ADD COLUMN payment_terms TEXT NOT NULL DEFAULT 'prepaid'");
   if (!orderCols.some((c) => c.name === 'scheduled_release_at')) db.exec('ALTER TABLE orders ADD COLUMN scheduled_release_at TEXT');
+  if (!orderCols.some((c) => c.name === 'dine_in_tab_id')) db.exec('ALTER TABLE orders ADD COLUMN dine_in_tab_id TEXT');
   if (!orderCols.some((c) => c.name === 'kitchen_released_at')) db.exec('ALTER TABLE orders ADD COLUMN kitchen_released_at TEXT');
   if (!orderCols.some((c) => c.name === 'fulfillment_effects_applied_at')) db.exec('ALTER TABLE orders ADD COLUMN fulfillment_effects_applied_at TEXT');
   if (!orderCols.some((c) => c.name === 'customer_value_applied_at')) db.exec('ALTER TABLE orders ADD COLUMN customer_value_applied_at TEXT');
+  if (!orderCols.some((c) => c.name === 'discount_amount')) db.exec('ALTER TABLE orders ADD COLUMN discount_amount REAL NOT NULL DEFAULT 0');
+  if (!orderCols.some((c) => c.name === 'manual_discount_amount')) db.exec('ALTER TABLE orders ADD COLUMN manual_discount_amount REAL NOT NULL DEFAULT 0');
+  if (!orderCols.some((c) => c.name === 'offer_discount_amount')) db.exec('ALTER TABLE orders ADD COLUMN offer_discount_amount REAL NOT NULL DEFAULT 0');
+  if (!orderCols.some((c) => c.name === 'discount_label')) db.exec('ALTER TABLE orders ADD COLUMN discount_label TEXT');
+  if (!orderCols.some((c) => c.name === 'discount_reason')) db.exec('ALTER TABLE orders ADD COLUMN discount_reason TEXT');
+  if (!orderCols.some((c) => c.name === 'discount_source')) db.exec('ALTER TABLE orders ADD COLUMN discount_source TEXT');
+  if (!orderCols.some((c) => c.name === 'discount_offer_id')) db.exec('ALTER TABLE orders ADD COLUMN discount_offer_id TEXT');
+  if (!orderCols.some((c) => c.name === 'discount_approved_by_user_id')) db.exec('ALTER TABLE orders ADD COLUMN discount_approved_by_user_id INTEGER');
+  const refundCols = db.prepare('PRAGMA table_info(refunds)').all();
+  if (!refundCols.some((c) => c.name === 'requested_by_user_id')) db.exec('ALTER TABLE refunds ADD COLUMN requested_by_user_id INTEGER');
+  if (!refundCols.some((c) => c.name === 'approved_by_user_id')) db.exec('ALTER TABLE refunds ADD COLUMN approved_by_user_id INTEGER');
+  if (!refundCols.some((c) => c.name === 'processed_by_user_id')) db.exec('ALTER TABLE refunds ADD COLUMN processed_by_user_id INTEGER');
+  if (!refundCols.some((c) => c.name === 'payout_method')) db.exec('ALTER TABLE refunds ADD COLUMN payout_method TEXT');
+  if (!refundCols.some((c) => c.name === 'payout_reference')) db.exec('ALTER TABLE refunds ADD COLUMN payout_reference TEXT');
+  if (!refundCols.some((c) => c.name === 'approval_notes')) db.exec('ALTER TABLE refunds ADD COLUMN approval_notes TEXT');
   const orderItemMigrationCols = db.prepare('PRAGMA table_info(order_items)').all();
   if (!orderItemMigrationCols.some((c) => c.name === 'ingredients')) db.exec("ALTER TABLE order_items ADD COLUMN ingredients TEXT DEFAULT '[]'");
 
@@ -1279,6 +1411,7 @@ function migrateSchema(db) {
     if (!paymentCols.some((c) => c.name === 'payment_method')) db.exec("ALTER TABLE payments ADD COLUMN payment_method TEXT DEFAULT 'lipa_namba'");
     if (!paymentCols.some((c) => c.name === 'amount')) db.exec('ALTER TABLE payments ADD COLUMN amount REAL DEFAULT 0');
     if (!paymentCols.some((c) => c.name === 'currency')) db.exec("ALTER TABLE payments ADD COLUMN currency TEXT DEFAULT 'TZS'");
+    if (!paymentCols.some((c) => c.name === 'received_by_user_id')) db.exec('ALTER TABLE payments ADD COLUMN received_by_user_id INTEGER');
     if (!paymentCols.some((c) => c.name === 'transaction_id')) db.exec('ALTER TABLE payments ADD COLUMN transaction_id TEXT');
     if (!paymentCols.some((c) => c.name === 'sender_phone')) db.exec('ALTER TABLE payments ADD COLUMN sender_phone TEXT');
     if (!paymentCols.some((c) => c.name === 'sender_name')) db.exec('ALTER TABLE payments ADD COLUMN sender_name TEXT');

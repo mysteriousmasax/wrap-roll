@@ -33,6 +33,13 @@ function mapStaff(row) {
 
 function today() { return restaurantTime().date; }
 
+function recordedClockTime(value, timestamp) {
+  if (value) return value;
+  if (!timestamp) return null;
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? null : restaurantTime(date).time;
+}
+
 function applyClockAction(staff, action, latitude, longitude, shiftOverride = '') {
   if (!['in', 'out'].includes(action)) throw new Error('Choose clock in or clock out.');
   const now = new Date();
@@ -48,8 +55,8 @@ function applyClockAction(staff, action, latitude, longitude, shiftOverride = ''
       db.prepare('UPDATE staff SET status = ?, clock_in = ? WHERE id = ?').run('on-clock', local.time, staff.id);
       db.prepare(`INSERT INTO shift_logs
         (staff_id, staff_name, shift_date, start_time, status, notes, clock_in_latitude, clock_in_longitude, started_at,
-          scheduled_start_time, scheduled_end_time, late_minutes, overtime_minutes)
-        VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, 0)`)
+          scheduled_start_time, scheduled_end_time, late_minutes, overtime_minutes, attendance_source)
+        VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, 0, 'clock')`)
         .run(staff.id, staff.name, local.date, local.time, schedule.label, location.latitude, location.longitude, now.toISOString(), schedule.start || null, schedule.end || null, late);
     })();
     return { action: 'clock_in', lateMinutes: late, schedule };
@@ -75,10 +82,10 @@ function getLinkedStaff(userId) {
 
 function buildShiftWorkspace(staff) {
   const date = today();
-  const attendance = db.prepare('SELECT * FROM shift_logs WHERE staff_id = ? AND shift_date = ? ORDER BY id DESC').all(staff.id, date);
-  const history = db.prepare('SELECT * FROM shift_logs WHERE staff_id = ? AND shift_date >= date(?, \'-30 days\') ORDER BY shift_date DESC, id DESC').all(staff.id, date);
+  const attendance = db.prepare("SELECT * FROM shift_logs WHERE staff_id = ? AND shift_date = ? AND attendance_source = 'clock' ORDER BY id DESC").all(staff.id, date);
+  const history = db.prepare("SELECT * FROM shift_logs WHERE staff_id = ? AND shift_date >= date(?, '-30 days') AND attendance_source = 'clock' ORDER BY shift_date DESC, id DESC").all(staff.id, date);
   const completed = history.filter((row) => row.status === 'completed');
-  const active = db.prepare("SELECT * FROM shift_logs WHERE staff_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1").get(staff.id) || null;
+  const active = db.prepare("SELECT * FROM shift_logs WHERE staff_id = ? AND status = 'active' AND attendance_source = 'clock' ORDER BY id DESC LIMIT 1").get(staff.id) || null;
   const now = restaurantTime();
   const activeStartedAt = active?.started_at ? new Date(active.started_at) : null;
   const activeHours = activeStartedAt && !Number.isNaN(activeStartedAt.getTime())
@@ -140,10 +147,24 @@ function activityForStaff(staffId, userId) {
 
 function mapTrackingStaff(row) {
   const mapped = mapStaff(row);
-  const shift = db.prepare("SELECT * FROM shift_logs WHERE staff_id = ? AND shift_date = ? ORDER BY id DESC LIMIT 1").get(row.id, today());
+  const shift = db.prepare(`SELECT * FROM shift_logs
+    WHERE staff_id = ? AND attendance_source = 'clock' AND (shift_date = ? OR status = 'active')
+    ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, id DESC LIMIT 1`).get(row.id, today());
   return {
     ...mapped,
-    attendance: shift ? { id: shift.id, shift: shift.notes || row.shift, date: shift.shift_date, login: shift.start_time, logout: shift.end_time, hours: shift.hours_worked, status: shift.status } : null,
+    attendance: shift ? {
+      id: shift.id,
+      shift: shift.notes || row.shift,
+      date: shift.shift_date,
+      login: recordedClockTime(shift.start_time, shift.started_at),
+      logout: recordedClockTime(shift.end_time, shift.ended_at),
+      hours: shift.hours_worked,
+      status: shift.status,
+      scheduledStart: shift.scheduled_start_time || '',
+      scheduledEnd: shift.scheduled_end_time || '',
+      lateMinutes: Number(shift.late_minutes || 0),
+      overtimeMinutes: Number(shift.overtime_minutes || 0),
+    } : null,
     activity: activityForStaff(row.id, row.user_id),
   };
 }
@@ -157,11 +178,30 @@ router.get('/roles', authMiddleware, requireRole('admin'), (_req, res) => {
 });
 
 router.get('/tracking', authMiddleware, (req, res) => {
+  const currentTime = restaurantTime();
   const staff = db.prepare("SELECT staff.*, users.username, users.email FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.status != 'removed' ORDER BY CASE WHEN lower(staff.shift) LIKE '%morning%' THEN 0 ELSE 1 END, staff.name").all();
-  const attendance = db.prepare('SELECT shift_logs.*, staff.shift AS assigned_shift FROM shift_logs INNER JOIN staff ON staff.id = shift_logs.staff_id WHERE shift_logs.shift_date >= date(\'now\', \'-14 days\') ORDER BY shift_logs.shift_date DESC, shift_logs.start_time DESC').all();
+  const attendance = db.prepare("SELECT shift_logs.*, staff.shift AS assigned_shift FROM shift_logs INNER JOIN staff ON staff.id = shift_logs.staff_id WHERE shift_logs.shift_date >= date('now', '-14 days') AND shift_logs.attendance_source = 'clock' ORDER BY shift_logs.shift_date DESC, shift_logs.start_time DESC").all();
   res.json({
+    serverDate: currentTime.date,
+    serverMinuteOfDay: timeMinutes(currentTime.time),
     staff: staff.map(mapTrackingStaff),
-    attendance: attendance.map((row) => ({ id: row.id, staffId: row.staff_id, staffName: row.staff_name, assignedShift: row.assigned_shift, date: row.shift_date, login: row.start_time, logout: row.end_time, hours: row.hours_worked, status: row.status, scheduledStart: row.scheduled_start_time, scheduledEnd: row.scheduled_end_time, lateMinutes: Number(row.late_minutes || 0), overtimeMinutes: Number(row.overtime_minutes || 0), clockInLocation: row.clock_in_latitude != null ? { latitude: row.clock_in_latitude, longitude: row.clock_in_longitude } : null, clockOutLocation: row.clock_out_latitude != null ? { latitude: row.clock_out_latitude, longitude: row.clock_out_longitude } : null })),
+    attendance: attendance.map((row) => ({
+      id: row.id,
+      staffId: row.staff_id,
+      staffName: row.staff_name,
+      assignedShift: row.assigned_shift,
+      date: row.shift_date,
+      login: recordedClockTime(row.start_time, row.started_at),
+      logout: recordedClockTime(row.end_time, row.ended_at),
+      hours: row.hours_worked,
+      status: row.status,
+      scheduledStart: row.scheduled_start_time,
+      scheduledEnd: row.scheduled_end_time,
+      lateMinutes: Number(row.late_minutes || 0),
+      overtimeMinutes: Number(row.overtime_minutes || 0),
+      clockInLocation: row.clock_in_latitude != null ? { latitude: row.clock_in_latitude, longitude: row.clock_in_longitude } : null,
+      clockOutLocation: row.clock_out_latitude != null ? { latitude: row.clock_out_latitude, longitude: row.clock_out_longitude } : null,
+    })),
     tasks: db.prepare("SELECT staff_tasks.*, staff.name AS staff_name FROM staff_tasks INNER JOIN staff ON staff.id = staff_tasks.staff_id WHERE staff_tasks.status NOT IN ('completed', 'approved', 'rejected') ORDER BY due_date IS NULL, due_date ASC").all().map((row) => ({ id: row.id, staffId: row.staff_id, staffName: row.staff_name, title: row.title, type: row.task_type || 'task', payload: JSON.parse(row.task_payload || '{}'), status: row.status, dueDate: row.due_date })),
   });
 });
@@ -205,7 +245,7 @@ router.patch('/me/tasks/:id', authMiddleware, (req, res) => {
 });
 
 router.patch('/attendance/:id', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
-  const entry = db.prepare('SELECT * FROM shift_logs WHERE id = ?').get(req.params.id);
+  const entry = db.prepare("SELECT * FROM shift_logs WHERE id = ? AND attendance_source = 'clock'").get(req.params.id);
   if (!entry) return res.status(404).json({ error: 'Attendance entry not found.' });
   const startMinutes = timeMinutes(req.body?.startTime);
   const endMinutes = timeMinutes(req.body?.endTime);

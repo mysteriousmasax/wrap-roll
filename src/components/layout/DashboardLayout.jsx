@@ -26,7 +26,7 @@ const pageTitles = {
   '/management/menu': 'Menu Editor',
   '/management/operations': 'Operations Hub',
   '/staff-playbook': 'My Shift',
-  '/management/reports': 'Financial Reports',
+  '/management/reports': 'Compliance & Reports',
   '/assistant': 'Gemini Assistant',
   '/management/people': 'People & HR',
   '/management/loyalty': 'Loyalty Items',

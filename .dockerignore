@@ -1,8 +1,16 @@
 node_modules
 server/node_modules
+.node
 dist
 .git
 .env
 .env.local
 .env.production
 *.log
+*.db
+*.db-shm
+*.db-wal
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*

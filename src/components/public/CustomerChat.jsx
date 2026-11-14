@@ -206,11 +206,11 @@ export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', 
       phone: normalizeTanzanianPhone(profileForm.phone),
       email: profileForm.email.trim().toLowerCase(),
     };
-    if (!nextProfile.name || (!nextProfile.phone && !nextProfile.email)) {
-      setProfileError('Enter your name and either a phone number or email address to start chatting.');
+    if (!nextProfile.phone && !nextProfile.email) {
+      setProfileError('Enter either a phone number or email address so we can identify and contact you.');
       return;
     }
-    if (!/^\S+@\S+\.\S+$/.test(nextProfile.email)) {
+    if (nextProfile.email && !/^\S+@\S+\.\S+$/.test(nextProfile.email)) {
       setProfileError('Enter a valid email address.');
       return;
     }
@@ -228,14 +228,14 @@ export default function CustomerChat({ t, cartItems = [], deliveryAddress = '', 
       {open && <aside ref={panelRef} className="customer-chat-panel" aria-label={t('chatTitle')}>
         <header><div><strong>{t('chatTitle')}</strong><span>Online</span></div><button onClick={() => setOpen(false)} aria-label="Close chat"><X size={18} /></button></header>
         {!hasProfile ? <form className="customer-chat-profile" onSubmit={saveProfile}>
-          <div><strong>Start your chat</strong><p>Tell us who you are so we can help with your order and contact you about it.</p></div>
+          <div><strong>Start your chat</strong><p>Add a phone number or email so we can help with your order. Your name is optional.</p></div>
           {profileError && <p className="customer-chat-profile-error">{profileError}</p>}
-          <label>Full name<input required value={profileForm.name} onChange={(event) => setProfileForm({ ...profileForm, name: event.target.value })} placeholder="e.g. Rachel F" /></label>
+          <label>Full name (optional)<input value={profileForm.name} onChange={(event) => setProfileForm({ ...profileForm, name: event.target.value })} placeholder="e.g. Rachel F" /></label>
           <label>Phone number (optional)<input type="tel" value={profileForm.phone} onChange={(event) => setProfileForm({ ...profileForm, phone: event.target.value })} onBlur={(event) => setProfileForm((current) => ({ ...current, phone: normalizeTanzanianPhone(event.target.value) }))} placeholder="e.g. 0712 345 678" /></label>
           <label>Email address (optional)<input type="email" value={profileForm.email} onChange={(event) => setProfileForm({ ...profileForm, email: event.target.value })} placeholder="you@example.com" /></label>
           <button type="submit">Continue to chat <Send size={14} /></button>
         </form> : <>
-          <div className="customer-chat-profile-summary"><strong>{profile.name}</strong><span>{profile.phone} · {profile.email}</span></div>
+          <div className="customer-chat-profile-summary"><strong>{profile.name || 'Customer'}</strong><span>{[profile.phone, profile.email].filter(Boolean).join(' · ')}</span></div>
           <div className="customer-chat-messages">{messages.map((message, index) => <div key={message.id || index} className={message.from === 'customer' ? 'customer-message' : 'agent-message'}>{renderMessage(message)}</div>)}</div>
           <div className="customer-chat-quick">{quickReplies.map(([labelKey]) => <button key={labelKey} onClick={() => sendMessage(t(labelKey))}>{t(labelKey)}</button>)}</div>
           {pendingImage && <div className="customer-chat-image-preview"><img src={pendingImage.url} alt="Selected upload preview" /><div><strong>{pendingImage.name}</strong><span>Add a caption or send this image</span></div><button type="button" onClick={() => setPendingImage(null)} aria-label="Remove image"><X size={15} /></button></div>}

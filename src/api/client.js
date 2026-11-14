@@ -84,6 +84,12 @@ export const api = {
   updateCustomerOrderTracking: (id, token, data) => request(`/orders/tracking/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'X-Order-Tracking-Token': token }, body: JSON.stringify(data) }),
   getPublicOrder: (idOrRef, phone) => request(`/orders/public/${encodeURIComponent(idOrRef)}${phone ? `?phone=${encodeURIComponent(phone)}` : ''}`),
   createOrder: (data) => request('/orders', { method: 'POST', body: JSON.stringify(data) }),
+  getAvailableOffers: () => request('/orders/offers/available'),
+  getOffers: () => request('/orders/offers'),
+  createOffer: (data) => request('/orders/offers', { method: 'POST', body: JSON.stringify(data) }),
+  updateOffer: (id, data) => request(`/orders/offers/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  requestRefund: (id, data) => request(`/orders/${encodeURIComponent(id)}/refunds`, { method: 'POST', body: JSON.stringify(data) }),
+  reviewRefund: (id, refundId, data) => request(`/orders/${encodeURIComponent(id)}/refunds/${encodeURIComponent(refundId)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   createPublicOrder: (data) => request('/orders/public', { method: 'POST', body: JSON.stringify(data) }),
   getReservations: () => request('/orders/reservations'),
   updateReservation: (id, data) => request(`/orders/${encodeURIComponent(id)}/reservation`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -105,6 +111,7 @@ export const api = {
   sendOrderInvoice: (id, email) => request(`/orders/${encodeURIComponent(id)}/send-invoice`, { method: 'POST', body: JSON.stringify(email ? { email } : {}) }),
   deleteOrder: (id) => request(`/orders/${id}`, { method: 'DELETE' }),
   getDeletionAudit: () => request('/business/deletion-audit'),
+  getComplianceReports: (month) => request(`/analytics/reports/compliance/data?month=${encodeURIComponent(month.slice(5, 7))}&year=${encodeURIComponent(month.slice(0, 4))}`),
   printReceipt: (order) => request('/printer/receipt', { method: 'POST', body: JSON.stringify(order) }),
   printTestReceipt: () => request('/printer/test', { method: 'POST' }),
   createPrinterPairingCode: () => request('/printer/agent/pairing-code', { method: 'POST' }),
@@ -132,6 +139,9 @@ export const api = {
 
   getTables: () => request('/tables'),
   getPublicTable: (tagId) => request(`/tables/public/${encodeURIComponent(tagId)}`),
+  getTableTab: (id) => request(`/tables/${encodeURIComponent(id)}/tab`),
+  updateTableTabCustomer: (id, data) => request(`/tables/${encodeURIComponent(id)}/tab/customer`, { method: 'PATCH', body: JSON.stringify(data) }),
+  recordTablePayments: (id, payments) => request(`/tables/${encodeURIComponent(id)}/payments`, { method: 'POST', body: JSON.stringify({ payments }) }),
   createTable: (data) => request('/tables', { method: 'POST', body: JSON.stringify(data) }),
   updateTable: (id, data) => request(`/tables/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
@@ -232,6 +242,7 @@ export const api = {
   updateInventoryStorageLocation: (id, data) => request(`/inventory/storage-locations/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteInventoryStorageLocation: (id) => request(`/inventory/storage-locations/${id}`, { method: 'DELETE' }),
   getInventoryAudit: (id) => request(`/inventory/${id}/audit`),
+  getInventoryPurchaseHistory: (id) => request(`/inventory/${id}/purchase-history`),
   adjustInventory: (id, data) => request(`/inventory/${id}/adjust`, { method: 'POST', body: JSON.stringify(data) }),
   lookupTraReceipt: (url) => request('/inventory/receipt-qr', { method: 'POST', body: JSON.stringify({ url }) }),
   createInventory: (data) => request('/inventory', { method: 'POST', body: JSON.stringify(data) }),
@@ -273,6 +284,7 @@ export const api = {
     const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `wrap-roll-analytics-${range}.${format}`;
     return { blob: await response.blob(), filename };
   },
+  getAnalyticsExportPreview: (range, date) => request(`/analytics/export/preview?range=${encodeURIComponent(range)}&date=${encodeURIComponent(date)}`),
   getOrdersByDay: (date) => request(`/analytics/orders-by-day${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   getOperationalSummary: (type, date) => request(`/analytics/operational-summary/${encodeURIComponent(type)}/${encodeURIComponent(date)}`),
   saveOperationalSummary: (type, date, payload) => request(`/analytics/operational-summary/${encodeURIComponent(type)}/${encodeURIComponent(date)}`, { method: 'PUT', body: JSON.stringify({ payload }) }),

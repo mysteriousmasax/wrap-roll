@@ -36,6 +36,9 @@ export function printReceipt(order) {
   const items = (order.items || [])
     .map((i) => `<tr><td>${i.qty}x ${i.name}</td><td align="right">${formatCurrency(i.price * i.qty)}</td></tr>`)
     .join('');
+  const discountAmount = Number(order.discountAmount || order.discount_amount || 0);
+  const discountLabel = order.discountLabel || order.discount_label || 'Discount';
+  const discountReason = order.discountReason || order.discount_reason || '';
   win.document.write(`
     <html><head><title>Receipt ${order.id}</title>
     <style>body{font-family:monospace;padding:20px;font-size:12px}table{width:100%}h2{text-align:center}</style></head>
@@ -48,6 +51,7 @@ export function printReceipt(order) {
       <table>${items}</table>
       <hr/>
       <p>Subtotal: ${formatCurrency(order.subtotal || 0)}</p>
+      ${discountAmount > 0 ? `<p>${discountLabel}: -${formatCurrency(discountAmount)}</p>${discountReason ? `<p>Discount reason: ${discountReason}</p>` : ''}` : ''}
       <p>Tax: ${formatCurrency(order.tax || 0)}</p>
       <p><strong>Total: ${formatCurrency(order.total || 0)}</strong></p>
       <p>Payment: ${order.paymentMethod || order.method || ''}</p>
@@ -74,7 +78,10 @@ export function printInvoice(invoice, printWindow = null) {
   if (!win) return;
   const customer = invoice.customer || {};
   const items = (invoice.items || []).map((item) => `<tr><td>${item.qty}x ${item.name}</td><td align="right">${formatCurrency(item.price * item.qty, invoice.order?.currency || 'TZS')}</td></tr>`).join('');
-  win.document.write(`<html><head><title>${invoice.invoiceNumber}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#24211e}header{display:flex;justify-content:space-between;border-bottom:2px solid #ae002a;padding-bottom:16px}table{width:100%;border-collapse:collapse;margin:24px 0}td{padding:8px 0;border-bottom:1px solid #eee}h1{color:#ae002a}footer{margin-top:40px;font-size:12px;color:#746e67}</style></head><body><header><div><img src="https://wrapandrolltz.com/wrap-roll-logo-lockup-transparent.png" alt="Wrap &amp; Roll" style="display:block;width:190px;max-width:100%;height:auto;margin-bottom:12px"><p>Invoice ${invoice.invoiceNumber}</p></div><div><strong>${customer.customerType === 'company' ? customer.companyName || customer.name : customer.name}</strong><p>${customer.tin ? `TIN: ${customer.tin}<br>` : ''}${customer.billingAddress || customer.address || ''}</p></div></header><p>Order: ${invoice.order?.order_number || invoice.order?.id || ''}</p><table>${items}</table><p>Subtotal: ${formatCurrency(invoice.order?.subtotal || 0)}</p><p>Tax: ${formatCurrency(invoice.order?.tax || 0)}</p><h2>Total: ${formatCurrency(invoice.order?.total || 0)}</h2><footer>Issued ${new Date(invoice.createdAt).toLocaleString()}</footer><script>window.print()</script></body></html>`);
+  const discountAmount = Number(invoice.order?.discount_amount || invoice.order?.discountAmount || 0);
+  const discountLabel = invoice.order?.discount_label || invoice.order?.discountLabel || 'Discount';
+  const discountReason = invoice.order?.discount_reason || invoice.order?.discountReason || '';
+  win.document.write(`<html><head><title>${invoice.invoiceNumber}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#24211e}header{display:flex;justify-content:space-between;border-bottom:2px solid #ae002a;padding-bottom:16px}table{width:100%;border-collapse:collapse;margin:24px 0}td{padding:8px 0;border-bottom:1px solid #eee}h1{color:#ae002a}footer{margin-top:40px;font-size:12px;color:#746e67}</style></head><body><header><div><img src="https://wrapandrolltz.com/wrap-roll-logo-lockup-transparent.png" alt="Wrap &amp; Roll" style="display:block;width:190px;max-width:100%;height:auto;margin-bottom:12px"><p>Invoice ${invoice.invoiceNumber}</p></div><div><strong>${customer.customerType === 'company' ? customer.companyName || customer.name : customer.name}</strong><p>${customer.tin ? `TIN: ${customer.tin}<br>` : ''}${customer.billingAddress || customer.address || ''}</p></div></header><p>Order: ${invoice.order?.order_number || invoice.order?.id || ''}</p><table>${items}</table><p>Subtotal: ${formatCurrency(invoice.order?.subtotal || 0)}</p>${discountAmount > 0 ? `<p>${discountLabel}: -${formatCurrency(discountAmount)}</p>${discountReason ? `<p>Discount reason: ${discountReason}</p>` : ''}` : ''}<p>Tax: ${formatCurrency(invoice.order?.tax || 0)}</p><h2>Total: ${formatCurrency(invoice.order?.total || 0)}</h2><footer>Issued ${new Date(invoice.createdAt).toLocaleString()}</footer><script>window.print()</script></body></html>`);
   win.document.close();
 }
 
@@ -104,7 +111,10 @@ export function printFiscalInvoice(order, settings = {}, printWindow = null) {
     customerTin ? `Customer TIN: ${customerTin}` : '',
     billingAddress ? `Billing: ${billingAddress}` : '',
   ].filter(Boolean).join(' · '));
-  const taxMarkup = showTax ? `<p>SUBTOTAL: ${formatCurrency(total - tax, settings.currency || 'TZS')}</p><p>TAX (${taxRate}%): ${formatCurrency(tax, settings.currency || 'TZS')}</p>` : '';
+  const discountAmount = Number(order.discountAmount || order.discount_amount || 0);
+  const discountLabel = esc(order.discountLabel || order.discount_label || 'Discount');
+  const discountReason = esc(order.discountReason || order.discount_reason || '');
+  const taxMarkup = `${showTax ? `<p>SUBTOTAL: ${formatCurrency(order.subtotal ?? total - tax + discountAmount, settings.currency || 'TZS')}</p>` : ''}${discountAmount > 0 ? `<p>${discountLabel.toUpperCase()}: -${formatCurrency(discountAmount, settings.currency || 'TZS')}</p>${discountReason ? `<p>REASON: ${discountReason}</p>` : ''}` : ''}${showTax ? `<p>TAX (${taxRate}%): ${formatCurrency(tax, settings.currency || 'TZS')}</p>` : ''}`;
   win.document.write(`<html><head><title>${invoiceTitle} ${esc(order.id || '')}</title><style>@page{size:58mm auto;margin:0}*{box-sizing:border-box}body{width:58mm;margin:0;padding:3mm 2.5mm;font-family:Arial,sans-serif;font-size:10px;color:#111}h1,h2,p{margin:0}h1{font-size:13px;text-align:center;margin-bottom:2px}h2{font-size:11px;text-align:center;margin:5px 0}p{line-height:1.35}.center{text-align:center}.rule{border-top:1px dashed #111;margin:6px 0}table{width:100%;border-collapse:collapse}th{text-align:left;border-bottom:1px solid #111;padding-bottom:3px}th:last-child,td:last-child{text-align:right;vertical-align:top}td{padding:3px 0;vertical-align:top;word-break:break-word}.total{font-weight:700;font-size:12px}.small{font-size:9px}</style></head><body><h2>${invoiceTitle}</h2><h1>${esc(settings.restaurant_name || 'Wrap & Roll')}</h1><p class="center">${esc(settings.branch_location || '')}</p><p class="center">TEL: ${esc(settings.phone || '')}</p><p class="center">TIN: ${esc(settings.tax_id || 'Not configured')}</p><div class="rule"></div><p>CUSTOMER NAME: ${esc(customer.name || order.customerName || order.customer_name || 'Walk-in customer')}</p><p>CUSTOMER MOBILE: ${esc(customer.phone || order.customerPhone || order.customer_phone || '')}</p><div class="rule"></div><p>INVOICE NUMBER: ${esc(order.invoiceNumber || order.invoice_number || order.orderNumber || order.order_number || order.id || '')}</p><p>DATE: ${new Date(order.paidAt || order.paid_at || Date.now()).toLocaleDateString('en-CA')} TIME: ${new Date(order.paidAt || order.paid_at || Date.now()).toLocaleTimeString('en-GB')}</p><div class="rule"></div><table><thead><tr><th>DESCRIPTION QTY</th><th>AMOUNT</th></tr></thead><tbody>${items}</tbody></table><div class="rule"></div>${taxMarkup}<p class="total">TOTAL: ${formatCurrency(total, settings.currency || 'TZS')}</p><p>PAYMENT: ${esc(order.paymentMethod || order.payment_method || 'Mobile money')}</p><p class="center small">${invoiceFooter}</p><h2>END OF ${invoiceTitle}</h2><script>window.print();</script></body></html>`);
   win.document.close();
   return true;

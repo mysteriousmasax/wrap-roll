@@ -17,6 +17,7 @@ import { restaurantDateBounds, restaurantTime } from '../utils/localTime.js';
 import { generateOfflineAgentReply, generateOperationsReport, generateStaffAssistantReply } from '../utils/gemini.js';
 import { aiProvider, recordAiActivity } from '../utils/aiActivity.js';
 import { broadcast } from '../ws.js';
+import { getStockUnitConversionFactor } from '../../src/utils/stockUnits.js';
 
 const router = Router();
 const logoPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public/wrap-roll-logo-lockup-transparent.png');
@@ -123,6 +124,7 @@ function getIngredientUsage(reportDate) {
     WHERE substr(o.fulfillment_effects_applied_at, 1, 10) = ?
   `).all(reportDate);
   const usage = new Map();
+  const usageWarnings = new Map();
 
   for (const orderItem of fulfilledItems) {
     for (const ingredient of parseJson(orderItem.ingredients, [])) {
@@ -138,13 +140,28 @@ function getIngredientUsage(reportDate) {
         inventoryItem = db.prepare('SELECT id, name, unit FROM inventory WHERE lower(trim(name)) = lower(trim(?)) ORDER BY id DESC LIMIT 1').get(name);
       }
       if (!inventoryItem) continue;
+      const conversionFactor = getStockUnitConversionFactor(ingredient.unit || inventoryItem.unit, inventoryItem.unit);
+      if (conversionFactor === null) {
+        const warningKey = `${inventoryItem.id}:${ingredient.unit || ''}:${inventoryItem.unit || ''}`;
+        usageWarnings.set(warningKey, {
+          inventoryId: inventoryItem.id,
+          ingredient: inventoryItem.name,
+          menuItem: orderItem.menuItem,
+          recipeUnit: ingredient.unit || '',
+          stockUnit: inventoryItem.unit || '',
+        });
+        continue;
+      }
       const row = usage.get(inventoryItem.id) || { inventoryId: inventoryItem.id, ingredient: inventoryItem.name, unit: inventoryItem.unit || ingredient.unit || '', quantity: 0 };
-      row.quantity += amount;
+      row.quantity += amount * conversionFactor;
       usage.set(inventoryItem.id, row);
     }
   }
 
-  return [...usage.values()].sort((left, right) => left.ingredient.localeCompare(right.ingredient));
+  return {
+    rows: [...usage.values()].sort((left, right) => left.ingredient.localeCompare(right.ingredient)),
+    warnings: [...usageWarnings.values()].sort((left, right) => left.ingredient.localeCompare(right.ingredient)),
+  };
 }
 
 function getOperationalSummaries(requestedDate = '') {
@@ -182,6 +199,7 @@ function getOperationalSummaries(requestedDate = '') {
   const pettyRows = parseSaved(savedPetty)?.rows;
   const stockRows = db.prepare("SELECT inventory_counts_json FROM shift_handover_records WHERE shift_date = ?").all(reportDate).flatMap((row) => parseJson(row.inventory_counts_json, []));
   const stockSummary = parseSaved(savedStock) || calculateDailyStockSummary(stockRows, { inventory: db.prepare('SELECT name, unit_cost FROM inventory WHERE deleted_at IS NULL').all() });
+  const ingredientUsage = getIngredientUsage(reportDate);
   const liveDailyRows = dailySales.map((row, index) => {
     const modifiers = parseJson(row.modifiers, []).map((modifier) => typeof modifier === 'string' ? modifier : modifier.name).filter(Boolean);
     return {
@@ -201,7 +219,8 @@ function getOperationalSummaries(requestedDate = '') {
   return {
     pettyCash: pettyRows || pettyCash.map((row, index) => ({ id: row.id, item: row.item, rate: Number(row.total || 0), quantity: 1, total: Number(row.total || 0), date: row.date, remarks: row.remarks || row.paymentMethod || 'Cash expense', checkedBy: row.created_by || 'System', rowNumber: index + 1 })),
     dailySales: liveDailyRows,
-    ingredientUsage: getIngredientUsage(reportDate),
+    ingredientUsage: ingredientUsage.rows,
+    ingredientUsageWarnings: ingredientUsage.warnings,
     dailyStock: stockSummary,
     pettyCashTotal: (pettyRows || pettyCash).reduce((sum, row) => sum + (Number(row.total) || (Number(row.rate) || 0) * (Number(row.quantity) || 0)), 0),
     dailySalesTotal: liveDailyRows.reduce((sum, row) => sum + Number(row.total || 0), 0),
@@ -388,6 +407,22 @@ router.get('/reports', authMiddleware, (req, res) => {
   const periodPayroll = (month) => Number(db.prepare("SELECT COALESCE(SUM(net_pay), 0) AS amount FROM payroll_records WHERE substr(pay_period, 1, 7) = ?").get(month).amount || 0);
   const currentPeriodRevenue = periodRevenue(currentMonth);
   const previousPeriodRevenue = periodRevenue(previousMonth);
+  const discountTotals = db.prepare(`SELECT COALESCE(SUM(subtotal), 0) AS gross_sales,
+      COALESCE(SUM(manual_discount_amount), 0) AS manual_discounts,
+      COALESCE(SUM(offer_discount_amount), 0) AS offer_discounts
+    FROM orders WHERE status = 'completed' AND payment_status IN ('paid', 'completed')
+      AND substr(created_at, 1, 7) = ?`).get(currentMonth);
+  const refundsTotal = Number(db.prepare(`SELECT COALESCE(SUM(r.amount), 0) AS amount FROM refunds r
+    JOIN orders o ON o.id = r.order_id WHERE r.status = 'processed'
+      AND substr(r.processed_at, 1, 7) = ?`).get(currentMonth).amount || 0);
+  const financialAdjustments = {
+    period: currentMonth,
+    grossSales: Number(discountTotals.gross_sales || 0),
+    offerDiscounts: Number(discountTotals.offer_discounts || 0),
+    manualDiscounts: Number(discountTotals.manual_discounts || 0),
+    refunds: refundsTotal,
+    netSales: currentPeriodRevenue - refundsTotal,
+  };
   const currentPeriodProfit = currentPeriodRevenue - periodExpenses(currentMonth) - periodPayroll(currentMonth);
   const previousPeriodProfit = previousPeriodRevenue - periodExpenses(previousMonth) - periodPayroll(previousMonth);
   const changePercent = (current, previous) => previous ? Number((((current - previous) / previous) * 100).toFixed(1)) : null;
@@ -403,6 +438,8 @@ router.get('/reports', authMiddleware, (req, res) => {
       { id: 'payroll', label: 'Payroll and labor' },
       { id: 'inventory', label: 'Inventory valuation' },
       { id: 'orders', label: 'Order performance' },
+      { id: 'discounts', label: 'Offer and manager discounts' },
+      { id: 'refunds', label: 'Refunds and reversals' },
     ],
     exportFormats: [
       { id: 'csv', label: 'CSV' },
@@ -415,6 +452,7 @@ router.get('/reports', authMiddleware, (req, res) => {
     ],
     salesData,
     totalRevenue,
+    financialAdjustments,
     totalProfit,
     profitMargin: totalRevenue ? ((totalProfit / totalRevenue) * 100).toFixed(1) : 0,
     taxRate: vatRate,
@@ -484,6 +522,122 @@ router.get('/reports/data', authMiddleware, (req, res) => {
   res.json(getFinancialReport(type));
 });
 
+router.get('/reports/compliance/data', authMiddleware, (req, res) => {
+  const today = restaurantTime().date;
+  const [currentYear, currentMonth] = today.split('-');
+  const year = String(req.query.year || currentYear);
+  const month = String(req.query.month || currentMonth);
+  if (!/^\d{4}$/.test(year) || Number(year) < 2000 || Number(year) > 9998 || !/^(0[1-9]|1[0-2])$/.test(month)) {
+    return res.status(400).json({ error: 'A valid report year and month are required.' });
+  }
+
+  const settledOrders = (start, end) => db.prepare(`
+    SELECT orders.id, orders.order_number, orders.customer_name, orders.created_at, orders.total, orders.tax,
+           orders.payment_method, orders.payment_status,
+           (SELECT COALESCE(SUM(order_items.qty), 0) FROM order_items WHERE order_items.order_id = orders.id) AS item_count
+    FROM orders
+    WHERE orders.status = 'completed'
+      AND orders.payment_status IN ('paid', 'completed')
+      AND orders.created_at >= ? AND orders.created_at < ?
+    ORDER BY orders.created_at DESC
+  `).all(start, end);
+
+  const dailySummary = (date, orders) => {
+    const matching = orders.filter((order) => restaurantTime(new Date(order.created_at)).date === date);
+    return {
+      date,
+      receipts: matching.length,
+      gross: matching.reduce((sum, order) => sum + Number(order.total || 0), 0),
+      orderTax: matching.reduce((sum, order) => sum + Number(order.tax || 0), 0),
+    };
+  };
+  const summarize = (orders) => ({
+    receipts: orders.length,
+    gross: orders.reduce((sum, order) => sum + Number(order.total || 0), 0),
+    orderTax: orders.reduce((sum, order) => sum + Number(order.tax || 0), 0),
+  });
+
+  const monthStartDate = `${year}-${month}-01`;
+  const monthStart = restaurantDateBounds(monthStartDate).start;
+  const nextMonthDate = new Date(Date.UTC(Number(year), Number(month), 1)).toISOString().slice(0, 10);
+  const monthEnd = restaurantDateBounds(nextMonthDate).start;
+  const monthOrders = settledOrders(monthStart, monthEnd);
+  const monthLastDay = new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate();
+  const monthDays = year === currentYear && month === currentMonth
+    ? new Date(`${today}T12:00:00Z`).getUTCDate()
+    : monthLastDay;
+  const monthRows = Array.from({ length: monthDays }, (_, index) => {
+    const date = `${year}-${month}-${String(index + 1).padStart(2, '0')}`;
+    return dailySummary(date, monthOrders);
+  });
+
+  const yearStart = restaurantDateBounds(`${year}-01-01`).start;
+  const nextYearStart = restaurantDateBounds(`${String(Number(year) + 1).padStart(4, '0')}-01-01`).start;
+  const yearOrders = settledOrders(yearStart, nextYearStart);
+  const yearRows = Array.from({ length: 12 }, (_, index) => {
+    const monthValue = String(index + 1).padStart(2, '0');
+    const matching = yearOrders.filter((order) => restaurantTime(new Date(order.created_at)).date.startsWith(`${year}-${monthValue}-`));
+    const distinctDays = new Set(matching.map((order) => restaurantTime(new Date(order.created_at)).date));
+    return {
+      month: `${year}-${monthValue}`,
+      ...summarize(matching),
+      daysWithSales: distinctDays.size,
+    };
+  });
+
+  const dailyDates = Array.from({ length: 14 }, (_, index) => {
+    const date = new Date(`${today}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() - (13 - index));
+    return date.toISOString().slice(0, 10);
+  });
+  const dailyStart = restaurantDateBounds(dailyDates[0]).start;
+  const dailyEnd = restaurantDateBounds(new Date(`${today}T12:00:00Z`).toISOString().slice(0, 10)).end;
+  const dailyOrders = settledOrders(dailyStart, dailyEnd);
+
+  const receipts = monthOrders.slice(0, 200).map((order) => ({
+    id: order.order_number || order.id,
+    orderId: order.id,
+    customer: order.customer_name || '',
+    date: order.created_at,
+    items: Number(order.item_count || 0),
+    gross: Number(order.total || 0),
+    orderTax: Number(order.tax || 0),
+    payment: order.payment_method || 'Not recorded',
+    paymentStatus: order.payment_status || 'Not recorded',
+    efdStatus: 'Not tracked',
+  }));
+  const auditRows = [
+    ...db.prepare(`SELECT 'order:' || order_events.id AS id, event_type AS action, status AS result, occurred_at AS time,
+                          COALESCE(users.name, 'System') AS user, COALESCE(users.role, 'system') AS userRole
+                   FROM order_events LEFT JOIN users ON users.id = order_events.actor_user_id
+                   ORDER BY order_events.occurred_at DESC LIMIT 100`).all(),
+    ...db.prepare(`SELECT 'inventory:' || id AS id, 'Inventory ' || action AS action, action AS result, created_at AS time,
+                          changed_by_name AS user, COALESCE(changed_by_role, 'unknown') AS userRole
+                   FROM inventory_audit ORDER BY created_at DESC LIMIT 100`).all(),
+    ...db.prepare(`SELECT 'deletion:' || deletion_audit.id AS id,
+                          'Deleted ' || deletion_audit.resource_type AS action, 'Recorded' AS result,
+                          deletion_audit.deleted_at AS time, deletion_audit.executed_by_name AS user,
+                          COALESCE(users.role, 'unknown') AS userRole
+                   FROM deletion_audit LEFT JOIN users ON users.id = deletion_audit.executed_by_id
+                   ORDER BY deletion_audit.deleted_at DESC LIMIT 100`).all(),
+  ].sort((left, right) => String(right.time).localeCompare(String(left.time))).slice(0, 100);
+  res.json({
+    today,
+    month: `${year}-${month}`,
+    year,
+    todaySummary: dailySummary(today, dailyOrders),
+    dailyRows: dailyDates.map((date) => dailySummary(date, dailyOrders)),
+    monthSummary: summarize(monthOrders),
+    monthRows,
+    yearSummary: summarize(yearOrders),
+    yearRows,
+    receipts,
+    auditRows,
+    vatTracked: false,
+    efdTracked: false,
+  });
+});
+
 function csvValue(value) {
   const text = String(value ?? '');
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -507,11 +661,12 @@ function pdfBuffer(report) {
     document.fontSize(9).fillColor('#666666').text(`Generated ${new Date().toISOString()}`, 40, 130);
     let y = 165;
     document.fontSize(8).fillColor('#292522');
-    report.columns.forEach((column, index) => document.text(column, 40 + index * 75, y, { width: 70 }));
+    const columnWidth = (document.page.width - 80) / Math.max(report.columns.length, 1);
+    report.columns.forEach((column, index) => document.text(column, 40 + index * columnWidth, y, { width: columnWidth - 4 }));
     y += 18;
     report.rows.forEach((row) => {
       if (y > 750) { document.addPage(); y = 45; }
-      report.columns.forEach((column, index) => document.text(String(row[column] ?? ''), 40 + index * 75, y, { width: 70, ellipsis: true }));
+      report.columns.forEach((column, index) => document.text(String(row[column] ?? ''), 40 + index * columnWidth, y, { width: columnWidth - 4, ellipsis: true }));
       y += 16;
     });
     document.end();
@@ -596,7 +751,10 @@ router.get('/reports/export', authMiddleware, async (req, res) => {
 router.get('/export', authMiddleware, async (req, res) => {
   const range = ['day', 'week', 'month'].includes(String(req.query.range)) ? String(req.query.range) : 'month';
   const format = ['csv', 'json', 'xlsx', 'docx', 'pdf'].includes(String(req.query.format).toLowerCase()) ? String(req.query.format).toLowerCase() : 'csv';
-  const requestedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : null;
+  const requestedDate = String(req.query.date || '');
+  if (requestedDate && (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate) || !Number.isFinite(Date.parse(`${requestedDate}T00:00:00Z`)) || new Date(`${requestedDate}T00:00:00Z`).toISOString().slice(0, 10) !== requestedDate)) {
+    return res.status(400).json({ error: 'Choose a valid report date.' });
+  }
 
   const report = buildAnalyticsExport(range, requestedDate);
   const dateSuffix = requestedDate ? `-${requestedDate}` : '';
@@ -617,28 +775,83 @@ router.get('/export', authMiddleware, async (req, res) => {
   res.type('text/csv').set('Content-Disposition', `attachment; filename="${filename}"`).send(csv);
 });
 
+router.get('/export/preview', authMiddleware, (req, res) => {
+  const range = String(req.query.range || 'day');
+  if (!['day', 'week', 'month'].includes(range)) return res.status(400).json({ error: 'Choose day, week, or month for the report range.' });
+  const requestedDate = String(req.query.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate) || !Number.isFinite(Date.parse(`${requestedDate}T00:00:00Z`)) || new Date(`${requestedDate}T00:00:00Z`).toISOString().slice(0, 10) !== requestedDate) {
+    return res.status(400).json({ error: 'Choose a valid report date.' });
+  }
+  res.json(buildAnalyticsExport(range, requestedDate));
+});
+
 // Build a { title, columns, rows } report for a range, optionally drilling into one
 // specific day to list every order placed that day (with ordering time).
 function buildAnalyticsExport(range, requestedDate) {
-  // Specific day: list all completed orders for that date with ordering time.
-  if (range === 'day' && requestedDate) {
+  if (requestedDate) {
+    let startDate = requestedDate;
+    let endDate = addBusinessDays(requestedDate, 1);
+    if (range === 'week') {
+      const selected = new Date(`${requestedDate}T00:00:00Z`);
+      selected.setUTCDate(selected.getUTCDate() - ((selected.getUTCDay() + 6) % 7));
+      startDate = selected.toISOString().slice(0, 10);
+      endDate = addBusinessDays(startDate, 7);
+    } else if (range === 'month') {
+      startDate = `${requestedDate.slice(0, 7)}-01`;
+      endDate = addBusinessMonths(startDate, 1);
+    }
+    const bounds = {
+      start: restaurantDateBounds(startDate).start,
+      end: restaurantDateBounds(endDate).start,
+    };
     const orders = db.prepare(`
-      SELECT id, created_at, order_type, order_source, payment_method, total
+      SELECT id, order_number, created_at, customer_name, order_type, order_source, payment_method, total, tax
       FROM orders
-      WHERE status = 'completed' AND payment_status IN ('paid', 'completed') AND substr(created_at, 1, 10) = ?
+      WHERE status = 'completed' AND payment_status IN ('paid', 'completed') AND created_at >= ? AND created_at < ?
       ORDER BY created_at ASC
-    `).all(requestedDate);
+    `).all(bounds.start, bounds.end);
+
+    if (range === 'day') {
     const rows = orders.map((order) => ({
-      order: order.id,
-      time: new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      order: order.order_number || order.id,
+      orderId: order.id,
+      time: restaurantTime(new Date(order.created_at)).time,
+      customer: order.customer_name || 'Walk-in guest',
       type: order.order_type || '',
       source: order.order_source || '',
       payment: order.payment_method || '',
       total: Number(order.total || 0),
+      orderTax: Number(order.tax || 0),
     }));
     const totalRevenue = rows.reduce((sum, row) => sum + row.total, 0);
-    rows.push({ order: 'TOTAL', time: '', type: '', source: '', payment: `${rows.length} orders`, total: totalRevenue });
-    return { title: `Sales for ${requestedDate}`, columns: ['order', 'time', 'type', 'source', 'payment', 'total'], rows };
+      rows.push({ order: 'TOTAL', orderId: '', time: '', customer: '', type: '', source: '', payment: `${rows.length} orders`, total: totalRevenue, orderTax: rows.reduce((sum, row) => sum + row.orderTax, 0) });
+      return { title: `Paid orders for ${requestedDate}`, columns: ['order', 'time', 'customer', 'type', 'source', 'payment', 'total', 'orderTax'], rows };
+    }
+
+    const grouped = new Map();
+    for (const order of orders) {
+      const day = restaurantTime(new Date(order.created_at)).date;
+      const row = grouped.get(day) || { period: day, revenue: 0, orders: 0, orderTax: 0 };
+      row.revenue += Number(order.total || 0);
+      row.orders += 1;
+      row.orderTax += Number(order.tax || 0);
+      grouped.set(day, row);
+    }
+    const rows = [];
+    for (let date = startDate; date < endDate; date = addBusinessDays(date, 1)) {
+      rows.push(grouped.get(date) || { period: date, revenue: 0, orders: 0, orderTax: 0 });
+    }
+    rows.push({
+      period: 'TOTAL',
+      revenue: rows.reduce((sum, row) => sum + row.revenue, 0),
+      orders: rows.reduce((sum, row) => sum + row.orders, 0),
+      orderTax: rows.reduce((sum, row) => sum + row.orderTax, 0),
+    });
+    return {
+      title: `${range === 'week' ? 'Weekly' : 'Monthly'} paid sales · ${startDate} to ${addBusinessDays(endDate, -1)}`,
+      columns: ['period', 'revenue', 'orders', 'orderTax'],
+      rows,
+    };
   }
 
   const series = getSeriesForRange(range);

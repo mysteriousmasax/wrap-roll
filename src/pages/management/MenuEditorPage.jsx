@@ -491,6 +491,7 @@ export default function MenuEditorPage() {
               + Add ingredient
             </button>
           </div>
+          <p className="mb-2 text-[10px] text-[#8c8278]">Enter recipe usage in the unit shown here. When it differs from inventory, supported weight and volume units convert automatically (for example 18 g from stock measured in kg).</p>
           <div className="space-y-2">
             {(form.ingredients || [makeIngredientRow()]).map((ingredient, index) => (
               <div key={index} className="grid grid-cols-[1.5fr_0.8fr_0.7fr_auto] gap-2 rounded-xl border border-[#ebdccb] bg-white p-2">
@@ -1313,4 +1314,3 @@ export default function MenuEditorPage() {
     </div>
   );
 }
-

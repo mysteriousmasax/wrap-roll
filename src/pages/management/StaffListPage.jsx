@@ -5,6 +5,7 @@ import Button from '../../components/ui/Button';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
+import ShiftProgressAvatar from '../../components/ShiftProgressAvatar';
 import { api, ApiError } from '../../api/client';
 import { normalizeUserRole } from '../../utils/roleAccess';
 import { Search, UserPlus, Phone, Clock, ShieldCheck, BriefcaseBusiness, Plus, Trash2 } from 'lucide-react';
@@ -112,16 +113,29 @@ export default function StaffListPage({ embedded = false }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [customRoles, setCustomRoles] = useState([]);
   const [shiftOptions, setShiftOptions] = useState(['Morning', 'Afternoon', 'Evening', 'Night']);
+  const [serverMinuteOfDay, setServerMinuteOfDay] = useState(null);
+  const [serverDate, setServerDate] = useState('');
+  const [loadError, setLoadError] = useState('');
 
-  const load = () => Promise.all([api.getStaff(), api.getSettings()]).then(([staff, settings]) => {
-    setStaffMembers(staff);
+  const loadTracking = () => api.getStaffTracking().then((tracking) => {
+    setStaffMembers(tracking.staff);
+    setServerMinuteOfDay(tracking.serverMinuteOfDay);
+    setServerDate(tracking.serverDate);
+    setLoadError('');
+  }).catch((error) => setLoadError(error.message || 'Unable to load attendance and shift status.'));
+
+  const load = () => Promise.all([loadTracking(), api.getSettings()]).then(([, settings]) => {
     try { setCustomRoles(JSON.parse(settings.custom_staff_roles || '[]')); } catch { setCustomRoles([]); }
     try {
       const shifts = JSON.parse(settings.shift_types || '[]');
       if (Array.isArray(shifts) && shifts.length) setShiftOptions(shifts);
     } catch {}
-  }).finally(() => setLoading(false));
-  useEffect(() => { load(); }, []);
+  }).catch((error) => setLoadError(error.message || 'Unable to load staff settings.')).finally(() => setLoading(false));
+  useEffect(() => {
+    load();
+    const timer = setInterval(loadTracking, 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleAdd = async () => {
     setFormError('');
@@ -209,6 +223,7 @@ export default function StaffListPage({ embedded = false }) {
         <div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={addRole}><Plus size={14} /> New Role</Button><Button size="sm" variant="secondary" onClick={addShift}><Plus size={14} /> New Shift</Button><Button size="sm" onClick={() => setShowAdd(true)}><UserPlus size={14} /> Add Staff</Button></div>
       } />}
       {embedded && <div className="mb-4 flex justify-end gap-2"><Button size="sm" variant="secondary" onClick={addRole}><Plus size={14} /> New Role</Button><Button size="sm" variant="secondary" onClick={addShift}><Plus size={14} /> New Shift</Button><Button size="sm" onClick={() => setShowAdd(true)}><UserPlus size={14} /> Add Staff</Button></div>}
+      {loadError && <p role="alert" className="mb-4 rounded-lg bg-error/10 p-3 text-sm text-error">{loadError}</p>}
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Card><p className="text-xs text-surface-on-variant uppercase font-semibold">Total Staff</p><p className="mt-1 text-2xl font-bold">{staffMembers.length}</p><p className="mt-1 text-[10px] text-surface-on-variant">Active team members</p></Card>
@@ -218,14 +233,12 @@ export default function StaffListPage({ embedded = false }) {
       </div>
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex gap-2 overflow-x-auto"><button onClick={() => setStatusFilter('all')} className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold ${statusFilter === 'all' ? 'bg-primary text-white' : 'bg-white text-surface-on'}`}>Everyone</button><button onClick={() => setStatusFilter('on-clock')} className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold ${statusFilter === 'on-clock' ? 'bg-success text-white' : 'bg-white text-surface-on'}`}>On clock</button><button onClick={() => setStatusFilter('off-clock')} className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold ${statusFilter === 'off-clock' ? 'bg-surface-on text-white' : 'bg-white text-surface-on'}`}>Off clock</button><button onClick={() => setStatusFilter('no-show')} className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold ${statusFilter === 'no-show' ? 'bg-error text-white' : 'bg-white text-surface-on'}`}>No show</button></div><div className="relative w-full sm:w-64"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search staff..." className="input-field pl-9" /></div></div>
+      <p className="mb-3 text-[10px] text-surface-on-variant">Avatar ring tracks scheduled shift progress: green on time · amber late/not clocked · purple overtime · blue completed.</p>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {visibleStaff.map((staff) => (
           <Card key={staff.id} className="staff-card flex flex-col gap-3">
-            <div className="flex min-w-0 items-start gap-3"><div className={'flex h-12 w-12 shrink-0 items-center justify-center rounded-full font-bold text-sm ' +
-              (staff.status === 'on-clock' ? 'bg-success/10 text-success ring-2 ring-success/30' : 'bg-surface-container text-surface-on-variant')}>
-              {staff.avatar}
-            </div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="truncate font-bold text-sm">{staff.name}</p><StatusBadge status={staff.status} /></div><p className="mt-0.5 flex items-center gap-1 text-xs capitalize text-surface-on-variant"><BriefcaseBusiness size={11} />{staff.role} · {staff.shift} Shift</p><p className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-primary"><ShieldCheck size={11} />Access configured</p></div></div>
-            <div className="flex items-center justify-between gap-2 border-t border-outline-variant/60 pt-3"><div className="min-w-0 text-xs text-surface-on-variant">{staff.clockIn && <p className="mb-1 flex items-center gap-1 font-semibold"><Clock size={11} />{staff.clockIn}</p>}<p className="flex items-center gap-1 truncate"><Phone size={10} />{staff.phone || 'No phone'}</p>{staff.email && <p className="mt-1 truncate text-[10px]">{staff.email}</p>}</div><div className="flex items-center gap-1"><Button variant="ghost" size="sm" onClick={() => openEdit(staff)}>Edit</Button><button type="button" onClick={() => removeStaff(staff)} className="rounded-lg p-2 text-error hover:bg-error/10" title="Remove staff"><Trash2 size={15} /></button></div></div>
+            <div className="flex min-w-0 items-start gap-3"><ShiftProgressAvatar staff={staff} currentMinute={serverMinuteOfDay} currentDate={serverDate} size={48} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="truncate font-bold text-sm">{staff.name}</p><StatusBadge status={staff.status} /></div><p className="mt-0.5 flex items-center gap-1 text-xs capitalize text-surface-on-variant"><BriefcaseBusiness size={11} />{staff.role} · {staff.shift} Shift</p><p className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-primary"><ShieldCheck size={11} />Access configured</p></div></div>
+            <div className="flex items-center justify-between gap-2 border-t border-outline-variant/60 pt-3"><div className="min-w-0 text-xs text-surface-on-variant"><p className="mb-1 flex items-center gap-1 font-semibold"><Clock size={11} />Clock in: {staff.attendance?.login || staff.clockIn || 'Not recorded today'}</p><p className="flex items-center gap-1 truncate"><Phone size={10} />{staff.phone || 'No phone'}</p>{staff.email && <p className="mt-1 truncate text-[10px]">{staff.email}</p>}</div><div className="flex items-center gap-1"><Button variant="ghost" size="sm" onClick={() => openEdit(staff)}>Edit</Button><button type="button" onClick={() => removeStaff(staff)} className="rounded-lg p-2 text-error hover:bg-error/10" title="Remove staff"><Trash2 size={15} /></button></div></div>
           </Card>
         ))}
       </div>

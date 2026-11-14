@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -22,6 +23,7 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency } from '../../utils/format';
 import useCartStore from '../../store/useCartStore';
 import useSettingsStore from '../../store/useSettingsStore';
+import useAuthStore from '../../store/useAuthStore';
 import ProductCard from '../../components/ui/ProductCard';
 import Button from '../../components/ui/Button';
 import InternalQrCode from '../../components/ui/InternalQrCode';
@@ -234,10 +236,20 @@ function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, 
     addItem,
     discountPercent,
     setDiscountPercent,
+    discountReason,
+    setDiscountReason,
+    promotion,
+    setPromotion,
+    approveStacking,
+    setApproveStacking,
     orderNotes,
     setOrderNotes,
   } = useCartStore();
   const taxRate = useSettingsStore((s) => s.settings.tax_rate);
+  const currentUser = useAuthStore((state) => state.currentUser);
+  const canApproveDiscount = ['admin', 'manager'].includes(currentUser?.role);
+  const [availableOffers, setAvailableOffers] = useState([]);
+  const [offerError, setOfferError] = useState('');
   const [showNotes, setShowNotes] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showHeldBills, setShowHeldBills] = useState(false);
@@ -249,6 +261,12 @@ function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, 
   const tax = getTax();
   const total = getTotal();
   const itemCount = getItemCount();
+  useEffect(() => {
+    if (!canApproveDiscount) return;
+    api.getAvailableOffers()
+      .then(setAvailableOffers)
+      .catch((error) => setOfferError(error.message || 'Unable to load current offers.'));
+  }, [canApproveDiscount]);
 
   const heldBillsPanel = (heldBills.length > 0 || heldBillsError || heldBillsLoading) && (
     <section className="rounded-xl border border-[#ebdccb] bg-[#fffaf4] p-2.5 text-left">
@@ -281,7 +299,7 @@ function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, 
 
   if (items.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-between p-4 text-center bg-[#fffdfa]">
+      <div className="pos-cart-content flex min-h-0 min-w-0 flex-1 flex-col items-center justify-between overflow-y-auto overscroll-contain p-4 text-center bg-[#fffdfa]">
         {heldBillsPanel}
         <div className="flex-1 flex flex-col items-center justify-center space-y-3 py-6">
           <div className="w-16 h-16 rounded-2xl bg-[#faeee2] text-[#ae002a] flex items-center justify-center shadow-sm">
@@ -336,9 +354,9 @@ function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, 
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#fffdfa]">
+    <div className="pos-cart-content flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[#fffdfa]">
       {/* Items Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 space-y-2.5">
         {heldBillsPanel}
         {items.map((item) => (
           <div
@@ -391,12 +409,12 @@ function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, 
                   </span>
 
                   {/* Quantity Stepper with Quick Increment */}
-                  <div className="flex items-center gap-1">
+                  <div className="pos-cart-quantity-controls flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => updateQuantity(item.cartId, item.quantity - 1)}
                       className="w-6 h-6 rounded-lg border border-[#d9cdb7] bg-white flex items-center justify-center text-[#554e46] hover:bg-[#faeee2]"
-                      aria-label="Decrease"
+                      aria-label={`Decrease ${item.name} quantity`}
                     >
                       <Minus size={12} />
                     </button>
@@ -414,7 +432,7 @@ function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, 
                       type="button"
                       onClick={() => updateQuantity(item.cartId, item.quantity + 1)}
                       className="w-6 h-6 rounded-lg border border-[#d9cdb7] bg-white flex items-center justify-center text-[#554e46] hover:bg-[#faeee2]"
-                      aria-label="Increase"
+                      aria-label={`Increase ${item.name} quantity`}
                     >
                       <Plus size={12} />
                     </button>
@@ -465,7 +483,7 @@ function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, 
       </div>
 
       {/* Cart Summary & Actions */}
-      <div className="p-3.5 border-t border-[#eee4d5] bg-white space-y-2.5 shadow-sm">
+      <div className="pos-cart-summary shrink-0 p-3.5 border-t border-[#eee4d5] bg-white space-y-2.5 shadow-sm">
         {/* Discount & Order Notes controls */}
         <div className="flex items-center justify-between text-xs text-[#746e67] gap-2">
           <div className="flex items-center gap-1.5">
@@ -492,21 +510,43 @@ function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, 
               <Pause size={12} />
             </button>
 
-            <div className="flex items-center gap-1 bg-[#fbf6ee] border border-[#ebdccb] rounded-lg px-2 py-0.5 text-[11px]">
-              <Percent size={11} className="text-[#8c8278]" />
-              <select
-                value={discountPercent}
-                onChange={(e) => setDiscountPercent(Number(e.target.value))}
-                className="bg-transparent font-bold text-[#24211e] focus:outline-none cursor-pointer text-[11px]"
-              >
-                <option value={0}>0% Disc</option>
-                <option value={5}>5% Disc</option>
-                <option value={10}>10% Disc</option>
-                <option value={15}>15% Disc</option>
-                <option value={20}>20% Disc</option>
-              </select>
-            </div>
+            {canApproveDiscount && (
+              <div className="flex items-center gap-1 bg-[#fbf6ee] border border-[#ebdccb] rounded-lg px-2 py-0.5 text-[11px]">
+                <Percent size={11} className="text-[#8c8278]" />
+                <select
+                  aria-label="Manager discount"
+                  value={discountPercent}
+                  onChange={(e) => setDiscountPercent(Number(e.target.value))}
+                  className="bg-transparent font-bold text-[#24211e] focus:outline-none cursor-pointer text-[11px]"
+                >
+                  <option value={0}>No manual disc.</option>
+                  <option value={5}>5% manager disc.</option>
+                  <option value={10}>10% manager disc.</option>
+                  <option value={15}>15% manager disc.</option>
+                  <option value={20}>20% manager disc.</option>
+                </select>
+              </div>
+            )}
           </div>
+
+          {canApproveDiscount && (
+            <div className="space-y-2 rounded-lg border border-[#ebdccb] bg-[#fffaf4] p-2.5">
+              <label className="block text-[10px] font-bold uppercase tracking-wide text-[#746e67]">Manager-approved offer
+                <select value={promotion?.id || ''} onChange={(event) => setPromotion(availableOffers.find((offer) => offer.id === event.target.value) || null)} className="mt-1 w-full rounded-lg border border-[#ebdccb] bg-white px-2 py-2 text-xs">
+                  <option value="">No offer</option>
+                  {availableOffers.map((offer) => <option key={offer.id} value={offer.id}>{offer.name} · {offer.discountType === 'percentage' ? `${offer.discountValue}% off` : offer.discountType === 'fixed' ? `${formatCurrency(offer.discountValue)} off` : `Buy ${offer.qualifyingQuantity} get ${offer.rewardQuantity}`}</option>)}
+                </select>
+              </label>
+              {offerError && <p className="text-[10px] text-red-700" role="alert">{offerError}</p>}
+              {discountPercent > 0 && <input aria-label="Discount reason" value={discountReason} onChange={(event) => setDiscountReason(event.target.value)} placeholder="Required reason for manual discount" className="w-full rounded-lg border border-[#ebdccb] bg-white px-2 py-2 text-xs" />}
+              {promotion && discountPercent > 0 && (
+                <label className="flex items-start gap-2 text-[10px] font-semibold text-[#554e46]">
+                  <input type="checkbox" checked={approveStacking} onChange={(event) => setApproveStacking(event.target.checked)} />
+                  Manager approves stacking this manual discount with the offer
+                </label>
+              )}
+            </div>
+          )}
 
           <button
             type="button"
@@ -543,7 +583,7 @@ function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, 
 
           {discount > 0 && (
             <div className="flex justify-between text-[#227653] font-semibold">
-              <span>Discount ({discountPercent}%)</span>
+              <span>Discount {promotion ? `(${promotion.name}${discountPercent > 0 && approveStacking ? ` + ${discountPercent}%` : ''})` : discountPercent ? `(${discountPercent}% manager-approved)` : ''}</span>
               <span>-{formatCurrency(discount)}</span>
             </div>
           )}
@@ -611,6 +651,8 @@ export default function POSPage() {
   const [showDesktopCart, setShowDesktopCart] = useState(() => window.innerWidth >= 1024);
   const desktopCartRef = useRef(null);
   const floatingOrderRef = useRef(null);
+  const tabletCartRef = useRef(null);
+  const mobileCartToggleRef = useRef(null);
   const [menuItems, setMenuItems] = useState([]);
   const [menuCategories, setMenuCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -695,7 +737,16 @@ export default function POSPage() {
 
   useEffect(() => {
     const closeOnOutsideClick = (event) => {
-      if (window.innerWidth < 768 || showMobileCart) return;
+      if (window.innerWidth < 768) return;
+      if (window.innerWidth < 1024) {
+        if (showMobileCart
+          && !tabletCartRef.current?.contains(event.target)
+          && !mobileCartToggleRef.current?.contains(event.target)) {
+          setShowMobileCart(false);
+        }
+        return;
+      }
+      if (showMobileCart) return;
       if (!desktopCartRef.current?.contains(event.target) && !floatingOrderRef.current?.contains(event.target)) {
         setShowDesktopCart(false);
       }
@@ -705,11 +756,12 @@ export default function POSPage() {
   }, [showMobileCart]);
 
   useEffect(() => {
-    const closeTabletCart = () => {
-      if (window.innerWidth >= 768 && window.innerWidth < 1024) setShowDesktopCart(false);
+    const syncCartLayout = () => {
+      if (window.innerWidth < 1024) setShowDesktopCart(false);
+      else setShowMobileCart(false);
     };
-    window.addEventListener('resize', closeTabletCart);
-    return () => window.removeEventListener('resize', closeTabletCart);
+    window.addEventListener('resize', syncCartLayout);
+    return () => window.removeEventListener('resize', syncCartLayout);
   }, []);
 
   const filteredItems = menuItems.filter((item) => {
@@ -798,6 +850,10 @@ export default function POSPage() {
         paymentReference: cart.paymentReference,
         orderNotes: cart.orderNotes,
         discountPercent: cart.discountPercent,
+        discountReason: cart.discountReason,
+        promotionId: cart.promotionId,
+        promotion: cart.promotion,
+        approveStacking: cart.approveStacking,
       },
     };
     setHeldBillsError('');
@@ -849,7 +905,7 @@ export default function POSPage() {
   }
 
   return (
-    <div className="pos-page flex flex-1 min-h-[calc(100vh-3.5rem)] md:h-[calc(100vh-3.5rem)] overflow-x-hidden md:overflow-hidden bg-[#faf7f2] pb-24 md:pb-0">
+    <div className="pos-page flex flex-1 min-h-[calc(100vh-3.5rem)] lg:h-[calc(100vh-3.5rem)] overflow-x-hidden lg:overflow-hidden bg-[#faf7f2] pb-24 lg:pb-0">
       {/* Main Catalog Area */}
       <div className="pos-catalog flex-1 flex flex-col min-w-0">
         {location.state?.offlineQueued && (
@@ -969,7 +1025,7 @@ export default function POSPage() {
       </div>
 
       {/* Dismissible current order panel on desktop */}
-      <div ref={desktopCartRef} className={'pos-cart-panel w-72 lg:w-80 xl:w-96 flex-shrink-0 flex-col bg-white border border-[#ebdccb] rounded-2xl shadow-sm my-3 mr-3 overflow-hidden ' + (showDesktopCart ? 'hidden md:flex' : 'hidden')}>
+      <div ref={desktopCartRef} className={'pos-cart-panel w-72 lg:w-80 xl:w-96 flex-shrink-0 flex-col bg-white border border-[#ebdccb] rounded-2xl shadow-sm my-3 mr-3 overflow-hidden ' + (showDesktopCart ? 'hidden lg:flex' : 'hidden')}>
         {/* Cart Header */}
         <div className="p-3.5 border-b border-[#eee4d5] bg-gradient-to-r from-[#fff9f0] to-white flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -1000,55 +1056,61 @@ export default function POSPage() {
         />
       </div>
 
-      <button
-        ref={floatingOrderRef}
-        type="button"
-        onClick={() => setShowDesktopCart((visible) => !visible)}
-        className="pos-order-toggle fixed right-0 top-1/2 z-30 hidden -translate-y-1/2 items-center gap-2 rounded-l-2xl bg-[#ae002a] px-3 py-3 text-white shadow-xl transition-transform hover:-translate-x-1 md:flex"
-        aria-label={showDesktopCart ? 'Hide current order' : `Show current order with ${getItemCount()} items`}
-      >
-        <ShoppingCart size={18} />
-        <span className="flex flex-col items-start leading-tight"><span className="text-xs font-bold">Order</span><span className="text-[10px] text-white/80">{getItemCount()} items</span></span>
-      </button>
+      {createPortal(
+        <button
+          ref={floatingOrderRef}
+          type="button"
+          onClick={() => setShowDesktopCart((visible) => !visible)}
+          className="pos-order-toggle fixed right-0 top-1/2 z-30 hidden -translate-y-1/2 items-center gap-2 rounded-l-2xl bg-[#ae002a] px-3 py-3 text-white shadow-xl transition-transform hover:-translate-x-1 lg:flex"
+          aria-label={showDesktopCart ? 'Hide current order' : `Show current order with ${getItemCount()} items`}
+        >
+          <ShoppingCart size={18} />
+          <span className="flex flex-col items-start leading-tight"><span className="text-xs font-bold">Order</span><span className="text-[10px] text-white/80">{getItemCount()} items</span></span>
+        </button>,
+        document.body
+      )}
 
       {/* Mobile Sticky Floating Cart Bar (Always Visible on Mobile) */}
-      <div className="md:hidden fixed bottom-3 left-3 right-3 z-30 flex items-center gap-2 bg-[#1f1d1b] text-white p-2 rounded-2xl shadow-2xl border border-white/10">
-        <button
-          type="button"
-          onClick={() => setShowMobileCart(true)}
-          className="flex-1 flex items-center justify-between px-3 py-2 text-left"
-        >
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-[#ae002a] text-white flex items-center justify-center font-bold text-xs">
-              {getItemCount()}
+      {createPortal(
+        <div ref={mobileCartToggleRef} className="pos-cart-toggle-bar lg:hidden fixed bottom-3 left-3 right-3 z-30 flex items-center gap-2 bg-[#1f1d1b] text-white p-2 rounded-2xl shadow-2xl border border-white/10">
+          <button
+            type="button"
+            onClick={() => setShowMobileCart(true)}
+            className="pos-view-cart-button min-h-12 flex-1 flex items-center justify-between px-3 py-2 text-left"
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-[#ae002a] text-white flex items-center justify-center font-bold text-xs">
+                {getItemCount()}
+              </div>
+              <div>
+                <p className="text-xs font-bold leading-tight">View Cart</p>
+                <p className="text-[10px] text-white/70">
+                  {getItemCount()} {getItemCount() === 1 ? 'item' : 'items'} in order
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-bold leading-tight">View Cart</p>
-              <p className="text-[10px] text-white/70">
-                {getItemCount()} {getItemCount() === 1 ? 'item' : 'items'} in order
-              </p>
-            </div>
-          </div>
-          <span className="font-display font-bold text-sm text-[#ffc72c]">
-            {formatCurrency(getTotal())}
-          </span>
-        </button>
+            <span className="font-display font-bold text-sm text-[#ffc72c]">
+              {formatCurrency(getTotal())}
+            </span>
+          </button>
 
-        <button
-          type="button"
-          disabled={items.length === 0}
-          onClick={handleCheckout}
-          className="px-4 py-2.5 rounded-xl bg-[#ae002a] text-white text-xs font-bold disabled:opacity-50 flex items-center gap-1"
-        >
-          Pay &rarr;
-        </button>
-      </div>
+          <button
+            type="button"
+            disabled={items.length === 0}
+            onClick={handleCheckout}
+            className="pos-quick-pay-button min-h-12 px-4 py-2.5 rounded-xl bg-[#ae002a] text-white text-xs font-bold disabled:opacity-50 flex items-center gap-1"
+          >
+            Pay &rarr;
+          </button>
+        </div>,
+        document.body
+      )}
 
       {/* Mobile Drawer Modal */}
-      {showMobileCart && (
-        <div className="md:hidden fixed inset-0 z-40 flex flex-col justify-end animate-fade-in">
+      {showMobileCart && createPortal(
+        <div ref={tabletCartRef} className="pos-floating-cart lg:hidden fixed inset-0 z-40 flex flex-col justify-end animate-fade-in">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowMobileCart(false)} />
-          <div className="relative bg-white rounded-t-3xl max-h-[85vh] flex flex-col shadow-2xl animate-slide-up border-t border-[#ebdccb]">
+          <div className="pos-mobile-cart relative bg-white rounded-t-3xl flex flex-col shadow-2xl animate-slide-up border-t border-[#ebdccb]">
             <div className="p-4 border-b border-[#eee4d5] flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ShoppingCart size={18} className="text-[#ae002a]" />
@@ -1059,7 +1121,7 @@ export default function POSPage() {
               </div>
               <button
                 onClick={() => setShowMobileCart(false)}
-                className="w-8 h-8 rounded-full flex items-center justify-center bg-[#fbf6ee] text-[#746e67]"
+                className="min-h-11 min-w-11 rounded-full flex items-center justify-center bg-[#fbf6ee] text-[#746e67]"
               >
                 <X size={18} />
               </button>
@@ -1079,7 +1141,8 @@ export default function POSPage() {
               onDiscardBill={discardHeldBill}
             />
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Modals */}
@@ -1121,4 +1184,3 @@ export default function POSPage() {
     </div>
   );
 }
-

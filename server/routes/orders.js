@@ -14,8 +14,117 @@ import { applyOrderFulfillmentEffects } from '../utils/orderFulfillment.js';
 import { createCustomerOrderTrackingToken, createRoadsideAccessToken, hashRoadsideAccessToken } from '../utils/roadsideAccess.js';
 import { getReservationReleaseTime } from '../utils/reservationTiming.js';
 import { normalizeTanzanianPhone } from '../../shared/phone.js';
+import { closeSettledDineInTab, getOpenDineInTab } from '../utils/dineInTabs.js';
+import { calculateOfferDiscount, validateOfferAvailability } from '../utils/orderDiscounts.js';
+import { normalizeUserRole } from '../utils/roles.js';
 
 const router = Router();
+
+function formatPromotion(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    code: row.code || '',
+    discountType: row.discount_type,
+    discountValue: Number(row.discount_value || 0),
+    minimumSubtotal: Number(row.minimum_subtotal || 0),
+    eligibleMenuItemIds: JSON.parse(row.eligible_menu_item_ids || '[]'),
+    qualifyingQuantity: Number(row.qualifying_quantity || 2),
+    rewardQuantity: Number(row.reward_quantity || 1),
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    maxUses: row.max_uses == null ? '' : Number(row.max_uses),
+    useCount: Number(row.use_count || 0),
+    active: Boolean(row.active),
+  };
+}
+
+function normalizePromotionInput(body, existing = null) {
+  const name = String(body?.name ?? existing?.name ?? '').trim().slice(0, 100);
+  const code = String(body?.code ?? existing?.code ?? '').trim().toUpperCase().slice(0, 40) || null;
+  const discountType = String(body?.discountType ?? existing?.discount_type ?? 'percentage');
+  const discountValue = Number(body?.discountValue ?? existing?.discount_value);
+  const minimumSubtotal = Number(body?.minimumSubtotal ?? existing?.minimum_subtotal ?? 0);
+  const eligibleMenuItemIds = body?.eligibleMenuItemIds ?? JSON.parse(existing?.eligible_menu_item_ids || '[]');
+  const qualifyingQuantity = Number(body?.qualifyingQuantity ?? existing?.qualifying_quantity ?? 2);
+  const rewardQuantity = Number(body?.rewardQuantity ?? existing?.reward_quantity ?? 1);
+  const startsAt = body?.startsAt ?? existing?.starts_at ?? null;
+  const endsAt = body?.endsAt ?? existing?.ends_at ?? null;
+  const maxUsesRaw = body?.maxUses ?? existing?.max_uses ?? null;
+  const maxUses = maxUsesRaw === '' || maxUsesRaw == null ? null : Number(maxUsesRaw);
+  const active = body?.active == null ? (existing ? Number(existing.active) : 1) : (body.active ? 1 : 0);
+
+  if (!name) throw new Error('Offer name is required.');
+  if (!['percentage', 'fixed', 'buy_x_get_y'].includes(discountType)) throw new Error('Choose a supported offer type.');
+  if (discountType !== 'buy_x_get_y' && (!Number.isFinite(discountValue) || discountValue <= 0 || (discountType === 'percentage' && discountValue > 100))) {
+    throw new Error('Enter a valid discount value.');
+  }
+  if (!Number.isFinite(minimumSubtotal) || minimumSubtotal < 0) throw new Error('Minimum subtotal must be non-negative.');
+  if (!Array.isArray(eligibleMenuItemIds) || eligibleMenuItemIds.some((id) => !Number.isInteger(Number(id)) || Number(id) <= 0)) {
+    throw new Error('Eligible menu items must be valid item IDs.');
+  }
+  if (discountType === 'buy_x_get_y' && (!Number.isInteger(qualifyingQuantity) || qualifyingQuantity < 1 || !Number.isInteger(rewardQuantity) || rewardQuantity < 1)) {
+    throw new Error('Buy/get quantities must be positive whole numbers.');
+  }
+  if (maxUses !== null && (!Number.isInteger(maxUses) || maxUses < 1)) throw new Error('Maximum uses must be a positive whole number.');
+  if (startsAt && Number.isNaN(new Date(startsAt).getTime())) throw new Error('Offer start time is invalid.');
+  if (endsAt && Number.isNaN(new Date(endsAt).getTime())) throw new Error('Offer end time is invalid.');
+  if (startsAt && endsAt && new Date(startsAt) > new Date(endsAt)) throw new Error('Offer end time must be after its start time.');
+  return {
+    name, code, discountType, discountValue: discountType === 'buy_x_get_y' ? 0 : discountValue,
+    minimumSubtotal, eligibleMenuItemIds: JSON.stringify(eligibleMenuItemIds.map(Number)),
+    qualifyingQuantity, rewardQuantity, startsAt, endsAt, maxUses, active,
+  };
+}
+
+router.get('/offers/available', authMiddleware, (req, res) => {
+  const now = new Date().toISOString();
+  const rows = db.prepare(`SELECT * FROM promotions WHERE active = 1
+    AND (starts_at IS NULL OR starts_at <= ?) AND (ends_at IS NULL OR ends_at >= ?)
+    AND (max_uses IS NULL OR use_count < max_uses) ORDER BY name`).all(now, now);
+  res.json(rows.map(formatPromotion));
+});
+
+router.get('/offers', authMiddleware, requireRole('admin', 'manager'), (_req, res) => {
+  res.json(db.prepare('SELECT * FROM promotions ORDER BY created_at DESC').all().map(formatPromotion));
+});
+
+router.post('/offers', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
+  try {
+    const offer = normalizePromotionInput(req.body);
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO promotions
+      (id, name, code, discount_type, discount_value, minimum_subtotal, eligible_menu_item_ids,
+       qualifying_quantity, reward_quantity, starts_at, ends_at, max_uses, active, created_by_user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, offer.name, offer.code, offer.discountType, offer.discountValue, offer.minimumSubtotal,
+        offer.eligibleMenuItemIds, offer.qualifyingQuantity, offer.rewardQuantity, offer.startsAt,
+        offer.endsAt, offer.maxUses, offer.active, req.user.id, now, now);
+    res.status(201).json(formatPromotion(db.prepare('SELECT * FROM promotions WHERE id = ?').get(id)));
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to create offer.' });
+  }
+});
+
+router.patch('/offers/:id', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
+  const existing = db.prepare('SELECT * FROM promotions WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Offer not found.' });
+  try {
+    const offer = normalizePromotionInput(req.body, existing);
+    const now = new Date().toISOString();
+    db.prepare(`UPDATE promotions SET name = ?, code = ?, discount_type = ?, discount_value = ?,
+      minimum_subtotal = ?, eligible_menu_item_ids = ?, qualifying_quantity = ?, reward_quantity = ?,
+      starts_at = ?, ends_at = ?, max_uses = ?, active = ?, updated_at = ? WHERE id = ?`)
+      .run(offer.name, offer.code, offer.discountType, offer.discountValue, offer.minimumSubtotal,
+        offer.eligibleMenuItemIds, offer.qualifyingQuantity, offer.rewardQuantity, offer.startsAt,
+        offer.endsAt, offer.maxUses, offer.active, now, existing.id);
+    res.json(formatPromotion(db.prepare('SELECT * FROM promotions WHERE id = ?').get(existing.id)));
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to update offer.' });
+  }
+});
 
 function parseMenuIngredients(value) {
   if (Array.isArray(value)) return value;
@@ -96,6 +205,7 @@ function createOrderRecord(
     items,
     orderType,
     tableNumber,
+    tableTagId,
     customerName,
     customerPhone,
     customerEmail,
@@ -113,10 +223,17 @@ function createOrderRecord(
     paymentTiming = 'pay-now',
     orderSource = 'website',
     paymentReference = null,
+    discountPercent = 0,
+    discountReason = '',
+    promotionId = '',
+    approveStacking = false,
   },
-  staffId = null
+  staffId = null,
+  staffRole = null
 ) {
-  const normalizedCustomerType = String(customerType || 'individual').trim().toLowerCase();
+  const isDineIn = ['dine-in', 'dine-in-postpay'].includes(String(orderType || ''));
+  const normalizedCustomerType = isDineIn ? 'individual' : String(customerType || 'individual').trim().toLowerCase();
+  const storedOrderType = isDineIn ? 'dine-in-postpay' : (orderType || 'delivery');
   const normalizedCompanyName = String(companyName || '').trim();
   const normalizedCustomerTin = String(customerTin || '').trim();
   if (!['individual', 'company'].includes(normalizedCustomerType)) throw new Error('Customer type must be individual or company');
@@ -126,17 +243,48 @@ function createOrderRecord(
 
   const priced = priceOrderItems(items, { allowCustom: Boolean(staffId) });
   const subtotal = priced.subtotal;
+  const isManager = ['admin', 'manager'].includes(normalizeUserRole(staffRole));
+  const requestedDiscountPercent = Number(discountPercent ?? 0);
+  if (!Number.isFinite(requestedDiscountPercent) || requestedDiscountPercent < 0) throw new Error('Discount percentage must be a non-negative number.');
+  const hasManualDiscount = requestedDiscountPercent > 0;
+  const hasPromotion = Boolean(String(promotionId || '').trim());
+  if ((hasManualDiscount || hasPromotion) && !isManager) {
+    throw new Error('A manager must approve discounts and offers before checkout.');
+  }
+  if (hasManualDiscount && requestedDiscountPercent > 100) throw new Error('Discount percentage cannot exceed 100.');
+  const normalizedDiscountReason = String(discountReason || '').trim().slice(0, 250);
+  if (hasManualDiscount && !normalizedDiscountReason) throw new Error('Enter a reason for the manager-approved discount.');
+  if (hasManualDiscount && hasPromotion && approveStacking !== true) {
+    throw new Error('Offers and manual discounts cannot be combined unless a manager explicitly approves stacking.');
+  }
+  let promotion = null;
+  let promotionDiscount = 0;
+  if (hasPromotion) {
+    promotion = db.prepare('SELECT * FROM promotions WHERE id = ?').get(String(promotionId));
+    validateOfferAvailability(promotion);
+    promotionDiscount = calculateOfferDiscount(promotion, priced.items, subtotal);
+  }
+  const manualDiscount = hasManualDiscount
+    ? Math.min(Math.max(0, subtotal - promotionDiscount), subtotal * requestedDiscountPercent / 100)
+    : 0;
+  const discountAmount = Math.min(subtotal, Math.round((promotionDiscount + manualDiscount) * 100) / 100);
+  const manualDiscountAmount = Math.round(manualDiscount * 100) / 100;
+  const offerDiscountAmount = Math.round(promotionDiscount * 100) / 100;
+  const discountSource = promotion && hasManualDiscount ? 'promotion_and_manual'
+    : promotion ? 'promotion'
+      : hasManualDiscount ? 'manual' : null;
+  const discountLabel = promotion?.name || (hasManualDiscount ? `${requestedDiscountPercent}% manager discount` : null);
   const taxRateValue = Number(db.prepare("SELECT value FROM settings WHERE key = 'tax_rate'").get()?.value ?? 8);
   const taxRate = Number.isFinite(taxRateValue) && taxRateValue > 0 ? taxRateValue / 100 : 0;
-  const tax = subtotal * taxRate;
-  const total = subtotal + tax;
+  const tax = Math.round((subtotal - discountAmount) * taxRate * 100) / 100;
+  const total = Math.round((subtotal - discountAmount + tax) * 100) / 100;
   const normalizedFulfillmentMode = String(fulfillmentMode || 'standard');
   if (!['standard', 'roadside_handoff'].includes(normalizedFulfillmentMode)) throw new Error('Choose a valid fulfillment option');
   const scheduledDate = scheduledFor ? new Date(scheduledFor) : null;
   if (scheduledFor && (!scheduledDate || Number.isNaN(scheduledDate.getTime()) || scheduledDate <= new Date())) {
     throw new Error('Choose a future pickup or delivery time');
   }
-  const normalizedPaymentTerms = String(paymentTerms || 'prepaid');
+  const normalizedPaymentTerms = isDineIn ? 'prepaid' : String(paymentTerms || 'prepaid');
   if (!['prepaid', 'invoice'].includes(normalizedPaymentTerms)) throw new Error('Choose valid payment terms');
   let approvedInvoiceTerms = null;
   if (normalizedPaymentTerms === 'invoice') {
@@ -153,12 +301,9 @@ function createOrderRecord(
     const creditLimit = Number(db.prepare('SELECT credit_limit FROM company_order_terms WHERE customer_id = ?').get(approvedInvoiceTerms.customer_id)?.credit_limit || 0);
     if (outstanding + total > creditLimit) throw new Error('This order exceeds the company account’s remaining credit limit');
   }
-  if (orderType === 'dine-in') {
+  if (isDineIn) {
     if (!tableNumber) throw new Error('A table number is required for dine-in orders');
-    releaseExpiredCleaningTables(db);
-    const table = db.prepare('SELECT status FROM tables WHERE number = ?').get(Number(tableNumber));
-    if (!table) throw new Error('Table not found');
-    if (table.status !== 'available') throw new Error('Table is not available');
+    if (scheduledDate) throw new Error('Dine-in tickets are sent to the kitchen immediately and cannot be scheduled.');
   }
 
   const id = nextOrderId();
@@ -166,10 +311,11 @@ function createOrderRecord(
   const now = new Date().toISOString();
 
   // Determine initial status based on payment and source
-  const isStaffCashImmediate = staffId && (paymentMethod === 'cash' || paymentTiming === 'paid-cash');
+  const isStaffCashImmediate = !isDineIn && staffId && (paymentMethod === 'cash' || paymentTiming === 'paid-cash');
+  const orderPaymentMethod = isDineIn ? 'tab' : paymentMethod;
   const initialPaymentStatus = isStaffCashImmediate ? PAYMENT_STATUSES.PAID : PAYMENT_STATUSES.PENDING;
   const isInvoiceTerms = Boolean(approvedInvoiceTerms);
-  const initialOrderStatus = isStaffCashImmediate || isInvoiceTerms ? ORDER_STATUSES.CONFIRMED : ORDER_STATUSES.PENDING_PAYMENT;
+  const initialOrderStatus = isDineIn || isStaffCashImmediate || isInvoiceTerms ? ORDER_STATUSES.CONFIRMED : ORDER_STATUSES.PENDING_PAYMENT;
   const paidAt = isStaffCashImmediate ? now : null;
   const reservationStatus = scheduledDate || normalizedFulfillmentMode === 'roadside_handoff'
     ? (isStaffCashImmediate || isInvoiceTerms ? 'confirmed' : 'awaiting_payment')
@@ -179,16 +325,18 @@ function createOrderRecord(
     : null;
   const roadsideAccessToken = normalizedFulfillmentMode === 'roadside_handoff' ? createRoadsideAccessToken(id) : null;
   const customerTrackingToken = roadsideAccessToken || createCustomerOrderTrackingToken(id);
+  let dineInTabId = null;
 
   const insertOrder = db.prepare(`
     INSERT INTO orders (
       id, order_number, order_type, table_number, customer_id, customer_name, customer_phone, customer_email,
       customer_type, company_name, customer_tin, billing_address,
       delivery_address, delivery_latitude, delivery_longitude, delivery_scheduled_for,
-      subtotal, tax, total, payment_method, payment_status, order_source, payment_reference,
+      subtotal, discount_amount, manual_discount_amount, offer_discount_amount, discount_label, discount_reason, discount_source, discount_offer_id, discount_approved_by_user_id,
+      tax, total, payment_method, payment_status, order_source, payment_reference, dine_in_tab_id,
       fulfillment_mode, reservation_status, payment_terms, scheduled_release_at,
       status, paid_at, created_at, updated_at, staff_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertItem = db.prepare(`
@@ -199,8 +347,8 @@ function createOrderRecord(
   const insertPayment = db.prepare(`
     INSERT INTO payments (
       id, order_id, payment_reference, provider, payment_method, amount, currency,
-      sender_phone, sender_name, status, paid_at, initiated_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 'TZS', ?, ?, ?, ?, ?, ?, ?)
+      received_by_user_id, sender_phone, sender_name, status, paid_at, initiated_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'TZS', ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertEvent = db.prepare(`
@@ -209,6 +357,45 @@ function createOrderRecord(
   `);
 
   const tx = db.transaction(() => {
+    if (isDineIn) {
+      releaseExpiredCleaningTables(db).forEach((table) => broadcast('table:updated', table));
+      const table = db.prepare('SELECT * FROM tables WHERE number = ?').get(Number(tableNumber));
+      if (!table) throw new Error('Table not found');
+      if (!staffId && (!tableTagId || String(table.tag_id || '') !== String(tableTagId))) {
+        throw new Error('A valid table QR is required for public dine-in ordering.');
+      }
+      const openTab = getOpenDineInTab(db, tableNumber);
+      if (openTab) {
+        if (table.status !== 'occupied') throw new Error('The active table visit is not available for ordering.');
+        dineInTabId = openTab.id;
+        db.prepare(`UPDATE dine_in_tabs SET
+          customer_name = COALESCE(NULLIF(?, ''), customer_name),
+          customer_phone = COALESCE(NULLIF(?, ''), customer_phone),
+          customer_email = COALESCE(NULLIF(?, ''), customer_email)
+          WHERE id = ?`).run(
+          String(customerName || '').trim(),
+          normalizeTanzanianPhone(customerPhone),
+          String(customerEmail || '').trim().toLowerCase(),
+          dineInTabId
+        );
+      } else {
+        if (table.status !== 'available') throw new Error('Table is not available');
+        dineInTabId = randomUUID();
+        db.prepare(`INSERT INTO dine_in_tabs
+          (id, table_number, status, customer_name, customer_phone, customer_email, opened_at)
+          VALUES (?, ?, 'open', ?, ?, ?, ?)`).run(
+          dineInTabId,
+          Number(tableNumber),
+          String(customerName || '').trim() || null,
+          normalizeTanzanianPhone(customerPhone) || null,
+          String(customerEmail || '').trim().toLowerCase() || null,
+          now
+        );
+        db.prepare(`UPDATE tables SET status = 'occupied', current_tab_id = ?, cleaning_started_at = NULL WHERE id = ?`)
+          .run(dineInTabId, table.id);
+      }
+    }
+
     // Customer identity: match by phone, email, or company TIN so each real
     // customer maps to exactly one record (never grouped under a shared "Guest").
     const normalizedEmail = String(customerEmail || '').trim().toLowerCase();
@@ -227,7 +414,7 @@ function createOrderRecord(
         db.prepare(
           'UPDATE customers SET name = ?, phone = COALESCE(NULLIF(?, \'\'), phone), email = COALESCE(NULLIF(?, \'\'), email), customer_type = ?, company_name = ?, tin = COALESCE(NULLIF(?, \'\'), tin), billing_address = ? WHERE id = ?'
         ).run(
-          (customerName || existingCustomer.name || 'Customer').trim(),
+          (customerName || existingCustomer.name || '').trim(),
           normalizedPhone,
           normalizedEmail,
           normalizedCustomerType,
@@ -240,7 +427,7 @@ function createOrderRecord(
         const result = db.prepare(
           'INSERT INTO customers (name, phone, email, favorite_items, lifetime_value, last_visit, visits, customer_segment, preferred_channel, customer_type, company_name, tin, billing_address) VALUES (?, ?, ?, \'[]\', 0, NULL, 0, ?, ?, ?, ?, ?, ?)'
         ).run(
-          (customerName || 'Customer').trim(),
+          (customerName || '').trim(),
           normalizedPhone,
           normalizedEmail,
           'first_order',
@@ -257,7 +444,7 @@ function createOrderRecord(
     insertOrder.run(
       id,
       id,
-      orderType || 'delivery',
+      storedOrderType,
       tableNumber || null,
       resolvedCustomerId,
       customerName || null,
@@ -272,12 +459,21 @@ function createOrderRecord(
       deliveryLongitude || null,
       scheduledFor || null,
       subtotal,
+      discountAmount,
+      manualDiscountAmount,
+      offerDiscountAmount,
+      discountLabel,
+      normalizedDiscountReason || null,
+      discountSource,
+      promotion?.id || null,
+      (hasManualDiscount || hasPromotion) ? staffId : null,
       tax,
       total,
-      paymentMethod,
+      orderPaymentMethod,
       initialPaymentStatus,
       orderSource,
       paymentRef,
+      dineInTabId,
       normalizedFulfillmentMode,
       reservationStatus,
       normalizedPaymentTerms,
@@ -312,29 +508,39 @@ function createOrderRecord(
         .run(id, hashRoadsideAccessToken(roadsideAccessToken), now, now);
     }
 
+    if (promotion) {
+      const usage = db.prepare(`UPDATE promotions SET use_count = use_count + 1, updated_at = ?
+        WHERE id = ? AND active = 1 AND (max_uses IS NULL OR use_count < max_uses)`)
+        .run(now, promotion.id);
+      if (!usage.changes) throw new Error('This offer has reached its usage limit.');
+    }
+
     const autoPrint = db.prepare("SELECT value FROM settings WHERE key = 'printer_auto_print'").get()?.value !== 'false';
-    if (staffId && autoPrint && initialPaymentStatus === PAYMENT_STATUSES.PAID && !scheduledDate) {
+    if (staffId && autoPrint && (initialPaymentStatus === PAYMENT_STATUSES.PAID || isDineIn) && !scheduledDate) {
       const branchCode = db.prepare("SELECT value FROM settings WHERE key = 'branch_code'").get()?.value || 'MAIN';
       db.prepare('INSERT OR IGNORE INTO printer_jobs (order_id, branch_code, created_at) VALUES (?, ?, ?)')
         .run(id, branchCode, now);
     }
 
     // Create payment tracking record
-    insertPayment.run(
-      `PAY-${Date.now()}-${id}`,
-      id,
-      paymentRef,
-      paymentMethod || 'lipa_namba',
-      paymentMethod || 'lipa_namba',
-      total,
-      normalizedPhone || null,
-      customerName || null,
-      initialPaymentStatus,
-      paidAt,
-      now,
-      now,
-      now
-    );
+    if (!isDineIn) {
+      insertPayment.run(
+        `PAY-${Date.now()}-${id}`,
+        id,
+        paymentRef,
+        orderPaymentMethod || 'lipa_namba',
+        orderPaymentMethod || 'lipa_namba',
+        total,
+        initialPaymentStatus === PAYMENT_STATUSES.PAID ? staffId : null,
+        normalizedPhone || null,
+        customerName || null,
+        initialPaymentStatus,
+        paidAt,
+        now,
+        now,
+        now
+      );
+    }
 
     insertEvent.run(
       id,
@@ -346,11 +552,18 @@ function createOrderRecord(
         source: orderSource,
         paymentReference: paymentRef,
         paymentStatus: initialPaymentStatus,
+        discountAmount,
+        discountSource,
+        discountReason: normalizedDiscountReason || null,
+        promotionId: promotion?.id || null,
+        promotionName: promotion?.name || null,
+        stackingApproved: hasManualDiscount && hasPromotion && approveStacking === true,
       })
     );
 
-    if (tableNumber && !scheduledDate) {
-      db.prepare('UPDATE tables SET status = ?, current_order_id = ?, cleaning_started_at = NULL WHERE number = ?').run('occupied', id, tableNumber);
+    if (isDineIn) {
+      db.prepare(`UPDATE tables SET status = 'occupied', current_order_id = ?, current_tab_id = ?, cleaning_started_at = NULL WHERE number = ?`)
+        .run(id, dineInTabId, Number(tableNumber));
     }
   });
 
@@ -447,6 +660,7 @@ router.post('/public', (req, res) => {
     deliveryLongitude,
     orderType,
     tableNumber,
+    tableTagId,
     scheduledFor,
     fulfillmentMode,
     paymentTerms,
@@ -456,7 +670,6 @@ router.post('/public', (req, res) => {
   } = req.body;
 
   if (!items?.length) return res.status(400).json({ error: 'Order must have items' });
-  if (!customerName?.trim()) return res.status(400).json({ error: 'Customer name is required' });
   if (orderType === 'dine-in' && !tableNumber) return res.status(400).json({ error: 'A table number is required' });
   if (orderType !== 'dine-in' && fulfillmentMode !== 'roadside_handoff' && !deliveryAddress?.trim()) return res.status(400).json({ error: 'Delivery address is required' });
 
@@ -465,6 +678,7 @@ router.post('/public', (req, res) => {
       items,
       orderType: orderType || 'delivery',
       tableNumber,
+      tableTagId,
       customerName,
       customerPhone,
       customerEmail,
@@ -506,6 +720,152 @@ router.get('/public/:idOrRef', (req, res) => {
 
 router.get('/reservations', authMiddleware, requireRole('admin', 'manager', 'foh'), (_req, res) => {
   res.json(getOrders({}, { includeInvoiceEmailStatus: true }).filter((order) => order.reservationStatus !== 'none'));
+});
+
+router.post('/:id/refunds', authMiddleware, requireRole('admin', 'manager', 'foh'), (req, res) => {
+  const order = db.prepare('SELECT * FROM orders WHERE id = ? OR order_number = ?').get(req.params.id, req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found.' });
+  const paymentId = String(req.body?.paymentId || '');
+  const payment = db.prepare(`SELECT id, amount, status FROM payments WHERE id = ? AND order_id = ?`).get(paymentId, order.id);
+  if (!payment || !['paid', 'completed'].includes(payment.status)) {
+    return res.status(400).json({ error: 'Choose a settled payment from this order to refund.' });
+  }
+  const amount = Number(req.body?.amount);
+  const reason = String(req.body?.reason || '').trim().slice(0, 500);
+  const payoutMethod = String(req.body?.payoutMethod || '').trim().toLowerCase();
+  const payoutReference = String(req.body?.payoutReference || '').trim().slice(0, 120);
+  const managerApproved = ['admin', 'manager'].includes(normalizeUserRole(req.user.role));
+  if (!Number.isSafeInteger(amount) || amount <= 0) return res.status(400).json({ error: 'Refund amount must be a positive whole number of TZS.' });
+  if (!reason) return res.status(400).json({ error: 'A refund reason is required.' });
+  if (amount > 10000 && !managerApproved) {
+    const now = new Date().toISOString();
+    const refundId = randomUUID();
+    try {
+      const createRequest = db.transaction(() => {
+        const reserved = Number(db.prepare(`SELECT COALESCE(SUM(amount), 0) AS amount FROM refunds
+          WHERE payment_id = ? AND status IN ('pending', 'pending_approval', 'processed')`).get(paymentId).amount);
+        if (amount > Number(payment.amount) - reserved) throw new Error('Refund exceeds the remaining amount paid for this payment.');
+        db.prepare(`INSERT INTO refunds
+          (id, payment_id, order_id, amount, reason, refund_reference, status, requested_at, requested_by_user_id)
+          VALUES (?, ?, ?, ?, ?, ?, 'pending_approval', ?, ?)`)
+          .run(refundId, paymentId, order.id, amount, reason, `WR-REF-${randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase()}`, now, req.user.id);
+        db.prepare(`INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata)
+          VALUES (?, 'refund_requested', 'pending_approval', ?, ?, ?)`)
+          .run(order.id, req.user.id, now, JSON.stringify({ refundId, paymentId, amount, reason }));
+        db.prepare(`INSERT INTO notifications (type, title, message, read, created_at, audience_role)
+          VALUES ('warning', ?, ?, 0, ?, 'manager')`)
+          .run(`Refund approval required · ${order.order_number || order.id}`, `${amount} TZS refund requested: ${reason}`, now);
+      });
+      createRequest();
+    } catch (error) {
+      return res.status(409).json({ error: error.message || 'Refund request could not be recorded.' });
+    }
+    broadcast('order:updated', getOrderById(order.id));
+    return res.status(202).json(getOrderById(order.id));
+  }
+
+  if (!['cash', 'lipa_namba', 'card', 'bank_transfer', 'other'].includes(payoutMethod)) {
+    return res.status(400).json({ error: 'Choose how the refund was or will be paid.' });
+  }
+  if (['lipa_namba', 'card', 'bank_transfer'].includes(payoutMethod) && !payoutReference) {
+    return res.status(400).json({ error: 'Enter the refund transaction/reference for this payout method.' });
+  }
+  const now = new Date().toISOString();
+  const refundId = randomUUID();
+  try {
+    const processRefund = db.transaction(() => {
+      const reserved = Number(db.prepare(`SELECT COALESCE(SUM(amount), 0) AS amount FROM refunds
+        WHERE payment_id = ? AND status IN ('pending', 'pending_approval', 'processed')`).get(paymentId).amount);
+      if (amount > Number(payment.amount) - reserved) throw new Error('Refund exceeds the remaining amount paid for this payment.');
+      db.prepare(`INSERT INTO refunds
+        (id, payment_id, order_id, amount, reason, refund_reference, status, requested_at, processed_at,
+         requested_by_user_id, approved_by_user_id, processed_by_user_id, payout_method, payout_reference)
+        VALUES (?, ?, ?, ?, ?, ?, 'processed', ?, ?, ?, ?, ?, ?, ?)`)
+        .run(refundId, paymentId, order.id, amount, reason,
+          `WR-REF-${randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase()}`, now, now,
+          req.user.id, managerApproved ? req.user.id : null, req.user.id, payoutMethod, payoutReference || null);
+      db.prepare(`INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata)
+        VALUES (?, 'refund_processed', 'processed', ?, ?, ?)`)
+        .run(order.id, req.user.id, now, JSON.stringify({ refundId, paymentId, amount, reason, payoutMethod, payoutReference }));
+    });
+    processRefund();
+  } catch (error) {
+    return res.status(409).json({ error: error.message || 'Refund could not be recorded.' });
+  }
+  broadcast('order:updated', getOrderById(order.id));
+  res.json(getOrderById(order.id));
+});
+
+router.patch('/:id/refunds/:refundId', authMiddleware, requireRole('admin', 'manager'), (req, res) => {
+  const order = db.prepare('SELECT id FROM orders WHERE id = ? OR order_number = ?').get(req.params.id, req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found.' });
+  const decision = String(req.body?.decision || '');
+  if (!['approve', 'reject'].includes(decision)) return res.status(400).json({ error: 'Choose approve or reject.' });
+  const now = new Date().toISOString();
+  let eventType;
+  let eventStatus;
+  let metadata;
+  let update;
+  let payoutMethod;
+  let payoutReference;
+  let approvalNotes;
+  if (decision === 'reject') {
+    approvalNotes = String(req.body?.approvalNotes || '').trim().slice(0, 500);
+    if (!approvalNotes) return res.status(400).json({ error: 'Enter a reason for rejecting the refund.' });
+    update = db.prepare(`UPDATE refunds SET status = 'rejected', approved_by_user_id = ?, processed_at = ?, approval_notes = ?
+      WHERE id = ? AND order_id = ? AND status = 'pending_approval'`);
+    eventType = 'refund_rejected';
+    eventStatus = 'rejected';
+    metadata = { refundId: req.params.refundId, reason: approvalNotes };
+  } else {
+    payoutMethod = String(req.body?.payoutMethod || '').trim().toLowerCase();
+    payoutReference = String(req.body?.payoutReference || '').trim().slice(0, 120);
+    approvalNotes = String(req.body?.approvalNotes || '').trim().slice(0, 500);
+    if (!['cash', 'lipa_namba', 'card', 'bank_transfer', 'other'].includes(payoutMethod)) {
+      return res.status(400).json({ error: 'Choose the refund payout method.' });
+    }
+    if (['lipa_namba', 'card', 'bank_transfer'].includes(payoutMethod) && !payoutReference) {
+      return res.status(400).json({ error: 'Enter the refund transaction/reference for this payout method.' });
+    }
+    update = db.prepare(`UPDATE refunds SET status = 'processed', approved_by_user_id = ?, processed_by_user_id = ?,
+      processed_at = ?, payout_method = ?, payout_reference = ?, approval_notes = ?
+      WHERE id = ? AND order_id = ? AND status = 'pending_approval'`);
+    eventType = 'refund_processed';
+    eventStatus = 'processed';
+    metadata = {
+      refundId: req.params.refundId,
+      payoutMethod,
+      payoutReference,
+      approvalNotes,
+    };
+  }
+  try {
+    const reviewRefund = db.transaction(() => {
+      const refund = db.prepare(`SELECT amount FROM refunds WHERE id = ? AND order_id = ? AND status = 'pending_approval'`)
+        .get(req.params.refundId, order.id);
+      if (!refund) {
+        const error = new Error('Pending refund request not found.');
+        error.status = 404;
+        throw error;
+      }
+      const result = decision === 'reject'
+        ? update.run(req.user.id, now, metadata.reason, req.params.refundId, order.id)
+        : update.run(req.user.id, req.user.id, now, payoutMethod,
+          payoutReference || null, approvalNotes, req.params.refundId, order.id);
+      if (result.changes !== 1) throw new Error('Refund request was already reviewed.');
+      if (decision === 'approve') metadata.amount = refund.amount;
+      db.prepare(`INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(order.id, eventType, eventStatus, req.user.id, now, JSON.stringify(metadata));
+    });
+    reviewRefund();
+  } catch (error) {
+    if (error.status === 404) return res.status(404).json({ error: error.message });
+    console.error('Refund review failed:', error);
+    return res.status(409).json({ error: error.message || 'Refund request could not be reviewed.' });
+  }
+  broadcast('order:updated', getOrderById(order.id));
+  res.json(getOrderById(order.id));
 });
 
 router.get('/company-terms', authMiddleware, requireRole('admin', 'manager'), (_req, res) => {
@@ -612,7 +972,7 @@ router.get('/tracking/:id', (req, res) => {
   res.json({
     id: order.id,
     orderNumber: order.order_number || order.id,
-    type: order.order_type,
+    type: order.order_type === 'dine-in-postpay' ? 'dine-in' : order.order_type,
     customerName: order.customer_name || '',
     customerPhone: normalizeTanzanianPhone(order.customer_phone),
     customerEmail: order.customer_email || '',
@@ -635,7 +995,7 @@ router.patch('/tracking/:id', (req, res) => {
   const order = getTrackedCustomerOrder(req.params.id, String(req.get('x-order-tracking-token') || ''));
   if (!order) return res.status(404).json({ error: 'Order tracking link is unavailable.' });
 
-  const customerName = String(req.body?.customerName ?? order.customer_name ?? '').trim() || order.customer_name || 'Customer';
+  const customerName = String(req.body?.customerName ?? order.customer_name ?? '').trim();
   const customerPhone = normalizeTanzanianPhone(req.body?.customerPhone ?? order.customer_phone ?? '');
   const customerEmail = String(req.body?.customerEmail ?? order.customer_email ?? '').trim().toLowerCase();
   if (customerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) {
@@ -693,7 +1053,7 @@ router.post('/', authMiddleware, (req, res) => {
   if (!items?.length) return res.status(400).json({ error: 'Order must have items' });
 
   try {
-    const order = createOrderRecord(req.body, req.user.id);
+    const order = createOrderRecord(req.body, req.user.id, req.user.role);
     res.status(201).json(order);
   } catch (error) {
     console.error('POS order placement failed:', error);
@@ -735,8 +1095,15 @@ router.patch('/:id/status', authMiddleware, (req, res) => {
     .run(req.params.id, 'status_changed', status, req.user.id, now, JSON.stringify({ previousStatus: existing.status }));
 
   if (status === 'completed' && existing.status !== 'completed' && existing.table_number) {
-    db.prepare('UPDATE tables SET status = ?, current_order_id = NULL, cleaning_started_at = ? WHERE number = ? AND current_order_id = ?')
-      .run('cleaning', now, existing.table_number, existing.id);
+    if (existing.dine_in_tab_id) {
+      if (closeSettledDineInTab(db, existing.dine_in_tab_id, req.user?.name || 'Staff', now)) {
+        const table = db.prepare('SELECT * FROM tables WHERE number = ?').get(existing.table_number);
+        broadcast('table:updated', table);
+      }
+    } else {
+      db.prepare('UPDATE tables SET status = ?, current_order_id = NULL, cleaning_started_at = ? WHERE number = ? AND current_order_id = ?')
+        .run('cleaning', now, existing.table_number, existing.id);
+    }
   }
 
   const order = getOrderById(req.params.id);
@@ -829,10 +1196,20 @@ router.patch('/:id/customer', authMiddleware, (req, res) => {
   }
 
   const now = new Date().toISOString();
+  const existingCustomerPhone = String(existing.customer_phone || '').trim();
+  const existingCustomerEmail = String(existing.customer_email || '').trim().toLowerCase();
+  const existingCustomerName = String(existing.customer_name || '').trim().toLowerCase();
   const customerMatch = existing.customer_id
     ? db.prepare('SELECT * FROM customers WHERE id = ?').get(existing.customer_id)
-    : db.prepare('SELECT * FROM customers WHERE phone = ? OR lower(email) = ? OR lower(name) = ? ORDER BY id DESC LIMIT 1')
-      .get(existing.customer_phone || '', String(existing.customer_email || '').toLowerCase(), String(existing.customer_name || '').toLowerCase());
+    : (existingCustomerPhone || existingCustomerEmail || existingCustomerName)
+      ? db.prepare(`SELECT * FROM customers
+          WHERE (? <> '' AND phone = ?)
+            OR (? <> '' AND lower(email) = ?)
+            OR (? <> '' AND lower(name) = ?)
+          ORDER BY id DESC LIMIT 1`)
+        .get(existingCustomerPhone, existingCustomerPhone, existingCustomerEmail, existingCustomerEmail, existingCustomerName, existingCustomerName)
+      : null;
+  const customerNameProvided = Object.hasOwn(req.body || {}, 'customerName');
 
   const saveCustomerDetails = db.transaction(() => {
     db.prepare(`UPDATE orders SET customer_name = ?, customer_phone = ?, customer_email = ?, customer_type = ?, company_name = ?, customer_tin = ?, billing_address = ?, updated_at = ? WHERE id = ?`)
@@ -840,7 +1217,7 @@ router.patch('/:id/customer', authMiddleware, (req, res) => {
 
   if (customerMatch) {
     db.prepare('UPDATE customers SET name = ?, phone = ?, email = ?, customer_type = ?, company_name = ?, tin = ?, billing_address = ? WHERE id = ?')
-      .run(payload.customerName || customerMatch.name || 'Customer', payload.customerPhone, payload.customerEmail, payload.customerType, payload.companyName, payload.customerTin, payload.billingAddress, customerMatch.id);
+      .run(customerNameProvided ? payload.customerName : (customerMatch.name || payload.customerName), payload.customerPhone, payload.customerEmail, payload.customerType, payload.companyName, payload.customerTin, payload.billingAddress, customerMatch.id);
   }
   });
   saveCustomerDetails();
@@ -860,6 +1237,9 @@ router.patch('/:id/payment-status', authMiddleware, (req, res) => {
 
   const existing = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
+  if (existing.dine_in_tab_id) {
+    return res.status(409).json({ error: 'Dine-in tab payments must be recorded against the table balance.' });
+  }
 
   const now = new Date().toISOString();
   const staffName = req.user?.name || 'Staff';
@@ -878,10 +1258,11 @@ router.patch('/:id/payment-status', authMiddleware, (req, res) => {
       status = ?,
       notes = COALESCE(?, notes),
       verified_by = ?,
+      received_by_user_id = COALESCE(?, received_by_user_id),
       paid_at = ?,
       updated_at = ?
     WHERE order_id = ?
-  `).run(paymentStatus, notes || null, staffName, paidAt, now, req.params.id);
+  `).run(paymentStatus, notes || null, staffName, paymentStatus === PAYMENT_STATUSES.PAID ? req.user.id : null, paidAt, now, req.params.id);
 
   db.prepare('INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at, metadata) VALUES (?, ?, ?, ?, ?, ?)')
     .run(req.params.id, 'payment_status_changed', paymentStatus, req.user.id, now, JSON.stringify({ staffName, notes }));
@@ -903,6 +1284,9 @@ router.patch('/:id/payment-status', authMiddleware, (req, res) => {
 router.delete('/:id', authMiddleware, deletionViewer, (req, res) => {
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.dine_in_tab_id && db.prepare("SELECT 1 FROM dine_in_tabs WHERE id = ? AND status = 'open'").get(order.dine_in_tab_id)) {
+    return res.status(409).json({ error: 'Tickets cannot be deleted while their table tab is open.' });
+  }
   recordDeletion({ resourceType: 'order', resourceId: order.id, snapshot: order, reason: req.body?.reason, user: req.user });
   const now = new Date().toISOString();
   const deleteOrder = db.transaction(() => {

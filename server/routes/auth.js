@@ -6,8 +6,6 @@ import { signToken, authMiddleware, JWT_SECRET } from '../middleware/auth.js';
 import { hashPin, verifyPin } from '../utils/pins.js';
 import { normalizeUserRole, getRolePageAccess, normalizePageAccess, expandImpliedPageAccess } from '../utils/roles.js';
 import { broadcast } from '../ws.js';
-import { restaurantTime } from '../utils/localTime.js';
-import { getShiftScheduleForTime, lateMinutesAt, overtimeMinutesAt } from '../utils/shiftTime.js';
 
 const router = Router();
 
@@ -18,7 +16,7 @@ const loginLimiter = rateLimit({
 });
 
 router.post('/login', loginLimiter, async (req, res) => {
-  const { username, password, pin, location } = req.body;
+  const { username, password, pin } = req.body;
   const suppliedSecret = (password ?? pin ?? '').toString();
   const suppliedIdentifier = (username ?? '').toString();
 
@@ -56,42 +54,6 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   if (!user) return res.status(401).json({ error: 'Invalid username or PIN/password' });
 
-  const hasLocation = !!location && location !== null && typeof location === 'object';
-  const latitude = hasLocation ? Number(location.latitude) : null;
-  const longitude = hasLocation ? Number(location.longitude) : null;
-  if (hasLocation && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180)) {
-    return res.status(400).json({ error: 'Location coordinates are invalid.' });
-  }
-
-  const staff = db.prepare('SELECT * FROM staff WHERE user_id = ?').get(user.id);
-  if (staff?.status === 'removed') {
-    db.prepare("UPDATE staff SET status = 'off-clock', clock_in = NULL WHERE id = ?").run(staff.id);
-  }
-  if (staff) {
-    const now = new Date();
-    const local = restaurantTime(now);
-    const loginTime = local.time;
-    const shiftDate = local.date;
-    const activeShift = db.prepare("SELECT id FROM shift_logs WHERE staff_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1").get(staff.id);
-    db.prepare('UPDATE staff SET status = ?, clock_in = COALESCE(clock_in, ?) WHERE id = ?').run('on-clock', loginTime, staff.id);
-    if (activeShift) {
-      db.prepare('UPDATE shift_logs SET clock_in_latitude = ?, clock_in_longitude = ? WHERE id = ?').run(
-        Number.isFinite(latitude) ? latitude : null,
-        Number.isFinite(longitude) ? longitude : null,
-        activeShift.id
-      );
-    } else {
-      const schedule = getShiftScheduleForTime(staff, loginTime);
-      db.prepare(`INSERT INTO shift_logs
-        (staff_id, staff_name, shift_date, start_time, status, notes, clock_in_latitude, clock_in_longitude, started_at,
-          scheduled_start_time, scheduled_end_time, late_minutes, overtime_minutes)
-        VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, 0)`)
-        .run(staff.id, staff.name, shiftDate, loginTime, schedule.label,
-          Number.isFinite(latitude) ? latitude : null, Number.isFinite(longitude) ? longitude : null, now.toISOString(),
-          schedule.start || null, schedule.end || null, lateMinutesAt(loginTime, schedule.start));
-    }
-  }
-
   const normalizedRole = normalizeUserRole(user.role);
   const safeUser = {
     ...user,
@@ -119,20 +81,6 @@ router.get('/me', authMiddleware, (req, res) => {
 });
 
 router.post('/logout', authMiddleware, (req, res) => {
-  const staff = db.prepare('SELECT id FROM staff WHERE user_id = ?').get(req.user.id);
-  if (staff) {
-    const now = new Date();
-    const local = restaurantTime(now);
-    const activeShift = db.prepare("SELECT * FROM shift_logs WHERE staff_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1").get(staff.id);
-    db.prepare('UPDATE staff SET status = ?, clock_in = NULL WHERE id = ?').run('off-clock', staff.id);
-    if (activeShift) {
-      const startedAt = activeShift.started_at ? new Date(activeShift.started_at) : null;
-      const hours = startedAt && !Number.isNaN(startedAt.getTime()) ? Math.max(0, (now.getTime() - startedAt.getTime()) / 3600000) : 0;
-      const overtime = overtimeMinutesAt(local.time, activeShift.scheduled_start_time, activeShift.scheduled_end_time);
-      db.prepare(`UPDATE shift_logs SET end_time = ?, hours_worked = ?, status = 'completed', ended_at = ?, overtime_minutes = ? WHERE id = ?`)
-        .run(local.time, hours, now.toISOString(), overtime, activeShift.id);
-    }
-  }
   res.json({ ok: true });
 });
 

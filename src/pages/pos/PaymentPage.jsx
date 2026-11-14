@@ -31,7 +31,7 @@ export default function PaymentPage() {
   const [showAlternateTables, setShowAlternateTables] = useState(false);
   const location = useLocation();
 
-  const { items, getSubtotal, getTax, getTotal, orderType, tableNumber, customerName, customerPhone: cartCustomerPhone, customerEmail: cartCustomerEmail, deliveryAddress, deliveryLatitude, deliveryLongitude, orderSource, fulfillmentMode, scheduledFor, clearCart } = useCartStore();
+  const { items, getSubtotal, getDiscountAmount, getTax, getTotal, orderType, tableNumber, customerName, customerPhone: cartCustomerPhone, customerEmail: cartCustomerEmail, deliveryAddress, deliveryLatitude, deliveryLongitude, orderSource, fulfillmentMode, scheduledFor, clearCart, discountPercent, discountReason, promotion, approveStacking } = useCartStore();
   const setCartCustomerName = useCartStore((state) => state.setCustomerName);
   const setCartCustomerPhone = useCartStore((state) => state.setCustomerPhone);
   const setItems = useCartStore((state) => state.setItems);
@@ -99,11 +99,15 @@ export default function PaymentPage() {
           specialInstructions: i.specialInstructions,
         })),
         subtotal: getSubtotal(),
+        discountPercent,
+        discountReason,
+        promotionId: promotion?.id || '',
+        approveStacking,
         tax: getTax(),
         total: getTotal(),
         orderType: checkoutOrderType,
         tableNumber: selectedTableNumber ? Number(selectedTableNumber) : null,
-        customerName: customerName || 'Guest',
+        customerName: checkoutOrderType === 'dine-in' ? (customerName || '') : (customerName || 'Guest'),
         customerPhone,
         customerEmail,
         customerType,
@@ -113,9 +117,9 @@ export default function PaymentPage() {
         deliveryAddress: deliveryAddress || null,
         deliveryLatitude,
         deliveryLongitude,
-        paymentMethod: customerType === 'company' && paymentTerms === 'invoice' ? 'invoice' : selectedMethod,
-        paymentTiming: paymentTerms === 'invoice' ? 'pay-later' : selectedMethod === 'cash' ? 'paid-cash' : 'pay-later',
-        paymentTerms: customerType === 'company' ? paymentTerms : 'prepaid',
+        paymentMethod: checkoutOrderType === 'dine-in' ? 'tab' : customerType === 'company' && paymentTerms === 'invoice' ? 'invoice' : selectedMethod,
+        paymentTiming: checkoutOrderType === 'dine-in' ? 'pay-later' : paymentTerms === 'invoice' ? 'pay-later' : selectedMethod === 'cash' ? 'paid-cash' : 'pay-later',
+        paymentTerms: checkoutOrderType === 'dine-in' ? 'prepaid' : customerType === 'company' ? paymentTerms : 'prepaid',
         fulfillmentMode,
         scheduledFor: scheduledFor || undefined,
         orderSource,
@@ -127,6 +131,12 @@ export default function PaymentPage() {
           replace: true,
           state: { offlineQueued: true },
         });
+        return;
+      }
+
+      if (checkoutOrderType === 'dine-in') {
+        clearCart();
+        navigate('/pos/tables', { replace: true, state: { dineInOrderCreated: order.id } });
         return;
       }
 
@@ -174,9 +184,9 @@ export default function PaymentPage() {
         </button>
 
         <div className="mb-6">
-          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Secure Checkout</p>
-          <h1 className="mt-1 text-2xl font-display font-bold">Complete Payment</h1>
-          <p className="mt-1 text-sm text-surface-on-variant">Choose your payment method and enter your details</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">{checkoutOrderType === 'dine-in' ? 'Dine-in service' : 'Secure Checkout'}</p>
+          <h1 className="mt-1 text-2xl font-display font-bold">{checkoutOrderType === 'dine-in' ? 'Send order to kitchen' : 'Complete Payment'}</h1>
+          <p className="mt-1 text-sm text-surface-on-variant">{checkoutOrderType === 'dine-in' ? `Table ${checkoutTableNumber} stays open. Payment can be collected later against the shared tab.` : 'Choose your payment method and enter your details'}</p>
         </div>
 
         <div className="card mb-6">
@@ -193,6 +203,7 @@ export default function PaymentPage() {
                 <span>Subtotal</span>
                 <span>{formatCurrency(getSubtotal())}</span>
               </div>
+              {getDiscountAmount() > 0 && <div className="flex justify-between text-sm font-semibold text-success"><span>Discount{promotion ? ` · ${promotion.name}` : ` · ${discountPercent}%`}</span><span>-{formatCurrency(getDiscountAmount())}</span></div>}
               <div className="flex justify-between text-sm text-surface-on-variant">
                 <span>Tax ({taxRate}%)</span>
                 <span>{formatCurrency(getTax())}</span>
@@ -338,20 +349,20 @@ export default function PaymentPage() {
                 className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
-            <label className="block text-xs font-semibold text-surface-on-variant">Invoice type
+            {checkoutOrderType !== 'dine-in' && <label className="block text-xs font-semibold text-surface-on-variant">Invoice type
               <select value={customerType} onChange={(event) => setCustomerType(event.target.value)} className="mt-1 w-full rounded-lg border border-outline-variant px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                 <option value="individual">Individual</option>
                 <option value="company">Company</option>
               </select>
-            </label>
-            {customerType === 'company' && <input required value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Company name" className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />}
-            <input required={customerType === 'company'} value={customerTin} onChange={(event) => setCustomerTin(event.target.value)} placeholder={customerType === 'company' ? 'Company TIN (Required)' : 'Customer TIN (Optional)'} className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
-            {customerType === 'company' && <input value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} placeholder="Billing address (Optional)" className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />}
-            {customerType === 'company' && <label className="flex items-start gap-2 rounded-lg border border-outline-variant bg-surface-container-low p-3 text-xs text-surface-on-variant"><input type="checkbox" checked={paymentTerms === 'invoice'} onChange={(event) => setPaymentTerms(event.target.checked ? 'invoice' : 'prepaid')} className="mt-0.5" /><span><strong className="text-surface-on">Use approved company invoice terms</strong><br />Only registered company accounts with available credit are eligible. Otherwise, complete payment now.</span></label>}
+            </label>}
+            {checkoutOrderType !== 'dine-in' && customerType === 'company' && <input required value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Company name" className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />}
+            {checkoutOrderType !== 'dine-in' && <input required={customerType === 'company'} value={customerTin} onChange={(event) => setCustomerTin(event.target.value)} placeholder={customerType === 'company' ? 'Company TIN (Required)' : 'Customer TIN (Optional)'} className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />}
+            {checkoutOrderType !== 'dine-in' && customerType === 'company' && <input value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} placeholder="Billing address (Optional)" className="w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />}
+            {checkoutOrderType !== 'dine-in' && customerType === 'company' && <label className="flex items-start gap-2 rounded-lg border border-outline-variant bg-surface-container-low p-3 text-xs text-surface-on-variant"><input type="checkbox" checked={paymentTerms === 'invoice'} onChange={(event) => setPaymentTerms(event.target.checked ? 'invoice' : 'prepaid')} className="mt-0.5" /><span><strong className="text-surface-on">Use approved company invoice terms</strong><br />Only registered company accounts with available credit are eligible. Otherwise, complete payment now.</span></label>}
           </div>
         </div>
 
-        <div className="card mb-6">
+        {checkoutOrderType !== 'dine-in' && <div className="card mb-6">
           <h3 className="font-bold text-sm mb-3">Payment Method</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
@@ -375,7 +386,7 @@ export default function PaymentPage() {
               </button>
             ))}
           </div>
-        </div>
+        </div>}
 
         <div className="flex gap-3">
           <Button
@@ -391,11 +402,11 @@ export default function PaymentPage() {
             disabled={processing}
             className="flex-1"
           >
-            {processing ? 'Creating order...' : paymentTerms === 'invoice' && customerType === 'company' ? 'Place company invoice order' : selectedMethod === 'cash' ? 'Complete cash order' : 'Continue to Lipa Namba'}
+            {processing ? 'Creating order...' : checkoutOrderType === 'dine-in' ? 'Send to kitchen · pay at table' : paymentTerms === 'invoice' && customerType === 'company' ? 'Place company invoice order' : selectedMethod === 'cash' ? 'Complete cash order' : 'Continue to Lipa Namba'}
           </Button>
         </div>
 
-        {selectedMethod === 'lipa_namba' && <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+        {checkoutOrderType !== 'dine-in' && selectedMethod === 'lipa_namba' && <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <p className="text-xs text-blue-900">
             <strong>Manual confirmation:</strong> Your order stays pending until a staff member confirms that the Lipa Namba payment has been received.
           </p>
@@ -475,6 +486,7 @@ export default function PaymentPage() {
             ))}
             <div className="border-t border-outline-variant pt-2 mt-2 space-y-1">
               <div className="flex justify-between text-sm text-surface-on-variant"><span>Subtotal</span><span>{formatCurrency(getSubtotal())}</span></div>
+              {getDiscountAmount() > 0 && <div className="flex justify-between text-sm font-semibold text-success"><span>Discount{promotion ? ` · ${promotion.name}` : ` · ${discountPercent}%`}</span><span>-{formatCurrency(getDiscountAmount())}</span></div>}
               <div className="flex justify-between text-sm text-surface-on-variant"><span>Tax ({taxRate}%)</span><span>{formatCurrency(getTax())}</span></div>
               <div className="flex justify-between font-bold text-lg pt-1"><span>Total</span><span className="text-primary">{formatCurrency(getTotal())}</span></div>
             </div>

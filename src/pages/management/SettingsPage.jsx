@@ -5,15 +5,17 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import { normalizeTanzanianPhone } from '../../../shared/phone.js';
 import MobileBluetoothPrinterSettings from '../../components/settings/MobileBluetoothPrinterSettings';
+import PromotionManagement from './PromotionManagement';
 import { api } from '../../api/client';
 import useSettingsStore from '../../store/useSettingsStore';
-import { Save, Store, Receipt, CreditCard, Globe, Shield, Bell, MessageCircle, Star, Plus, Trash2, Brain, Download, Printer, RefreshCw, Copy, Link2 } from 'lucide-react';
+import { Save, Store, Receipt, CreditCard, Globe, Shield, Bell, MessageCircle, Star, Plus, Trash2, Brain, Download, Printer, RefreshCw, Copy, Link2, Percent } from 'lucide-react';
 import { downloadAsset } from '../../utils/downloadAsset';
 
 const sections = [
   { id: 'general', label: 'General', icon: Store },
   { id: 'tax', label: 'Tax & Currency', icon: Receipt },
   { id: 'payments', label: 'Payments', icon: CreditCard },
+  { id: 'offers', label: 'Offers & Discounts', icon: Percent },
   { id: 'invoice', label: 'Invoices', icon: Receipt },
   { id: 'printer', label: 'Receipt Printer', icon: Printer },
   { id: 'desktop', label: 'Desktop POS', icon: Download },
@@ -367,6 +369,7 @@ export default function SettingsPage() {
               </div>
             </Card>
           )}
+          {activeSection === 'offers' && <Card><PromotionManagement /></Card>}
           {activeSection === 'payments' && (
             <Card>
               <h3 className="font-display font-bold mb-4">Payment Configuration</h3>

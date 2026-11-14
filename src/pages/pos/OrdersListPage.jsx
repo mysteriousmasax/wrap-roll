@@ -11,6 +11,7 @@ import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { CalendarDays, ChevronRight, Clock3, CreditCard, Mail, MapPin, Search, Share2, ShoppingBag, UserRound, Utensils, Printer, Trash2 } from 'lucide-react';
 import { normalizeTanzanianPhone } from '../../../shared/phone.js';
+import { formatElapsedDuration } from '../../utils/elapsedDuration';
 
 const filters = [
   { id: 'all', label: 'All orders' },
@@ -25,12 +26,7 @@ function OrderTypeIcon({ type }) {
 }
 
 function getWaitingTime(createdAt, now) {
-  const elapsedSeconds = Math.max(0, Math.floor((now - new Date(createdAt).getTime()) / 1000));
-  const hours = Math.floor(elapsedSeconds / 3600);
-  const minutes = Math.floor((elapsedSeconds % 3600) / 60);
-  const seconds = elapsedSeconds % 60;
-  if (hours > 0) return `${hours}h ${String(minutes).padStart(2, '0')}m`;
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  return formatElapsedDuration(createdAt, now);
 }
 
 function getCountdownText(order, now) {
@@ -102,11 +98,63 @@ function groupOrdersByCustomer(orders) {
   }).sort((left, right) => right.latestOrderAt - left.latestOrderAt);
 }
 
-function OrderDetails({ order, onClose }) {
+function OrderDetails({ order, onClose, onUpdated }) {
+  const [refundPaymentId, setRefundPaymentId] = useState('');
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundReason, setRefundReason] = useState('');
+  const [payoutMethod, setPayoutMethod] = useState('cash');
+  const [payoutReference, setPayoutReference] = useState('');
+  const [approvalNote, setApprovalNote] = useState('');
+  const [refundBusy, setRefundBusy] = useState(false);
+  const [refundError, setRefundError] = useState('');
+  const currentUser = useAuthStore((state) => state.currentUser);
+  const canApproveRefund = ['admin', 'manager'].includes(currentUser?.role);
   if (!order) return null;
 
   const customerPhone = order.customerPhone || 'Not provided';
   const customerEmail = order.customerEmail || 'Not provided';
+  const refundablePayments = (order.payments || []).filter((payment) => ['paid', 'completed'].includes(payment.status));
+  const submitRefund = async (event) => {
+    event.preventDefault();
+    setRefundBusy(true);
+    setRefundError('');
+    try {
+      const updated = await api.requestRefund(order.id, {
+        paymentId: refundPaymentId || refundablePayments[0]?.id,
+        amount: Number(refundAmount),
+        reason: refundReason,
+        payoutMethod,
+        payoutReference,
+      });
+      onUpdated(updated);
+      setRefundAmount('');
+      setRefundReason('');
+      setPayoutReference('');
+    } catch (error) {
+      setRefundError(error.message || 'Unable to record refund.');
+    } finally {
+      setRefundBusy(false);
+    }
+  };
+  const reviewRefund = async (refund, decision) => {
+    setRefundBusy(true);
+    setRefundError('');
+    try {
+      const updated = await api.reviewRefund(order.id, refund.id, {
+        decision,
+        payoutMethod,
+        payoutReference,
+        approvalNotes: approvalNote,
+      });
+      onUpdated(updated);
+      setPayoutReference('');
+      setApprovalNote('');
+    } catch (error) {
+      setRefundError(error.message || 'Unable to review refund.');
+    } finally {
+      setRefundBusy(false);
+    }
+  };
 
   return (
     <Modal isOpen={!!order} onClose={onClose} title={`Order ${order.id}`}>
@@ -179,11 +227,45 @@ function OrderDetails({ order, onClose }) {
 
         <div className="space-y-2 border-t border-outline-variant pt-3 text-sm">
           <div className="flex justify-between text-surface-on-variant"><span>Subtotal</span><span>{formatCurrency(order.subtotal || 0)}</span></div>
+          {Number(order.discountAmount || 0) > 0 && <div className="flex justify-between font-semibold text-success"><span>Discount{order.discountLabel ? ` · ${order.discountLabel}` : ''}</span><span>-{formatCurrency(order.discountAmount)}</span></div>}
+          {order.discountReason && <p className="text-xs text-surface-on-variant">Discount reason: {order.discountReason}</p>}
           <div className="flex justify-between text-surface-on-variant"><span>Tax</span><span>{formatCurrency(order.tax || 0)}</span></div>
           <div className="flex justify-between border-t border-outline-variant pt-2 text-base font-bold">
             <span>Total</span>
             <span className="text-primary">{formatCurrency(order.total || 0)}</span>
           </div>
+
+          <section className="space-y-3 border-t border-outline-variant pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-bold">Refunds</h3>
+              <span className="text-xs font-semibold text-surface-on-variant">Available: {formatCurrency(order.refundableAmount || 0)}</span>
+            </div>
+            {(order.refunds || []).map((refund) => <div key={refund.id} className="rounded-lg border border-outline-variant p-3 text-xs">
+              <div className="flex flex-wrap justify-between gap-2"><strong>{formatCurrency(refund.amount)} · {refund.status.replaceAll('_', ' ')}</strong><span>{refund.payoutMethod || 'Payout pending'}{refund.payoutReference ? ` · ${refund.payoutReference}` : ''}</span></div>
+              <p className="mt-1 text-surface-on-variant">{refund.reason} · Requested by {refund.requestedBy || 'Staff'} · {new Date(refund.requestedAt).toLocaleString()}</p>
+              {refund.approvalNotes && <p className="mt-1 text-surface-on-variant">Review note: {refund.approvalNotes}</p>}
+              {canApproveRefund && refund.status === 'pending_approval' && <div className="mt-3 space-y-2">
+                <p className="text-[11px] font-semibold">Manager approval required for this refund.</p>
+                <label className="block text-[10px] font-semibold uppercase">Payout method<select value={payoutMethod} onChange={(event) => setPayoutMethod(event.target.value)} className="input-field mt-1"><option value="cash">Cash</option><option value="lipa_namba">Mobile money</option><option value="card">Card</option><option value="bank_transfer">Bank transfer</option><option value="other">Other</option></select></label>
+                {payoutMethod !== 'cash' && <input value={payoutReference} onChange={(event) => setPayoutReference(event.target.value)} placeholder="Refund transaction/reference" className="input-field w-full" />}
+                <input value={approvalNote} onChange={(event) => setApprovalNote(event.target.value)} placeholder="Manager note (required to reject)" className="input-field w-full" />
+                <div className="flex gap-2"><button type="button" disabled={refundBusy} onClick={() => reviewRefund(refund, 'approve')} className="rounded-lg bg-success px-3 py-2 text-xs font-bold text-white">Approve & record payout</button><button type="button" disabled={refundBusy} onClick={() => reviewRefund(refund, 'reject')} className="rounded-lg border border-error px-3 py-2 text-xs font-bold text-error">Reject request</button></div>
+              </div>}
+            </div>)}
+            {order.refundableAmount > 0 && (
+              <form onSubmit={submitRefund} className="space-y-2 rounded-xl bg-surface-container-low p-3">
+                <p className="text-xs font-semibold">Refund only up to the amount paid against each payment. Refunds above TZS 10,000 require manager approval.</p>
+                <label className="block text-[10px] font-semibold uppercase">Original payment<select value={refundPaymentId || refundablePayments[0]?.id || ''} onChange={(event) => setRefundPaymentId(event.target.value)} className="input-field mt-1" required>{refundablePayments.map((payment) => <option key={payment.id} value={payment.id}>{payment.method} · {formatCurrency(payment.amount)} · {payment.paymentReference}</option>)}</select></label>
+                <div className="grid gap-2 sm:grid-cols-2"><input aria-label="Refund amount" type="number" min="1" max={order.refundableAmount} step="1" required value={refundAmount} onChange={(event) => setRefundAmount(event.target.value)} placeholder="Amount (TZS)" className="input-field" /><input value={refundReason} onChange={(event) => setRefundReason(event.target.value)} required maxLength={500} placeholder="Reason for refund" className="input-field" /></div>
+                {(canApproveRefund || (Number(refundAmount) > 0 && Number(refundAmount) <= 10000)) && <>
+                  <label className="block text-[10px] font-semibold uppercase">Payout method<select value={payoutMethod} onChange={(event) => setPayoutMethod(event.target.value)} className="input-field mt-1"><option value="cash">Cash</option><option value="lipa_namba">Mobile money</option><option value="card">Card</option><option value="bank_transfer">Bank transfer</option><option value="other">Other</option></select></label>
+                  {payoutMethod !== 'cash' && <input value={payoutReference} onChange={(event) => setPayoutReference(event.target.value)} placeholder="Refund transaction/reference" className="input-field w-full" />}
+                </>}
+                {refundError && <p role="alert" className="text-xs font-semibold text-error">{refundError}</p>}
+                <button type="submit" disabled={refundBusy} className="rounded-lg bg-primary px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{refundBusy ? 'Recording…' : Number(refundAmount) > 10000 && !canApproveRefund ? 'Request manager approval' : 'Record refund paid'}</button>
+              </form>
+            )}
+          </section>
         </div>
       </div>
     </Modal>
@@ -219,7 +301,7 @@ function CustomerEditModal({ order, onClose, onSave }) {
   return (
     <Modal isOpen={Boolean(order)} onClose={onClose} title={`Edit customer for ${order.id}`}>
       <div className="space-y-3">
-        <input value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} placeholder="Customer name" className="input-field w-full" />
+        <input value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} placeholder="Customer name (optional)" className="input-field w-full" />
         <input type="tel" value={form.customerPhone} onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))} onBlur={(event) => setForm((current) => ({ ...current, customerPhone: normalizeTanzanianPhone(event.target.value) }))} placeholder="Phone" className="input-field w-full" />
         <input value={form.customerEmail} onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))} placeholder="Email" className="input-field w-full" />
         <select value={form.customerType} onChange={(event) => setForm((current) => ({ ...current, customerType: event.target.value }))} className="input-field w-full">
@@ -398,7 +480,7 @@ export default function OrdersListPage() {
           </section>
         ))}
       </div>
-      <OrderDetails order={selectedOrder} onClose={() => setSelectedOrder(null)} />
+      <OrderDetails order={selectedOrder} onUpdated={(order) => { setSelectedOrder(order); fetchOrders(); }} onClose={() => setSelectedOrder(null)} />
       <CustomerEditModal order={editingCustomerOrder} onClose={() => setEditingCustomerOrder(null)} onSave={updateCustomerInfo} />
     </div>
   );

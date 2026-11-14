@@ -60,6 +60,10 @@ export default function CustomersPage() {
 
   const saveCustomer = async (event) => {
     event.preventDefault();
+    if (!form.phone.trim() && !form.email.trim()) {
+      setError('Add a phone number or email so this customer can be identified.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -76,11 +80,12 @@ export default function CustomersPage() {
   };
 
   const removeCustomer = async (customer) => {
-    if (!window.confirm(`Delete ${customer.name} and their linked loyalty records?`)) return;
+    const customerLabel = customer.name || customer.phone || customer.email || 'this customer';
+    if (!window.confirm(`Delete ${customerLabel} and their linked loyalty records?`)) return;
     setError('');
     try {
       await api.deleteCustomer(customer.id);
-      setNotice(`${customer.name} was deleted.`);
+      setNotice(`${customerLabel} was deleted.`);
       await loadCustomers();
     } catch (deleteError) {
       setError(deleteError.message || 'Unable to delete customer.');
@@ -120,7 +125,7 @@ export default function CustomersPage() {
                 <div className="flex min-w-0 flex-1 items-start gap-3">
                   <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#faeee2] text-[#ae002a]"><Users size={16} /></span>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold">{customer.name}</p>
+                    <p className="truncate text-sm font-bold">{customer.name || 'Unnamed customer'}</p>
                     <p className="mt-0.5 break-all text-xs text-surface-on-variant">{customer.phone || 'No phone'}{customer.email ? ` · ${customer.email}` : ''}</p>
                     <p className="mt-1 text-[11px] font-semibold text-primary">{customer.rollPoints || 0} Roll Points</p>
                     {customer.favoriteItems?.length > 0 && <p className="mt-1 truncate text-[11px] text-surface-on-variant">Often orders: {customer.favoriteItems.join(', ')}</p>}
@@ -144,10 +149,10 @@ export default function CustomersPage() {
 
       <Modal isOpen={modalOpen} onClose={closeModal} title={editing ? 'Edit customer' : 'Add customer'}>
         <form onSubmit={saveCustomer} className="space-y-4">
-          <Input label="Customer name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
+          <Input label="Customer name (Optional)" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
           <Input label="Phone number" type="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} onBlur={(event) => setForm((current) => ({ ...current, phone: normalizeTanzanianPhone(event.target.value) }))} />
           <Input label="Email address" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
-          <p className="-mt-2 text-[11px] text-surface-on-variant">A saved email lets the customer verify their Roll Points online.</p>
+          <p className="-mt-2 text-[11px] text-surface-on-variant">Name is optional; enter a phone number or email to identify this contact. A saved email lets the customer verify their Roll Points online.</p>
           {error && <p className="text-sm text-error" role="alert">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={closeModal}>Cancel</Button>

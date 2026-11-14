@@ -64,6 +64,9 @@ router.post('/create-intent', async (req, res) => {
     if (!order) {
       return res.status(404).json({ success: false, error: `Order ${orderId} not found` });
     }
+    if (order.tabId) {
+      return res.status(409).json({ success: false, error: 'Dine-in orders are paid against the table tab by staff.' });
+    }
 
     const paymentRef = order.paymentReference || `WRPAY-${order.id.replace(/^WR-/, '')}`;
     
@@ -231,6 +234,10 @@ router.post('/:paymentReference/verify-manual', authMiddleware, async (req, res)
       verifiedBy: staffName,
       notes,
     });
+    if (result.paymentStatus === PAYMENT_STATUSES.PAID) {
+      db.prepare('UPDATE payments SET received_by_user_id = ? WHERE payment_reference = ?')
+        .run(req.user.id, paymentReference);
+    }
 
     const updatedOrder = getOrderById(result.orderId);
     if (result.paymentStatus === PAYMENT_STATUSES.PAID) {

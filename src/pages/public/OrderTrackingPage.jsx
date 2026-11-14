@@ -7,6 +7,7 @@ import CustomerChat from '../../components/public/CustomerChat';
 import { api } from '../../api/client';
 import useTranslation from '../../i18n/useTranslation';
 import { formatReservationCountdown } from '../../utils/reservationCountdown';
+import { formatElapsedDuration } from '../../utils/elapsedDuration';
 import { normalizeTanzanianPhone } from '../../../shared/phone.js';
 
 const paymentLabel = (status) => ({
@@ -160,7 +161,7 @@ export default function OrderTrackingPage() {
       <section className="mt-6 overflow-hidden rounded-xl border border-[#e5ded5] bg-white shadow-sm">
         <div className="bg-[#ae002a] px-5 py-5 text-white">
           <div className="flex items-start justify-between gap-3"><div className="flex items-start gap-3"><PackageCheck size={21} className="mt-0.5 shrink-0" /><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/75">Wrap &amp; Roll</p><h1 className="mt-1 text-xl font-bold">Order tracking</h1></div></div>{order && <span className="rounded-full bg-white/15 px-3 py-1.5 text-xs font-bold">{orderLabel(order)}</span>}</div>
-          {order && <div className="mt-4 flex flex-wrap items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wide text-white/70">Order number</p><p className="mt-1 text-sm font-bold">{order.orderNumber}</p></div><div className="text-right"><p className="text-[10px] font-bold uppercase tracking-wide text-white/70">Time elapsed</p><p className="mt-1 text-lg font-bold tabular-nums">{elapsedMinutes} min {String(elapsedSeconds % 60).padStart(2, '0')} sec</p></div></div>}
+          {order && <div className="mt-4 flex flex-wrap items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wide text-white/70">Order number</p><p className="mt-1 text-sm font-bold">{order.orderNumber}</p></div><div className="text-right"><p className="text-[10px] font-bold uppercase tracking-wide text-white/70">Time elapsed</p><p className="mt-1 text-lg font-bold tabular-nums">{formatElapsedDuration(order.createdAt, elapsedEnd)}</p></div></div>}
         </div>
         {!token && <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">This tracking link is incomplete. Ask the staff member to share the customer order link again.</p>}
         {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
@@ -179,7 +180,7 @@ export default function OrderTrackingPage() {
           {order.status === 'completed' && <p className="flex items-center gap-2 rounded-lg bg-[#eaf5ed] p-3 text-xs font-semibold text-[#227653]"><CircleCheck size={15} />This order is complete.</p>}
           <form onSubmit={saveContact} className="space-y-3 border-t border-[#eee4d5] pt-4">
             <div><h2 className="text-sm font-bold">Your contact details</h2><p className="mt-1 text-xs text-[#746e67]">Add a phone number or email so we can reach you about this order. This browser will remember your details.</p></div>
-            <label className="block text-xs font-semibold text-[#554e46]">Name<input value={contact.name} onChange={(event) => updateContactField('name', event.target.value)} className="mt-1 w-full rounded-lg border border-[#e5ded5] px-3 py-2.5 text-sm" autoComplete="name" /></label>
+            <label className="block text-xs font-semibold text-[#554e46]">Name (optional)<input value={contact.name} onChange={(event) => updateContactField('name', event.target.value)} className="mt-1 w-full rounded-lg border border-[#e5ded5] px-3 py-2.5 text-sm" autoComplete="name" /></label>
             <label className="block text-xs font-semibold text-[#554e46]"><span className="inline-flex items-center gap-1"><Phone size={12} />Phone (optional)</span><input type="tel" value={contact.phone} onChange={(event) => updateContactField('phone', event.target.value)} onBlur={(event) => setContact((current) => ({ ...current, phone: normalizeTanzanianPhone(event.target.value) }))} className="mt-1 w-full rounded-lg border border-[#e5ded5] px-3 py-2.5 text-sm" placeholder="0712 345 678 or +255 712 345 678" autoComplete="tel" /></label>
             <label className="block text-xs font-semibold text-[#554e46]"><span className="inline-flex items-center gap-1"><Mail size={12} />Email (optional)</span><input type="email" value={contact.email} onChange={(event) => updateContactField('email', event.target.value)} className="mt-1 w-full rounded-lg border border-[#e5ded5] px-3 py-2.5 text-sm" placeholder="you@example.com" autoComplete="email" /></label>
             {contactError && <p className="text-xs text-red-700" role="alert">{contactError}</p>}

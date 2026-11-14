@@ -1,194 +1,698 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import PageHeader from '../../components/layout/PageHeader';
-import StatCard from '../../components/ui/StatCard';
 import Card from '../../components/ui/Card';
-import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
+import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import { api } from '../../api/client';
-import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency } from '../../utils/format';
-import { downloadBlob } from '../../utils/downloadBlob';
-import { DollarSign, TrendingUp, Download, FileText, PieChart, Sparkles, Eye } from 'lucide-react';
+import {
+  CalendarRange,
+  Download,
+  Eye,
+  FileText,
+  Search,
+  WalletCards,
+} from 'lucide-react';
 
-export default function ReportsPage() {
-  const [report, setReport] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [range, setRange] = useState('month');
-  const [aiReview, setAiReview] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState('');
-  const [reportType, setReportType] = useState('sales');
-  const [exportFormat, setExportFormat] = useState('csv');
-  const [exporting, setExporting] = useState(false);
-  const [previewReport, setPreviewReport] = useState(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const refreshTimerRef = useRef(null);
+const tabs = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'daily', label: 'Daily Sales' },
+  { id: 'vat', label: 'Monthly VAT' },
+  { id: 'tax', label: 'Annual Tax' },
+  { id: 'receipts', label: 'Receipts Log' },
+  { id: 'audit', label: 'Audit Trail' },
+];
 
-  const loadReport = () => api.getReports(range).then(setReport).finally(() => setLoading(false));
-  useEffect(() => { loadReport(); const timer = window.setInterval(loadReport, 30000); return () => window.clearInterval(timer); }, [range]);
-  useWebSocket((event) => {
-    if (['order:created', 'order:updated', 'order:confirmed', 'payment:confirmed', 'payment:manual_review', 'payment:rejected', 'business:updated', 'staff:updated', 'inventory:updated', 'customer:updated', 'menu:updated', 'table:updated', 'settings:updated'].includes(event)) {
-      window.clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = window.setTimeout(() => loadReport(), 50);
-    }
-  });
+const localDateValue = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
-  const generateAiReview = async () => {
-    setAiLoading(true);
-    setAiError('');
-    try {
-      const result = await api.generateAiOperationsReview();
-      setAiReview(result.report);
-    } catch (error) {
-      setAiError(error.message || 'Unable to generate the operations review');
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  const exportReport = async () => {
-    if (!report || exporting) return;
-    setExporting(true);
-    try {
-      const result = await api.exportFinancialReport(reportType, exportFormat);
-      downloadBlob(result.blob, result.filename);
-    } catch (error) {
-      setAiError(error.message || 'Unable to export the financial report');
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const openPreview = async () => {
-    if (previewLoading) return;
-    setPreviewLoading(true);
-    try {
-      setPreviewReport(await api.getFinancialReportPreview(reportType));
-    } catch (error) {
-      setAiError(error.message || 'Unable to load report preview');
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
-  if (loading) return <div className="p-6 text-sm text-surface-on-variant">Loading reports...</div>;
-
-  const { salesData, totalRevenue, totalProfit, profitMargin, taxLiability = 0, financialChanges = {}, plRows, paymentMethods = [] } = report;
-  const rangeData = (report.ranges || {})[range] || [];
-  const maxRevenue = rangeData.length ? Math.max(...rangeData.map((row) => Number(row.revenue || 0)), 1) : 1;
-  const maxHistoricalRevenue = salesData.length ? Math.max(...salesData.map((row) => Number(row.revenue || 0)), 1) : 1;
-  const selectedFormatLabel = (report.exportFormats || []).find((format) => format.id === exportFormat)?.label || exportFormat.toUpperCase();
+function ResponsiveReportTable({ columns, rows, getKey, primaryColumn, renderCell, emptyMessage }) {
+  const primary = columns.find(([key]) => key === primaryColumn) || columns[0];
+  const secondary = columns.filter(([key]) => key !== primary[0]);
 
   return (
-    <div className="p-4 sm:p-6">
-      <PageHeader title="Financial Reports" subtitle="Certified financial reporting and analytics" actions={
-        <div className="flex flex-wrap items-center justify-end gap-2"><Button size="sm" variant="secondary" onClick={generateAiReview} disabled={aiLoading}><Sparkles size={14} /> {aiLoading ? 'Reviewing system...' : 'Gemini system review'}</Button><select aria-label="Financial report type" value={reportType} onChange={(event) => { setReportType(event.target.value); setPreviewReport(null); }} className="rounded-xl border border-outline-variant bg-white px-3 py-1.5 text-xs font-semibold">{(report.reportTypes || []).map((type) => <option key={type.id} value={type.id}>{type.label}</option>)}</select><select aria-label="Export format" value={exportFormat} onChange={(event) => setExportFormat(event.target.value)} className="rounded-xl border border-outline-variant bg-white px-3 py-1.5 text-xs font-semibold">{(report.exportFormats || [{ id: 'csv', label: 'CSV' }, { id: 'json', label: 'JSON' }, { id: 'html', label: 'HTML / Print' }, { id: 'pdf', label: 'PDF' }, { id: 'xlsx', label: 'Excel' }, { id: 'docx', label: 'Word' }, { id: 'pptx', label: 'PowerPoint' }]).map((format) => <option key={format.id} value={format.id}>{format.label}</option>)}</select><Button size="sm" variant="secondary" onClick={openPreview} disabled={previewLoading}><Eye size={14} /> {previewLoading ? 'Loading preview...' : 'Preview'}</Button><Button size="sm" onClick={exportReport} disabled={exporting}><Download size={14} /> {exporting ? 'Exporting...' : 'Export Report'}</Button></div>
-      } />
-
-      <Modal isOpen={Boolean(previewReport)} onClose={() => setPreviewReport(null)} title="Document preview" size="xl">
-        {previewReport && <div className="rounded-2xl bg-[#eee3dc] p-3 shadow-inner sm:p-6">
-          <div className="rounded-xl border border-[#ead8d0] bg-[#fffdf9] p-5 shadow-[0_12px_30px_rgba(88,48,35,0.12)] sm:p-8">
-            <div className="flex items-start justify-between gap-5 border-b-2 border-[#b0003a]/20 pb-6"><div><img src="/wrap-roll-logo-lockup-transparent.png" alt="Wrap & Roll" className="h-11 w-auto object-contain" /><p className="mt-6 text-[10px] font-bold uppercase tracking-[0.24em] text-[#b0003a]">Financial report</p><h2 className="mt-1 font-display text-2xl font-bold tracking-tight text-[#292522] sm:text-3xl">{previewReport.title}</h2><p className="mt-2 max-w-md text-xs leading-5 text-[#7b6c64]">A live operational snapshot prepared from Wrap & Roll restaurant data.</p></div><div className="min-w-[100px] text-right text-xs text-[#7b6c64]"><p className="font-bold text-[#292522]">Wrap & Roll</p><p className="mt-2">{new Date().toLocaleDateString()}</p><span className="mt-3 inline-flex rounded-full bg-[#f8e7ec] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-[#b0003a]">{selectedFormatLabel}</span></div></div>
-            <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3"><div className="rounded-lg bg-[#f8ece8] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[#8c7167]">Rows included</p><p className="mt-1 text-xl font-bold text-[#292522]">{previewReport.rows.length}</p></div><div className="rounded-lg bg-[#f2f7ee] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[#68825e]">Source</p><p className="mt-1 text-sm font-bold text-[#365a37]">Live API</p></div><div className="col-span-2 rounded-lg bg-[#fff4d9] p-3 sm:col-span-1"><p className="text-[10px] font-bold uppercase tracking-wide text-[#99731d]">Status</p><p className="mt-1 text-sm font-bold text-[#73570e]">Ready to export</p></div></div>
-            <div className="mt-6 overflow-hidden rounded-xl border border-[#ead8d0] bg-white"><div className="flex items-center justify-between border-b border-[#ead8d0] bg-[#f8ece8] px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#7b6259]">Report detail</p><p className="text-[10px] text-[#9a8177]">Preview · first 30 rows</p></div><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-xs"><thead className="bg-[#fffaf7] text-[10px] uppercase tracking-wider text-[#7b6259]"><tr>{previewReport.columns.map((column) => <th key={column} className="px-4 py-3 font-bold">{column.replace(/_/g, ' ')}</th>)}</tr></thead><tbody>{previewReport.rows.slice(0, 30).map((row, index) => <tr key={index} className={'border-t border-[#f0e4de] ' + (index % 2 ? 'bg-[#fffdfb]' : 'bg-white')}>{previewReport.columns.map((column) => <td key={column} className="px-4 py-3 align-top text-[#4d423d]">{String(row[column] ?? '')}</td>)}</tr>)}</tbody></table>{!previewReport.rows.length && <div className="px-5 py-12 text-center text-sm text-[#8c7b72]">No rows are available for this report yet.</div>}</div></div>
-            {previewReport.rows.length > 30 && <p className="mt-3 text-xs text-[#7b6c64]">The preview shows the first 30 rows. Your export contains the complete report.</p>}
-            <div className="mt-7 flex items-center justify-between border-t border-[#ead8d0] pt-4 text-[10px] text-[#9a8177]"><span>Confidential · Internal operations</span><span>wrapandrolltz.com</span></div>
-          </div>
-        </div>}
-      </Modal>
-
-      {(aiReview || aiError) && <Card className="mb-6 border border-primary/20 bg-primary/5">
-        <div className="flex items-start justify-between gap-4"><div><h3 className="font-display font-bold text-sm">Gemini operations feedback</h3><p className="mt-1 text-xs text-surface-on-variant">Generated from the current sales, orders, inventory, workforce, and finance data.</p></div><Sparkles size={18} className="text-primary" /></div>
-        {aiError ? <p className="mt-4 text-sm text-error">{aiError}</p> : <pre className="mt-4 whitespace-pre-wrap font-sans text-sm leading-6 text-surface-on">{aiReview}</pre>}
-      </Card>}
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard title="Gross Revenue" value={formatCurrency(totalRevenue)} change={financialChanges.revenue ?? undefined} icon={DollarSign} iconColor="green" />
-        <StatCard title="Net Profit" value={formatCurrency(totalProfit)} change={financialChanges.profit ?? undefined} icon={TrendingUp} iconColor="primary" />
-        <StatCard title="Profit Margin" value={profitMargin + '%'} change={financialChanges.margin ?? undefined} icon={PieChart} iconColor="yellow" />
-        <StatCard title="Tax Liability (VAT)" value={formatCurrency(taxLiability)} icon={FileText} iconColor="red" />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        <Card>
-          <h3 className="font-display font-bold text-sm mb-4">Monthly P&L Statement</h3>
-          <table className="w-full">
-            <thead><tr className="border-b border-outline-variant"><th className="text-left text-xs uppercase text-surface-on-variant p-2">Category</th><th className="text-right text-xs uppercase text-surface-on-variant p-2">Amount</th><th className="text-right text-xs uppercase text-surface-on-variant p-2">%</th></tr></thead>
-            <tbody>
-              {plRows.map((row) => (
-                <tr key={row.cat} className="border-b border-outline-variant/30">
-                  <td className="p-2 text-sm font-semibold">{row.cat}</td>
-                  <td className={'p-2 text-sm font-bold text-right ' + (row.amt < 0 ? 'text-error' : 'text-success')}>{formatCurrency(Math.abs(row.amt))}</td>
-                  <td className="p-2 text-sm text-surface-on-variant text-right">{row.pct}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-
-        <Card>
-          <h3 className="font-display font-bold text-sm mb-4">Payment Methods Breakdown</h3>
-          <div className="space-y-4">
-            {paymentMethods.map((pm, index) => (
-              <div key={pm.method}>
-                <div className="flex justify-between text-sm mb-1"><span className="font-semibold capitalize">{pm.method.replace('_', ' ')}</span><span className="text-surface-on-variant">{pm.pct}%</span></div>
-                <div className="bg-surface-container-low rounded-full h-3 overflow-hidden"><div className={'h-full rounded-full ' + ['bg-primary', 'bg-secondary-container', 'bg-gray-400'][index % 3]} style={{ width: pm.pct + '%' }} /></div>
-              </div>
+    <div className="min-w-0">
+      <div className="hidden overflow-hidden rounded-xl border border-outline-variant xl:block">
+        <table className="w-full table-fixed text-left text-xs">
+          <thead className="bg-surface-container-low text-surface-on-variant">
+            <tr>{columns.map(([key, label]) => <th key={key} className="break-words px-2 py-2 font-bold">{label}</th>)}</tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={getKey(row, index)} className="border-t border-outline-variant/60">
+                {columns.map(([key]) => <td key={key} className="break-words px-2 py-2">{renderCell ? renderCell(row, key) : row[key] ?? '—'}</td>)}
+              </tr>
             ))}
-            {!paymentMethods.length && <p className="text-sm text-surface-on-variant">No payment data available.</p>}
-          </div>
-          <div className="mt-6 p-3 bg-surface-container-low rounded-xl">
-            <p className="text-xs text-surface-on-variant">Auditor Certification</p>
-            <Badge variant="green" className="mt-2">Certified</Badge>
-          </div>
-        </Card>
+            {!rows.length && <tr><td className="p-3 text-surface-on-variant" colSpan={columns.length}>{emptyMessage}</td></tr>}
+          </tbody>
+        </table>
       </div>
 
-      <Card className="mb-6">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h3 className="font-display font-bold text-sm">Daily / Weekly / Monthly Report</h3>
-          <div className="inline-flex rounded-full border border-outline-variant bg-surface-container-low p-1">
-            {['day', 'week', 'month'].map((option) => (
+      <div className="grid min-w-0 gap-2 xl:hidden">
+        {rows.map((row, index) => (
+          <article key={getKey(row, index)} className="min-w-0 rounded-xl border border-outline-variant bg-white p-3">
+            <div className="min-w-0">
+              <p className="break-words text-[10px] font-semibold uppercase tracking-wide text-surface-on-variant">{primary[1]}</p>
+              <p className="mt-0.5 min-w-0 break-words font-semibold text-surface-on">{renderCell ? renderCell(row, primary[0]) : row[primary[0]] ?? '—'}</p>
+            </div>
+            {secondary.length > 0 && (
+              <dl className="mt-2 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2">
+                {secondary.map(([key, label]) => (
+                  <div key={key} className="min-w-0">
+                    <dt className="break-words text-[10px] font-semibold uppercase tracking-wide text-surface-on-variant">{label}</dt>
+                    <dd className="mt-0.5 min-w-0 break-words text-xs text-surface-on">{renderCell ? renderCell(row, key) : row[key] ?? '—'}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </article>
+        ))}
+        {!rows.length && <p className="rounded-xl border border-dashed border-outline-variant p-3 text-sm text-surface-on-variant">{emptyMessage}</p>}
+      </div>
+    </div>
+  );
+}
+
+const statusVariant = (value) => {
+  const normalized = String(value).trim().toLowerCase();
+  if (['sent', 'approved', 'complete', 'logged', 'paid'].includes(normalized)) return 'green';
+  if (['open', 'alert', 'in progress', 'queued', 'pending'].includes(normalized)) return 'yellow';
+  if (['missed', 'rejected', 'refunded'].includes(normalized)) return 'red';
+  if (['locked'].includes(normalized)) return 'orange';
+  return 'default';
+};
+
+export default function ReportsPage() {
+  const [activeTab, setActiveTab] = useState('overview');
+  const [summary, setSummary] = useState(null);
+  const [salesAdjustments, setSalesAdjustments] = useState(null);
+  const [salesTrend, setSalesTrend] = useState([]);
+  const [categoryMix, setCategoryMix] = useState([]);
+  const [recentTransactions, setRecentTransactions] = useState([]);
+  const [inventoryValue, setInventoryValue] = useState(0);
+  const [inventoryItemsCount, setInventoryItemsCount] = useState(0);
+  const [reportMonth, setReportMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [complianceReport, setComplianceReport] = useState(null);
+  const [complianceError, setComplianceError] = useState('');
+  const [receiptSearch, setReceiptSearch] = useState('');
+  const [previewRange, setPreviewRange] = useState('day');
+  const [previewDate, setPreviewDate] = useState(() => localDateValue());
+  const [reportPreview, setReportPreview] = useState(null);
+  const [previewError, setPreviewError] = useState('');
+  const [exportingFormat, setExportingFormat] = useState('');
+  const [selectedReceipt, setSelectedReceipt] = useState(null);
+  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptError, setReceiptError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setReportPreview(null);
+    setPreviewError('');
+    api.getAnalyticsExportPreview(previewRange, previewDate)
+      .then((report) => {
+        if (active) setReportPreview(report);
+      })
+      .catch((error) => {
+        if (active) setPreviewError(error.message || 'Unable to load report preview.');
+      });
+    return () => { active = false; };
+  }, [previewRange, previewDate]);
+
+  useEffect(() => {
+    let active = true;
+    setComplianceReport(null);
+    setComplianceError('');
+    api.getComplianceReports(reportMonth)
+      .then((report) => {
+        if (active) {
+          setComplianceReport(report);
+          setComplianceError('');
+        }
+      })
+      .catch((error) => {
+        if (active) setComplianceError(error.message || 'Unable to load report data.');
+      });
+    return () => { active = false; };
+  }, [reportMonth]);
+
+  useEffect(() => {
+    let active = true;
+
+    Promise.allSettled([
+      api.getAnalyticsSummary(),
+      api.getSales(),
+      api.getCategorySales(),
+      api.getOrders(),
+      api.getInventory(),
+      api.getAnalyticsReports(),
+    ]).then(([summaryResult, salesResult, categoryResult, ordersResult, inventoryResult, reportResult]) => {
+      if (!active) return;
+
+      if (summaryResult.status === 'fulfilled') setSummary(summaryResult.value || {});
+
+      if (salesResult.status === 'fulfilled') {
+        const rows = Array.isArray(salesResult.value) ? salesResult.value : [];
+        const maxRevenue = rows.reduce((highest, row) => Math.max(highest, Number(row.revenue || 0)), 0) || 1;
+        setSalesTrend(rows.slice(-7).map((row) => ({
+          label: String(row.label || '').slice(0, 3) || 'N/A',
+          value: Math.round((Number(row.revenue || 0) / maxRevenue) * 100),
+        })));
+      }
+
+      if (categoryResult.status === 'fulfilled') {
+        const rows = Array.isArray(categoryResult.value) ? categoryResult.value : [];
+        const total = rows.reduce((sum, item) => sum + Number(item.revenue || 0), 0) || 1;
+        const palette = ['bg-primary', 'bg-warning', 'bg-success', 'bg-secondary'];
+        setCategoryMix(rows.map((item, index) => ({
+          label: item.name || 'Other',
+          percent: Math.round((Number(item.revenue || 0) / total) * 100),
+          amount: formatCurrency(Number(item.revenue || 0)),
+          color: palette[index % palette.length],
+        })));
+      }
+
+      if (ordersResult.status === 'fulfilled') {
+        const converted = (ordersResult.value || [])
+          .filter((order) => order.status === 'completed' && ['paid', 'completed'].includes(String(order.payment_status || order.paymentStatus || '').toLowerCase()))
+          .slice(0, 5)
+          .map((order) => ({
+            id: `#${order.id}`,
+            customer: order.customer_name || order.customerName || order.customer?.name || 'Walk-in guest',
+            total: Number(order.total || 0),
+            time: new Date(order.created_at || order.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+            status: order.payment_status || order.paymentStatus || 'Paid',
+          }));
+        setRecentTransactions(converted);
+      }
+
+      if (inventoryResult.status === 'fulfilled') {
+        const rows = Array.isArray(inventoryResult.value) ? inventoryResult.value : [];
+        const nextInventoryValue = rows.reduce((total, item) => {
+          const quantity = Number(item.quantity || 0);
+          const unitCost = Number(item.unitCost || item.unit_cost || 0);
+          return total + (quantity * unitCost);
+        }, 0);
+        setInventoryValue(nextInventoryValue);
+        setInventoryItemsCount(rows.length);
+      }
+      if (reportResult?.status === 'fulfilled') setSalesAdjustments(reportResult.value?.financialAdjustments || null);
+    });
+
+    return () => { active = false; };
+  }, []);
+
+  const overviewMetrics = [
+    { label: 'Net sales', value: formatCurrency(Number(salesAdjustments?.netSales ?? summary?.monthlyRevenue ?? 0)), note: summary?.changes?.monthlyRevenue != null ? `${summary.changes.monthlyRevenue >= 0 ? '+' : ''}${summary.changes.monthlyRevenue}% vs last month` : 'After discounts and processed refunds' },
+    { label: 'Reported profit', value: formatCurrency(Number(summary?.monthlyProfit || 0)), note: 'From recorded sales and expenses' },
+    { label: 'Orders', value: Number(summary?.monthlyOrders || 0).toLocaleString(), note: `Avg ticket ${formatCurrency(Number(summary?.avgOrderValue || 0))}` },
+    { label: 'Inventory value', value: formatCurrency(Number(inventoryValue || 0)), note: `${inventoryItemsCount} items tracked across stock` },
+  ];
+  const adjustmentMetrics = [
+    { label: 'Gross sales', value: formatCurrency(Number(salesAdjustments?.grossSales || 0)) },
+    { label: 'Offer discounts', value: formatCurrency(Number(salesAdjustments?.offerDiscounts || 0)) },
+    { label: 'Manager discounts', value: formatCurrency(Number(salesAdjustments?.manualDiscounts || 0)) },
+    { label: 'Processed refunds', value: formatCurrency(Number(salesAdjustments?.refunds || 0)) },
+  ];
+
+  const renderStatus = (status) => <Badge variant={statusVariant(status)}>{status}</Badge>;
+  const filteredReceipts = (complianceReport?.receipts || []).filter((row) => (
+    `${row.id} ${row.customer}`.toLowerCase().includes(receiptSearch.trim().toLowerCase())
+  ));
+  const exportReport = async (format) => {
+    setExportingFormat(format);
+    setPreviewError('');
+    try {
+      const { blob, filename } = await api.exportAnalytics(previewRange, format, previewDate);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      setPreviewError(error.message || `Unable to export ${format.toUpperCase()} report.`);
+    } finally {
+      setExportingFormat('');
+    }
+  };
+  const openReceipt = async (receipt) => {
+    setSelectedReceipt(null);
+    setReceiptError('');
+    setReceiptLoading(true);
+    setReceiptModalOpen(true);
+    try {
+      const order = await api.getOrder(receipt.orderId || receipt.id);
+      setSelectedReceipt(order);
+    } catch (error) {
+      setReceiptError(error.message || 'Unable to load receipt details.');
+    } finally {
+      setReceiptLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-w-0 max-w-full p-2.5 sm:p-6">
+      <PageHeader
+        title="Compliance & Reports"
+        subtitle="Business performance, paid order records, and recorded audit activity"
+        mobileStack
+      />
+
+      <div className="mt-4 min-w-0 space-y-4 sm:mt-6 sm:space-y-6">
+        {complianceError && (
+          <div role="alert" className="rounded-xl border border-error/30 bg-error/5 p-4 text-sm text-error">
+            Could not load live report data: {complianceError}
+          </div>
+        )}
+
+        <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4">
+          <Card className="min-w-0 !p-3 sm:!p-5">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-surface-on-variant">Today's paid orders</p>
+            <p className="mt-2 text-xl font-black sm:mt-4 sm:text-2xl">{Number(complianceReport?.todaySummary?.receipts || 0).toLocaleString()}</p>
+            <p className="mt-1 break-words text-xs text-surface-on-variant sm:mt-2 sm:text-sm">{formatCurrency(Number(complianceReport?.todaySummary?.gross || 0))} gross sales</p>
+          </Card>
+          <Card className="min-w-0 !p-3 sm:!p-5">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-surface-on-variant">Today's recorded order tax</p>
+            <p className="mt-2 break-words text-lg font-black sm:mt-4 sm:text-2xl">{formatCurrency(Number(complianceReport?.todaySummary?.orderTax || 0))}</p>
+            <p className="mt-1 break-words text-xs text-surface-on-variant sm:mt-2 sm:text-sm">Order tax is separate from the configured VAT rate.</p>
+          </Card>
+          <Card className="col-span-2 min-w-0 !p-3 sm:col-span-1 sm:!p-5">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-surface-on-variant">Reporting coverage</p>
+            <p className="mt-2 text-base font-bold sm:mt-4 sm:text-lg">Live app records only</p>
+            <p className="mt-1 break-words text-xs text-surface-on-variant sm:mt-2 sm:text-sm">EFD transmission and tax filing status are not tracked here.</p>
+          </Card>
+        </div>
+
+        <Card className="min-w-0 space-y-3 !p-3 sm:space-y-4 sm:!p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-surface-on-variant">Report preview and export</p>
+              <p className="mt-1 text-sm text-surface-on-variant">Choose a day, week, or month. Weekly and monthly reports use the selected date as a period anchor.</p>
+            </div>
+            <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap sm:gap-3">
+              <label className="min-w-0 text-xs font-semibold text-surface-on-variant">
+                Period
+                <select className="input-field mt-1 block w-full" value={previewRange} onChange={(event) => setPreviewRange(event.target.value)}>
+                  <option value="day">Day</option>
+                  <option value="week">Week</option>
+                  <option value="month">Month</option>
+                </select>
+              </label>
+              <label className="min-w-0 text-xs font-semibold text-surface-on-variant">
+                {previewRange === 'day' ? 'Report date' : 'Pick a date in the period'}
+                <input className="input-field mt-1 block w-full min-w-0" type="date" value={previewDate} onChange={(event) => setPreviewDate(event.target.value)} />
+              </label>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            {[
+              ['xlsx', 'Export Excel'],
+              ['docx', 'Export Word'],
+              ['pdf', 'Export PDF'],
+              ['csv', 'Export CSV'],
+            ].map(([format, label]) => (
+              <Button key={format} size="sm" variant="secondary" className="min-w-0 justify-center px-2 text-xs" disabled={Boolean(exportingFormat)} onClick={() => exportReport(format)}>
+                <Download size={14} />{exportingFormat === format ? 'Preparing…' : label.replace('Export ', '')}
+              </Button>
+            ))}
+          </div>
+
+          {previewError && <p role="alert" className="text-sm text-error">{previewError}</p>}
+          {reportPreview ? (
+            <div>
+              <h3 className="mb-2 text-sm font-bold">{reportPreview.title}</h3>
+              <div className="max-h-80 overflow-y-auto rounded-xl">
+                <ResponsiveReportTable
+                  columns={reportPreview.columns.map((column) => [column, column.replace(/([A-Z])/g, ' $1')])}
+                  rows={reportPreview.rows}
+                  getKey={(row, index) => `${row.order || row.period || 'report'}-${index}`}
+                  primaryColumn={reportPreview.columns.includes('order') ? 'order' : reportPreview.columns.includes('period') ? 'period' : reportPreview.columns[0]}
+                  renderCell={(row, column) => {
+                    const value = row[column];
+                    return ['total', 'revenue', 'profit', 'orderTax'].includes(column) && typeof value === 'number'
+                      ? formatCurrency(value)
+                      : value ?? '—';
+                  }}
+                  emptyMessage="No records in this period."
+                />
+              </div>
+            </div>
+          ) : !previewError && <p className="text-sm text-surface-on-variant">Loading preview…</p>}
+        </Card>
+
+        <Card className="overflow-hidden">
+          <div className="flex flex-wrap gap-2 border-b border-outline-variant bg-surface-container-low p-3">
+            {tabs.map((tab) => (
               <button
-                key={option}
+                key={tab.id}
                 type="button"
-                onClick={() => setRange(option)}
-                className={'rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition-colors ' + (range === option ? 'bg-primary text-primary-foreground' : 'text-surface-on-variant hover:bg-white/10')}
+                onClick={() => setActiveTab(tab.id)}
+                className={`rounded-full px-3 py-2 text-xs font-bold capitalize transition-colors ${activeTab === tab.id ? 'bg-primary text-white' : 'bg-white text-surface-on-variant hover:bg-surface-container'}`}
               >
-                {option}
+                {tab.label}
               </button>
             ))}
           </div>
-        </div>
 
-        <div className="space-y-3">
-          {rangeData.length ? rangeData.map((item) => (
-            <div key={item.label} className="flex items-center gap-4 p-2 rounded-lg hover:bg-surface-container-low">
-              <span className="font-semibold text-sm w-20">{item.label}</span>
-              <div className="flex-1 bg-surface-container-low rounded-full h-4 overflow-hidden">
-                <div className="h-full bg-primary rounded-full" style={{ width: `${Math.min((Number(item.revenue || 0) / maxRevenue) * 100, 100)}%` }} />
+          <div className="min-w-0 p-2.5 sm:p-6">
+            {activeTab === 'overview' && (
+              <div className="space-y-5">
+                <div className="grid min-w-0 grid-cols-2 gap-2 sm:gap-4 xl:grid-cols-4">
+                  {overviewMetrics.map((metric) => (
+                    <div key={metric.label} className="min-w-0 rounded-2xl border border-outline-variant bg-surface-container-low p-3 sm:p-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-surface-on-variant">{metric.label}</p>
+                      <p className="mt-2 break-words text-lg font-black text-surface-on sm:mt-3 sm:text-2xl">{metric.value}</p>
+                      <p className="mt-1 break-words text-[11px] text-surface-on-variant sm:mt-2 sm:text-xs">{metric.note}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid min-w-0 grid-cols-2 gap-2 sm:gap-4 xl:grid-cols-4">
+                  {adjustmentMetrics.map((metric) => (
+                    <div key={metric.label} className="min-w-0 rounded-2xl border border-outline-variant bg-white p-3 sm:p-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-surface-on-variant">{metric.label}</p>
+                      <p className="mt-2 break-words text-lg font-black text-surface-on sm:mt-3 sm:text-2xl">{metric.value}</p>
+                      <p className="mt-1 text-[11px] text-surface-on-variant">{salesAdjustments?.period || 'Current month'}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid gap-4 xl:grid-cols-[1.5fr_0.9fr]">
+                  <Card className="min-w-0 !p-3 sm:!p-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-surface-on-variant">Revenue trend</p>
+                        <p className="mt-1 text-lg font-bold text-surface-on">This week</p>
+                      </div>
+                    </div>
+
+                    {salesTrend.length ? (
+                      <div className="mt-4 flex h-40 items-end gap-1.5 sm:mt-6 sm:h-48 sm:gap-3">
+                      {salesTrend.map((day) => (
+                        <div key={day.label} className="flex flex-1 flex-col items-center gap-2">
+                          <div className="flex h-36 w-full items-end justify-center rounded-t-xl bg-primary/20 p-1">
+                            <div
+                              className="w-full rounded-t-xl bg-primary"
+                              style={{ height: `${day.value}%` }}
+                              title={`${day.label}: ${day.value}%`}
+                            />
+                          </div>
+                          <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-surface-on-variant">{day.label}</span>
+                        </div>
+                      ))}
+                      </div>
+                    ) : <p className="mt-6 text-sm text-surface-on-variant">No sales data is available for this period.</p>}
+                  </Card>
+
+                  <Card className="min-w-0 !p-3 sm:!p-5">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-surface-on-variant">Category mix</p>
+                    {categoryMix.length ? (
+                      <div className="mt-5 space-y-4">
+                      {categoryMix.map((item) => (
+                        <div key={item.label}>
+                          <div className="mb-1 flex items-center justify-between gap-3 text-sm">
+                            <span className="min-w-0 break-words font-semibold text-surface-on">{item.label}</span>
+                            <span className="min-w-0 break-words text-right text-surface-on-variant">{item.amount}</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-surface-container">
+                            <div className={`${item.color} h-2 rounded-full`} style={{ width: `${item.percent}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                      </div>
+                    ) : <p className="mt-5 text-sm text-surface-on-variant">No category sales data is available.</p>}
+                  </Card>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
+                  <Card className="min-w-0 !p-3 sm:!p-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-surface-on-variant">Recent transactions</p>
+                        <p className="mt-1 text-lg font-bold text-surface-on">Daily activity</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4">
+                      <ResponsiveReportTable
+                        columns={[['id', 'Ref'], ['customer', 'Customer'], ['total', 'Total'], ['time', 'Time'], ['status', 'Status']]}
+                        rows={recentTransactions}
+                        getKey={(row) => row.id}
+                        primaryColumn="id"
+                        renderCell={(row, column) => column === 'total' ? formatCurrency(row.total) : column === 'status' ? renderStatus(row.status) : row[column]}
+                        emptyMessage="No completed, paid orders are available."
+                      />
+                    </div>
+                  </Card>
+
+                  <Card className="min-w-0 !p-3 sm:!p-5">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-surface-on-variant">Operations snapshot</p>
+                    <div className="mt-4 space-y-4">
+                      <div className="rounded-2xl border border-outline-variant bg-surface-container-low p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-surface-on">Inventory items</span>
+                          <WalletCards size={16} className="text-primary" />
+                        </div>
+                        <p className="mt-2 text-xl font-black text-surface-on">{inventoryItemsCount.toLocaleString()}</p>
+                        <p className="text-xs text-surface-on-variant">{formatCurrency(inventoryValue)} current inventory valuation</p>
+                      </div>
+
+                      <div className="rounded-2xl border border-outline-variant bg-surface-container-low p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-surface-on">Report source</span>
+                          <CalendarRange size={16} className="text-warning" />
+                        </div>
+                        <p className="mt-2 text-xl font-black text-surface-on">Live orders</p>
+                      </div>
+
+                      <div className="rounded-2xl border border-outline-variant bg-surface-container-low p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-surface-on">EFD status</span>
+                          <FileText size={16} className="text-surface-on-variant" />
+                        </div>
+                        <p className="mt-2 text-xl font-black text-surface-on">Not tracked</p>
+                      </div>
+                    </div>
+                  </Card>
+                </div>
               </div>
-              <span className="font-bold text-sm w-24 text-right">{formatCurrency(Number(item.revenue || 0))}</span>
-              <span className="text-sm text-success w-20 text-right">{formatCurrency(Number(item.profit || 0))}</span>
-            </div>
-          )) : <p className="text-sm text-surface-on-variant">No revenue data available for this window.</p>}
-        </div>
-      </Card>
+            )}
 
-      <Card>
-        <h3 className="font-display font-bold text-sm mb-4">Monthly Revenue History</h3>
-        <div className="space-y-2">
-          {salesData.map((d) => (
-            <div key={d.month} className="flex items-center gap-4 p-2 rounded-lg hover:bg-surface-container-low">
-              <span className="font-semibold text-sm w-20">{d.label || d.month}</span>
-              <div className="flex-1 bg-surface-container-low rounded-full h-4 overflow-hidden"><div className="h-full bg-primary rounded-full" style={{ width: `${Math.min((Number(d.revenue || 0) / maxHistoricalRevenue) * 100, 100)}%` }} /></div>
-              <span className="font-bold text-sm w-24 text-right">{formatCurrency(d.revenue)}</span>
-              <span className="text-sm text-success w-24 text-right">{formatCurrency(d.profit)} profit</span>
-            </div>
-          ))}
-        </div>
-      </Card>
+            {activeTab === 'daily' && (
+              <div className="space-y-4">
+                <p className="text-sm text-surface-on-variant">Paid order totals for the latest 14 restaurant days. These are not generated TRA Z-reports.</p>
+
+                <ResponsiveReportTable
+                  columns={[['date', 'Date'], ['receipts', 'Receipts'], ['gross', 'Gross sales'], ['orderTax', 'Recorded order tax'], ['status', 'Paid orders']]}
+                  rows={complianceReport?.dailyRows || []}
+                  getKey={(row) => row.date}
+                  primaryColumn="date"
+                  renderCell={(row, column) => column === 'gross' || column === 'orderTax' ? formatCurrency(row[column]) : column === 'status' ? (row.receipts ? 'Recorded' : 'None') : row[column]}
+                  emptyMessage={complianceError || 'Loading live report data...'}
+                />
+              </div>
+            )}
+
+            {activeTab === 'vat' && (
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-outline-variant bg-surface-container-low p-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-surface-on-variant">Monthly sales and order-tax summary</p>
+                      <p className="mt-2 text-lg font-bold">{complianceReport?.month || reportMonth}</p>
+                      <p className="mt-1 text-sm text-surface-on-variant">VAT liability and filing status are not calculated or stored in this app.</p>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm">
+                      <CalendarRange size={14} />
+                      <input className="rounded-lg border border-outline-variant bg-white px-2 py-1" type="month" value={reportMonth} onChange={(event) => setReportMonth(event.target.value)} />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4">
+                  {[
+                    ['Gross sales', formatCurrency(Number(complianceReport?.monthSummary?.gross || 0))],
+                    ['Recorded order tax', formatCurrency(Number(complianceReport?.monthSummary?.orderTax || 0))],
+                    ['Paid orders', Number(complianceReport?.monthSummary?.receipts || 0).toLocaleString()],
+                  ].map(([label, value]) => (
+                    <div key={label} className="min-w-0 rounded-2xl border border-outline-variant bg-white p-3 sm:p-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-surface-on-variant">{label}</p>
+                      <p className="mt-2 break-words text-lg font-black text-surface-on sm:mt-3 sm:text-2xl">{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <ResponsiveReportTable
+                  columns={[['date', 'Date'], ['gross', 'Gross sales'], ['orderTax', 'Recorded order tax'], ['receipts', 'Receipts']]}
+                  rows={complianceReport?.monthRows || []}
+                  getKey={(row) => row.date}
+                  primaryColumn="date"
+                  renderCell={(row, column) => column === 'gross' || column === 'orderTax' ? formatCurrency(row[column]) : row[column]}
+                  emptyMessage={complianceError || 'Loading live report data...'}
+                />
+
+              </div>
+            )}
+
+            {activeTab === 'tax' && (
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-outline-variant bg-surface-container-low p-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-surface-on-variant">Annual sales and recorded order-tax summary</p>
+                      <p className="mt-2 text-lg font-bold">Calendar year {complianceReport?.year || reportMonth.slice(0, 4)}</p>
+                      <p className="mt-1 text-sm text-surface-on-variant">Income tax and filing status are not calculated or stored in this app.</p>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm">
+                      <CalendarRange size={14} />
+                      <input className="rounded-lg border border-outline-variant bg-white px-2 py-1" type="month" value={reportMonth} onChange={(event) => setReportMonth(event.target.value)} />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 sm:gap-4 xl:grid-cols-4">
+                  {[
+                    ['Annual gross sales', formatCurrency(Number(complianceReport?.yearSummary?.gross || 0))],
+                    ['Recorded order tax', formatCurrency(Number(complianceReport?.yearSummary?.orderTax || 0))],
+                    ['Paid orders', Number(complianceReport?.yearSummary?.receipts || 0).toLocaleString()],
+                    ['Days with recorded sales', (complianceReport?.yearRows || []).reduce((total, row) => total + row.daysWithSales, 0).toLocaleString()],
+                  ].map(([label, value]) => (
+                    <div key={label} className="min-w-0 rounded-2xl border border-outline-variant bg-white p-3 sm:p-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-surface-on-variant">{label}</p>
+                      <p className="mt-2 break-words text-lg font-black text-surface-on sm:mt-3 sm:text-2xl">{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <ResponsiveReportTable
+                  columns={[['month', 'Month'], ['gross', 'Gross sales'], ['orderTax', 'Recorded order tax'], ['receipts', 'Paid orders'], ['daysWithSales', 'Days with sales']]}
+                  rows={complianceReport?.yearRows || []}
+                  getKey={(row) => row.month}
+                  primaryColumn="month"
+                  renderCell={(row, column) => column === 'gross' || column === 'orderTax' ? formatCurrency(row[column]) : row[column]}
+                  emptyMessage={complianceError || 'Loading live report data...'}
+                />
+
+              </div>
+            )}
+
+            {activeTab === 'receipts' && (
+              <div className="space-y-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <label className="flex min-w-0 items-center rounded-xl border border-outline-variant bg-white px-3 py-2 text-sm sm:w-fit">
+                    <Search size={14} className="mr-2 text-surface-on-variant" />
+                    <input className="min-w-0 flex-1 outline-none" value={receiptSearch} onChange={(event) => setReceiptSearch(event.target.value)} placeholder="Search order or customer" />
+                  </label>
+                  <p className="break-words text-xs text-surface-on-variant sm:text-sm">Showing up to 200 completed, paid orders for {complianceReport?.month || reportMonth}.</p>
+                </div>
+
+                <ResponsiveReportTable
+                  columns={[
+                    ['id', 'Receipt #'], ['customer', 'Customer'], ['date', 'Date / Time'], ['items', 'Items'],
+                    ['gross', 'Gross'], ['orderTax', 'Recorded order tax'], ['payment', 'Payment'], ['efdStatus', 'EFD status'], ['details', 'Details'],
+                  ]}
+                  rows={filteredReceipts}
+                  getKey={(row) => row.id}
+                  primaryColumn="id"
+                  renderCell={(row, column) => {
+                    if (column === 'date') return new Date(row.date).toLocaleString();
+                    if (column === 'gross' || column === 'orderTax') return formatCurrency(row[column]);
+                    if (column === 'details') {
+                      return <button type="button" className="inline-flex items-center gap-1 font-semibold text-primary hover:underline" onClick={() => openReceipt(row)}><Eye size={14} /> View</button>;
+                    }
+                    return row[column] || (column === 'customer' ? '—' : '');
+                  }}
+                  emptyMessage={complianceReport ? 'No matching paid orders for this month.' : complianceError || 'Loading live report data...'}
+                />
+              </div>
+            )}
+
+            {activeTab === 'audit' && (
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-outline-variant bg-surface-container-low p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <FileText className="text-primary" size={18} />
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-surface-on-variant">Recorded activity</p>
+                        <p className="text-sm text-surface-on-variant">Recent order events, inventory changes, and recorded deletions.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <ResponsiveReportTable
+                  columns={[['action', 'Action'], ['user', 'User'], ['time', 'Time'], ['result', 'Result']]}
+                  rows={complianceReport?.auditRows || []}
+                  getKey={(row) => row.id}
+                  primaryColumn="action"
+                  renderCell={(row, column) => {
+                    if (column === 'user') return <><span className="font-semibold">{row.user || 'System'}</span><span className="ml-1 capitalize text-surface-on-variant">· {row.userRole || 'unknown role'}</span></>;
+                    if (column === 'time') return new Date(row.time).toLocaleString();
+                    if (column === 'result') return row.result || 'Recorded';
+                    return row.action;
+                  }}
+                  emptyMessage={complianceReport ? 'No recorded activity is available.' : complianceError || 'Loading live report data...'}
+                />
+              </div>
+            )}
+          </div>
+        </Card>
+      </div>
+      <Modal isOpen={receiptModalOpen} onClose={() => setReceiptModalOpen(false)} title={selectedReceipt ? `Receipt ${selectedReceipt.orderNumber || selectedReceipt.id}` : 'Receipt details'} size="lg">
+        {receiptLoading ? <p className="text-sm text-surface-on-variant">Loading order details…</p>
+          : receiptError ? <p role="alert" className="text-sm text-error">{receiptError}</p>
+            : selectedReceipt && (
+              <div className="min-w-0 space-y-4 sm:space-y-5">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="min-w-0 break-words rounded-xl bg-surface-container-low p-3 text-sm">
+                    <p><strong>Date:</strong> {new Date(selectedReceipt.createdAt).toLocaleString()}</p>
+                    <p><strong>Customer:</strong> {selectedReceipt.customer || 'Walk-in guest'}</p>
+                    <p><strong>Order:</strong> {selectedReceipt.type || 'Not recorded'} · {selectedReceipt.orderSource || 'Not recorded'}</p>
+                  </div>
+                  <div className="min-w-0 break-words rounded-xl bg-surface-container-low p-3 text-sm">
+                    <p><strong>Payment:</strong> {selectedReceipt.paymentMethod || 'Not recorded'} · {selectedReceipt.paymentStatus}</p>
+                    <p><strong>Order tax:</strong> {formatCurrency(Number(selectedReceipt.tax || 0))}</p>
+                    <p><strong>Total:</strong> {formatCurrency(Number(selectedReceipt.total || 0))}</p>
+                  </div>
+                </div>
+                <ResponsiveReportTable
+                  columns={[['name', 'Item'], ['qty', 'Qty'], ['price', 'Unit price'], ['lineTotal', 'Line total']]}
+                  rows={selectedReceipt.items || []}
+                  getKey={(item, index) => `${item.name}-${index}`}
+                  primaryColumn="name"
+                  renderCell={(item, column) => column === 'price'
+                    ? formatCurrency(Number(item.price || 0))
+                    : column === 'lineTotal'
+                      ? formatCurrency(Number(item.qty || 0) * Number(item.price || 0))
+                      : item[column]}
+                  emptyMessage="No line items were recorded."
+                />
+                <div>
+                  <h3 className="mb-2 text-sm font-bold">Recorded order activity</h3>
+                  {(selectedReceipt.events || []).length ? <div className="space-y-2">
+                    {selectedReceipt.events.map((event) => (
+                      <div key={event.id} className="flex flex-wrap justify-between gap-2 rounded-lg border border-outline-variant/60 px-3 py-2 text-xs">
+                        <span className="min-w-0 break-words"><strong className="capitalize">{String(event.type).replace(/_/g, ' ')}</strong> · {event.actorName} ({event.actorRole})</span>
+                        <span className="min-w-0 break-words">{new Date(event.occurredAt).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div> : <p className="text-sm text-surface-on-variant">No separate order activity events are available.</p>}
+                </div>
+              </div>
+            )}
+      </Modal>
     </div>
   );
 }

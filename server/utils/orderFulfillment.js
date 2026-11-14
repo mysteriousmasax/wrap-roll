@@ -1,6 +1,9 @@
 import db from '../db/database.js';
 import { broadcast } from '../ws.js';
 import { awardRollPoints } from './rollPoints.js';
+import { getStockUnitConversionFactor } from '../../src/utils/stockUnits.js';
+import { getStorageAfterConsumption, inventoryStorageColumns } from './inventoryStorage.js';
+import { recordInventoryStockAlerts } from './inventoryStockAlerts.js';
 
 function parseIngredients(value) {
   if (Array.isArray(value)) return value;
@@ -12,7 +15,7 @@ function parseIngredients(value) {
   }
 }
 
-function deductInventory(menuItemId, itemName, ingredients, qty, orderType, now) {
+function deductInventory(menuItemId, itemName, ingredients, qty, orderType, now, stockNotifications) {
   if (!menuItemId) return;
   const menuItem = db.prepare('SELECT id, name FROM menu_items WHERE id = ?').get(menuItemId);
   if (!menuItem) return;
@@ -28,28 +31,44 @@ function deductInventory(menuItemId, itemName, ingredients, qty, orderType, now)
       inventoryItem = db.prepare('SELECT * FROM inventory WHERE lower(trim(name)) = lower(trim(?)) ORDER BY id DESC LIMIT 1').get(name);
     }
     if (!inventoryItem) continue;
-    const nextQuantity = Math.max(0, Number(inventoryItem.quantity) - amount * qty);
+    const conversionFactor = getStockUnitConversionFactor(ingredient.unit || inventoryItem.unit, inventoryItem.unit);
+    if (conversionFactor === null) {
+      const title = `Recipe unit mismatch: ${inventoryItem.name}`;
+      const message = `${menuItem.name} uses ${ingredient.unit || 'an unspecified unit'} for ${inventoryItem.name}, but inventory is measured in ${inventoryItem.unit || 'an unspecified unit'}. Stock was not deducted; update the recipe units.`;
+      const existingWarning = db.prepare("SELECT id FROM notifications WHERE title = ? AND message = ? AND read = 0 AND audience_role = 'manager' LIMIT 1")
+        .get(title, message);
+      if (!existingWarning) {
+        db.prepare(`INSERT INTO notifications (type, title, message, read, created_at, audience_role)
+          VALUES ('warning', ?, ?, 0, ?, 'manager')`).run(title, message, now);
+      }
+      continue;
+    }
+    const deduction = amount * conversionFactor * qty;
+    const nextQuantity = Math.max(0, Number(inventoryItem.quantity) - deduction);
     if (nextQuantity === Number(inventoryItem.quantity)) continue;
-    db.prepare('UPDATE inventory SET quantity = ? WHERE id = ?').run(nextQuantity, inventoryItem.id);
+    const nextStorage = getStorageAfterConsumption(inventoryItem, deduction, nextQuantity);
+    db.prepare(`UPDATE inventory SET quantity = ?, back_freezer_chiller = ?, refrigerator = ?, front_sandwich = ?, front_pizza = ?, front_burger = ? WHERE id = ?`)
+      .run(nextQuantity, nextStorage.back_freezer_chiller, nextStorage.refrigerator, nextStorage.front_sandwich, nextStorage.front_pizza, nextStorage.front_burger, inventoryItem.id);
     db.prepare(`INSERT INTO inventory_audit (inventory_id, action, changed_by_id, changed_by_name, changed_by_role, changes, created_at)
       VALUES (?, 'updated', NULL, 'System', 'system', ?, ?)`)
       .run(inventoryItem.id, JSON.stringify({
         quantity: { from: inventoryItem.quantity, to: nextQuantity },
+        storage: Object.fromEntries(inventoryStorageColumns.filter((column) => Number(inventoryItem[column] || 0) !== nextStorage[column]).map((column) => [column, { from: inventoryItem[column] || 0, to: nextStorage[column] }])),
         reason: { from: null, to: `Order fulfillment for ${itemName || menuItem.name}` },
       }), now);
-    const crossedLowStockThreshold = Number(inventoryItem.quantity) > Number(inventoryItem.threshold || 0)
-      && nextQuantity <= Number(inventoryItem.threshold || 0);
-    if (crossedLowStockThreshold) {
-      db.prepare(`INSERT INTO notifications (type, title, message, read, created_at, audience_role)
-        VALUES ('warning', ?, ?, 0, ?, 'manager')`)
-        .run(`Low stock: ${inventoryItem.name}`, `${inventoryItem.name} is at ${nextQuantity} ${inventoryItem.unit || ''} after preparing ${menuItem.name}. Reorder threshold: ${inventoryItem.threshold}.`, now);
-    }
+    stockNotifications.push(...recordInventoryStockAlerts(
+      inventoryItem,
+      { ...inventoryItem, quantity: nextQuantity },
+      `after preparing ${menuItem.name}`,
+      now
+    ));
     broadcast('inventory:updated', { itemId: inventoryItem.id, action: 'order-deducted', shortfall: nextQuantity === 0 });
   }
 }
 
 export function applyOrderFulfillmentEffects(orderId, { allowInvoiceTerms = false } = {}) {
   const now = new Date().toISOString();
+  const stockNotifications = [];
   const apply = db.transaction(() => {
     const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
     if (!order) return false;
@@ -61,7 +80,7 @@ export function applyOrderFulfillmentEffects(orderId, { allowInvoiceTerms = fals
 
     if (!order.fulfillment_effects_applied_at) {
       const items = db.prepare('SELECT menu_item_id, name, qty, ingredients FROM order_items WHERE order_id = ?').all(orderId);
-      for (const item of items) deductInventory(item.menu_item_id, item.name, item.ingredients, Number(item.qty), order.order_type, now);
+      for (const item of items) deductInventory(item.menu_item_id, item.name, item.ingredients, Number(item.qty), order.order_type, now, stockNotifications);
 
       if (order.customer_id) {
         const favoriteItems = items.map((item) => item.name).filter(Boolean);
@@ -78,6 +97,7 @@ export function applyOrderFulfillmentEffects(orderId, { allowInvoiceTerms = fals
     return true;
   });
   const result = apply();
+  stockNotifications.forEach((notification) => broadcast('notification:created', notification));
   const order = db.prepare('SELECT payment_status FROM orders WHERE id = ?').get(orderId);
   if (order && ['paid', 'completed'].includes(order.payment_status)) awardRollPoints(orderId);
   return result;

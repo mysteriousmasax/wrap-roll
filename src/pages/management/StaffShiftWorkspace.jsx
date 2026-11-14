@@ -262,9 +262,13 @@ export default function StaffShiftWorkspace() {
       const inventoryCounts = (handover.inventoryCounts || []).map(({ clientKey, ...row }) => row);
       const saved = await api.saveShiftHandover({ ...handover, date, shift, inventoryCounts });
       setHandover(withInventoryLinks(saved, inventoryItems, date, shift));
-      setMessage(saved.inventoryCounts.some((row) => row.confirmationStatus === 'mismatch')
-        ? 'Your count was saved. Stock counts do not match; recount together. Inventory was not changed.'
-        : 'Payment reconciliation and stock count saved.');
+      const pending = saved.inventoryCounts.filter((row) => row.confirmationStatus === 'pending-confirmation').length;
+      const mismatched = saved.inventoryCounts.filter((row) => row.confirmationStatus === 'mismatch').length;
+      setMessage([
+        `Payment reconciliation and stock count saved. Inventory was updated for ${saved.updatedInventoryItems || 0} item(s) with confirmed counts.`,
+        pending ? `${pending} item(s) need a second staff member to enter the same closing count; inventory has not changed yet.` : '',
+        mismatched ? `${mismatched} item(s) have mismatched counts; recount together and inventory remains unchanged.` : '',
+      ].filter(Boolean).join(' '));
     } catch (requestError) {
       setError(requestError.message || 'Unable to save shift reconciliation.');
     } finally {

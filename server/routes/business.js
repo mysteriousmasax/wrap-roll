@@ -5,6 +5,9 @@ import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
 import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/deletionPolicy.js';
 import { restaurantDateBounds, restaurantTime } from '../utils/localTime.js';
+import { getStorageAfterConsumption, inventoryStorageColumns } from '../utils/inventoryStorage.js';
+import { getStockUnitConversionFactor } from '../../src/utils/stockUnits.js';
+import { recordInventoryStockAlerts } from '../utils/inventoryStockAlerts.js';
 
 const router = Router();
 
@@ -47,6 +50,7 @@ const operationalChecklists = [
 ];
 
 const checklistSettingsKey = 'operational_checklists';
+const paymentCountChannels = ['cashFloat', 'cashSales', 'mobileMoney', 'nfc'];
 
 function getOperationalChecklists() {
   const saved = db.prepare('SELECT value FROM settings WHERE key = ?').get(checklistSettingsKey)?.value;
@@ -126,16 +130,32 @@ function getShiftTransactionTotals(date, shift) {
   const totals = { cashSales: 0, mobileMoney: 0, nfc: 0 };
   if (!staffUsers.length) return totals;
   const placeholders = staffUsers.map(() => '?').join(',');
-  const transactions = db.prepare(`SELECT lower(payment_method) AS method, COALESCE(SUM(total), 0) AS amount
-    FROM orders
-    WHERE created_at >= ? AND created_at < ? AND status != 'cancelled'
-      AND payment_status IN ('paid', 'completed') AND payment_method IS NOT NULL
-      AND lower(order_source) = 'pos' AND staff_id IN (${placeholders})
-    GROUP BY lower(payment_method)`).all(start, end, ...staffUsers);
-  for (const transaction of transactions) {
-    const method = transaction.method || '';
-    const key = method.includes('cash') ? 'cashSales' : method.includes('nfc') ? 'nfc' : 'mobileMoney';
-    totals[key] += Number(transaction.amount || 0);
+  const tenderRows = db.prepare(`SELECT lower(p.payment_method) AS method, SUM(p.amount) AS amount
+    FROM payments p
+    JOIN orders o ON o.id = p.order_id
+    WHERE COALESCE(p.paid_at, p.created_at) >= ? AND COALESCE(p.paid_at, p.created_at) < ?
+      AND p.status IN ('paid', 'completed') AND o.status != 'cancelled'
+      AND COALESCE(p.received_by_user_id, o.staff_id) IN (${placeholders})
+    GROUP BY lower(p.payment_method)
+    UNION ALL
+    SELECT lower(o.payment_method) AS method, SUM(o.total) AS amount
+    FROM orders o
+    WHERE COALESCE(o.paid_at, o.created_at) >= ? AND COALESCE(o.paid_at, o.created_at) < ?
+      AND o.status != 'cancelled' AND o.payment_status IN ('paid', 'completed')
+      AND o.staff_id IN (${placeholders})
+      AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)
+    GROUP BY lower(o.payment_method)`)
+    .all(start, end, ...staffUsers, start, end, ...staffUsers);
+  for (const row of tenderRows) {
+    const method = String(row.method || '').trim().toLowerCase();
+    const key = method === 'cash' || method.startsWith('cash_')
+      ? 'cashSales'
+      : method === 'nfc'
+        ? 'nfc'
+        : /^(lipa_namba(?:_\d+)?|mobile|mobile_money|mpesa|m-pesa|mixx|tigopesa|airtel_money|halopesa)$/.test(method)
+          ? 'mobileMoney'
+          : null;
+    if (key) totals[key] += Number(row.amount || 0);
   }
   return totals;
 }
@@ -144,9 +164,35 @@ function mergeTransactionExpectations(reconciliation, totals) {
   const merged = { ...reconciliation };
   for (const [key, expected] of Object.entries(totals)) {
     const row = { ...(merged[key] || { actual: '', notes: '' }) };
-    if (row.expectedSource !== 'manual') row.expected = expected;
-    row.expectedSource = row.expectedSource === 'manual' ? 'manual' : 'transactions';
+    row.expected = expected;
+    row.expectedSource = 'transactions';
     merged[key] = row;
+  }
+  return merged;
+}
+
+function getShiftPaymentReconciliation(date, shift, reconciliation, totals, userId) {
+  const merged = mergeTransactionExpectations(reconciliation, totals);
+  for (const channel of paymentCountChannels) {
+    const row = { ...(merged[channel] || { expected: 0, actual: '', notes: '' }) };
+    const entries = db.prepare(`SELECT c.user_id AS userId, u.name AS staffName,
+        c.actual_amount AS actual, c.notes, c.submitted_at AS submittedAt
+      FROM shift_payment_reconciliation_counts c
+      LEFT JOIN users u ON u.id = c.user_id
+      WHERE c.shift_date = ? AND c.shift = ? AND c.channel = ?
+      ORDER BY c.submitted_at, c.user_id`).all(date, shift, channel);
+    const ownEntry = entries.find((entry) => Number(entry.userId) === Number(userId));
+    const allMatch = entries.length >= 2 && entries.every((entry) => Number(entry.actual) === Number(entries[0].actual));
+    merged[channel] = {
+      ...row,
+      actual: ownEntry ? String(ownEntry.actual) : '',
+      notes: ownEntry?.notes || '',
+      staffCount: entries.length,
+      countStatus: entries.length >= 2 ? (allMatch ? 'matched' : 'pending-discrepancy')
+        : entries.length === 1 ? 'awaiting-second-staff' : 'awaiting-count',
+      canSubmitCount: !ownEntry && entries.length < 2,
+      countEntries: entries.length >= 2 ? entries : [],
+    };
   }
   return merged;
 }
@@ -307,7 +353,10 @@ router.get('/shift-handover', authMiddleware, (req, res) => {
     inventoryCounts: DEFAULT_HANDOVER_COUNTS.map((item) => ({ ...item })),
     notes: '',
   };
-  handover.reconciliation = mergeTransactionExpectations(handover.reconciliation, getShiftTransactionTotals(date, shift));
+  const shiftTotals = getShiftTransactionTotals(date, shift);
+  handover.reconciliation = getShiftPaymentReconciliation(
+    date, shift, handover.reconciliation, shiftTotals, req.user.id
+  );
   handover.inventoryCounts = decorateInventoryCounts(handover.inventoryCounts, req.user.id);
   res.json(handover);
 });
@@ -323,7 +372,29 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
   const now = new Date().toISOString();
   const managerOut = String(req.body?.managerOut || '').trim();
   const managerIn = String(req.body?.managerIn || '').trim();
-  const reconciliation = JSON.stringify(req.body.reconciliation);
+  const shiftTotals = getShiftTransactionTotals(date, shift);
+  const submittedReconciliation = mergeTransactionExpectations(req.body.reconciliation, shiftTotals);
+  const reconciliationData = { ...submittedReconciliation };
+  const paymentCounts = [];
+  for (const channel of paymentCountChannels) {
+    const row = submittedReconciliation[channel] || {};
+    const rawAmount = row.actual;
+    if (rawAmount == null || String(rawAmount).trim() === '') {
+      reconciliationData[channel] = { expected: row.expected ?? 0, expectedSource: row.expectedSource, actual: '', notes: '' };
+      continue;
+    }
+    const amount = Number(rawAmount);
+    if (!Number.isSafeInteger(amount) || amount < 0) {
+      return res.status(400).json({ error: `Enter a valid non-negative whole TZS count for ${channel}.` });
+    }
+    paymentCounts.push({
+      channel,
+      amount,
+      notes: String(row.notes || '').trim().slice(0, 500),
+    });
+    reconciliationData[channel] = { expected: row.expected ?? 0, expectedSource: row.expectedSource, actual: '', notes: '' };
+  }
+  const reconciliation = JSON.stringify(reconciliationData);
   const normalizedCounts = req.body.inventoryCounts.map((row) => {
     const normalizeQuantity = (value) => value === '' || value == null ? '' : Number(value);
     return {
@@ -342,8 +413,23 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
   const notes = String(req.body?.notes || '').trim();
   const updatedInventoryIds = [];
   const countedInventoryIds = [];
+  const stockNotifications = [];
   try {
     const saveHandover = db.transaction(() => {
+      const submittedAt = now;
+      const insertPaymentCount = db.prepare(`INSERT OR IGNORE INTO shift_payment_reconciliation_counts
+        (shift_date, shift, channel, user_id, actual_amount, notes, submitted_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`);
+      paymentCounts.forEach((entry) => {
+        const existingCount = db.prepare(`SELECT COUNT(*) AS count FROM shift_payment_reconciliation_counts
+          WHERE shift_date = ? AND shift = ? AND channel = ?`).get(date, shift, entry.channel).count;
+        const ownCount = db.prepare(`SELECT 1 FROM shift_payment_reconciliation_counts
+          WHERE shift_date = ? AND shift = ? AND channel = ? AND user_id = ?`).get(date, shift, entry.channel, req.user.id);
+        if (!ownCount && existingCount >= 2) {
+          throw Object.assign(new Error(`Two staff members have already submitted the ${entry.channel} count.`), { status: 409 });
+        }
+        insertPaymentCount.run(date, shift, entry.channel, req.user.id, entry.amount, entry.notes, submittedAt);
+      });
       const savedRecord = db.prepare('SELECT inventory_counts_json FROM shift_handover_records WHERE shift_date = ? AND shift = ?').get(date, shift);
       const existingCounts = savedRecord ? parseJson(savedRecord.inventory_counts_json, DEFAULT_HANDOVER_COUNTS) : DEFAULT_HANDOVER_COUNTS;
       const existingFor = (row) => existingCounts.find((existing) => sameInventoryCountItem(row, existing));
@@ -368,6 +454,12 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
           normalizedCounts[index] = { ...row, ...existing, staffCounts: existing.staffCounts || [] };
           continue;
         }
+        const unitFactor = getStockUnitConversionFactor(row.unit, item.unit || row.unit);
+        if (unitFactor === null) throw new Error(`${row.item} was counted in ${row.unit}, but inventory is measured in ${item.unit}. Use a compatible unit.`);
+        for (const field of ['opening', 'added', 'closing']) {
+          if (row[field] !== '') row[field] *= unitFactor;
+        }
+        row.unit = item.unit || row.unit;
         if (seenInventoryIds.has(item.id)) throw new Error(`${row.item} appears more than once in this handover.`);
         seenInventoryIds.add(item.id);
         const savedItem = existing || {};
@@ -396,6 +488,7 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
           inventoryId: item.id,
           staffCounts,
         };
+        let confirmedStorage = null;
         if (confirmationStatus === 'confirmed') {
           const confirmedCounts = staffCounts.filter((count) => count.closing !== '' && count.closing != null);
           const confirmedClosing = Number(confirmedCounts[0].closing);
@@ -403,18 +496,19 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
           updatedRow.added = row.added;
           updatedRow.closing = confirmedClosing;
           updatedRow.status = row.status;
-          if (Math.abs(Number(item.quantity) - confirmedClosing) > 1e-9) {
-            db.prepare('UPDATE inventory SET quantity = ? WHERE id = ?').run(confirmedClosing, item.id);
+          confirmedStorage = getStorageAfterConsumption(item, Math.max(0, Number(item.quantity) - confirmedClosing), confirmedClosing);
+          const storageChanged = inventoryStorageColumns.some((column) => Number(item[column] || 0) !== confirmedStorage[column]);
+          if (Math.abs(Number(item.quantity) - confirmedClosing) > 1e-9 || storageChanged) {
+            db.prepare('UPDATE inventory SET quantity = ?, back_freezer_chiller = ?, refrigerator = ?, front_sandwich = ?, front_pizza = ?, front_burger = ? WHERE id = ?')
+              .run(confirmedClosing, confirmedStorage.back_freezer_chiller, confirmedStorage.refrigerator, confirmedStorage.front_sandwich, confirmedStorage.front_pizza, confirmedStorage.front_burger, item.id);
             updatedInventoryIds.push(item.id);
           }
-          if (Number(item.quantity) > Number(item.threshold || 0) && confirmedClosing <= Number(item.threshold || 0)) {
-            db.prepare(`INSERT INTO notifications (type, title, message, read, created_at, audience_role)
-              VALUES ('warning', ?, ?, 0, ?, 'manager')`).run(
-              `Low stock: ${item.name}`,
-              `${item.name} was confirmed at ${confirmedClosing} ${item.unit || ''} during ${shift} shift handover. Reorder threshold: ${item.threshold}.`,
-              now
-            );
-          }
+          stockNotifications.push(...recordInventoryStockAlerts(
+            item,
+            { ...item, quantity: confirmedClosing },
+            `after the ${shift} shift count was confirmed`,
+            now
+          ));
         }
         if (hasCount) {
           const summarizeCount = (count) => count
@@ -429,6 +523,9 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
           if (confirmationStatus === 'confirmed' && Math.abs(Number(item.quantity) - Number(updatedRow.closing)) > 1e-9) {
             changes.quantity = { from: item.quantity, to: updatedRow.closing };
             changes.reason = { from: null, to: `${shift} shift count confirmed by multiple staff` };
+          }
+          if (confirmedStorage && inventoryStorageColumns.some((column) => Number(item[column] || 0) !== confirmedStorage[column])) {
+            changes.storage = Object.fromEntries(inventoryStorageColumns.filter((column) => Number(item[column] || 0) !== confirmedStorage[column]).map((column) => [column, { from: item[column] || 0, to: confirmedStorage[column] }]));
           }
           db.prepare(`INSERT INTO inventory_audit
             (inventory_id, action, changed_by_id, changed_by_name, changed_by_role, changes, created_at)
@@ -459,7 +556,9 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
   }
   broadcast('business:updated', { type: 'shift_handover_saved', date, shift });
   if (countedInventoryIds.length) broadcast('inventory:updated', { action: 'handover-counted', items: countedInventoryIds });
-  res.json({ date, shift, managerOut, managerIn, reconciliation: req.body.reconciliation, inventoryCounts: decorateInventoryCounts(normalizedCounts, req.user.id), notes, updatedAt: now, updatedInventoryItems: updatedInventoryIds.length });
+  stockNotifications.forEach((notification) => broadcast('notification:created', notification));
+  const reconciledCounts = getShiftPaymentReconciliation(date, shift, reconciliationData, shiftTotals, req.user.id);
+  res.json({ date, shift, managerOut, managerIn, reconciliation: reconciledCounts, inventoryCounts: decorateInventoryCounts(normalizedCounts, req.user.id), notes, updatedAt: now, updatedInventoryItems: updatedInventoryIds.length });
 });
 
 router.get('/expenses', authMiddleware, (_req, res) => {

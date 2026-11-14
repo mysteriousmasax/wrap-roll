@@ -147,7 +147,7 @@ export default function LoyaltyManagementPage() {
               {customer.nfcTagCode ? (
                 <div className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low p-3">
                   <p className="break-all text-[11px] text-surface-on-variant">{`${window.location.origin}/customer-rewards?tag=${encodeURIComponent(customer.nfcTagCode)}`}</p>
-                  <NfcTagWriter url={`${window.location.origin}/customer-rewards?tag=${encodeURIComponent(customer.nfcTagCode)}`} label={`${customer.name} loyalty link`} />
+                  <NfcTagWriter url={`${window.location.origin}/customer-rewards?tag=${encodeURIComponent(customer.nfcTagCode)}`} label={`${customer.name} loyalty link`} linkType="Customer Roll Points and rewards" />
                 </div>
               ) : (
                 <Button type="button" size="sm" variant="secondary" onClick={() => assignNfcTagCode(customer)}>Assign new NFC tag code</Button>

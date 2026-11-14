@@ -25,16 +25,63 @@ export function formatOrder(row, items, { includeInvoiceEmailStatus = false } = 
   }));
   const creator = row.staff_id ? db.prepare('SELECT name, role FROM users WHERE id = ?').get(row.staff_id) : null;
   const paymentRecord = db.prepare('SELECT * FROM payments WHERE order_id = ? OR payment_reference = ? ORDER BY created_at DESC LIMIT 1').get(row.id, row.payment_reference || '');
+  const paymentRecords = db.prepare(`SELECT id, payment_reference, provider, payment_method, amount, currency,
+      transaction_id, sender_name, status, paid_at, verified_by, notes, created_at
+    FROM payments WHERE order_id = ? ORDER BY created_at, id`).all(row.id);
+  const paidAmount = paymentRecords
+    .filter((payment) => ['paid', 'completed'].includes(payment.status))
+    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const tabSummary = row.dine_in_tab_id ? db.prepare(`SELECT
+      COALESCE(SUM(o.total), 0) AS total,
+      COALESCE(SUM((SELECT SUM(p.amount) FROM payments p WHERE p.order_id = o.id AND p.status IN ('paid', 'completed'))), 0) AS paid
+    FROM orders o WHERE o.dine_in_tab_id = ?`).get(row.dine_in_tab_id) : null;
   const invoiceEmail = includeInvoiceEmailStatus
     ? db.prepare("SELECT status FROM order_email_outbox WHERE order_id = ? AND email_type = 'paid_invoice' ORDER BY id DESC LIMIT 1").get(row.id)
     : null;
+  const refunds = db.prepare(`SELECT r.id, r.payment_id AS paymentId, r.amount, r.reason, r.refund_reference AS refundReference,
+      r.status, r.requested_at AS requestedAt, r.processed_at AS processedAt, r.payout_method AS payoutMethod,
+      r.payout_reference AS payoutReference, r.approval_notes AS approvalNotes,
+      requester.name AS requestedBy, approver.name AS approvedBy, processor.name AS processedBy
+    FROM refunds r
+    LEFT JOIN users requester ON requester.id = r.requested_by_user_id
+    LEFT JOIN users approver ON approver.id = r.approved_by_user_id
+    LEFT JOIN users processor ON processor.id = r.processed_by_user_id
+    WHERE r.order_id = ? ORDER BY r.requested_at, r.id`).all(row.id);
+  const reservedRefundAmount = refunds.filter((refund) => ['pending', 'pending_approval', 'processed'].includes(refund.status))
+    .reduce((sum, refund) => sum + Number(refund.amount || 0), 0);
 
   return {
     id: row.id,
     orderId: row.id,
     orderNumber: row.order_number || row.id,
-    type: row.order_type,
+    type: row.order_type === 'dine-in-postpay' ? 'dine-in' : row.order_type,
+    orderType: row.order_type,
     table: row.table_number,
+    tabId: row.dine_in_tab_id || null,
+    paidAmount,
+    balanceDue: Math.max(0, Number(row.total || 0) - paidAmount),
+    tabTotal: tabSummary ? Number(tabSummary.total || 0) : null,
+    tabPaid: tabSummary ? Number(tabSummary.paid || 0) : null,
+    tabBalanceDue: tabSummary ? Math.max(0, Number(tabSummary.total || 0) - Number(tabSummary.paid || 0)) : null,
+    payments: paymentRecords.map((payment) => ({
+      id: payment.id,
+      paymentReference: payment.payment_reference,
+      provider: payment.provider,
+      method: payment.payment_method,
+      amount: Number(payment.amount),
+      currency: payment.currency,
+      transactionId: payment.transaction_id,
+      receivedBy: payment.verified_by || payment.sender_name,
+      status: payment.status,
+      paidAt: payment.paid_at,
+      notes: payment.notes,
+      createdAt: payment.created_at,
+    })),
+    refunds: refunds.map((refund) => ({
+      ...refund,
+      amount: Number(refund.amount),
+    })),
+    refundableAmount: Math.max(0, paidAmount - reservedRefundAmount),
     customer: row.customer_name,
     customerPhone: normalizeTanzanianPhone(row.customer_phone),
     customerEmail: row.customer_email,
@@ -65,6 +112,14 @@ export function formatOrder(row, items, { includeInvoiceEmailStatus = false } = 
     status: row.status,
     orderStatus: row.status,
     subtotal: row.subtotal,
+    discountAmount: Number(row.discount_amount || 0),
+    manualDiscountAmount: Number(row.manual_discount_amount || 0),
+    offerDiscountAmount: Number(row.offer_discount_amount || 0),
+    discountLabel: row.discount_label || '',
+    discountReason: row.discount_reason || '',
+    discountSource: row.discount_source || '',
+    discountOfferId: row.discount_offer_id || null,
+    discountApprovedByUserId: row.discount_approved_by_user_id || null,
     tax: row.tax,
     total: row.total,
     paymentMethod: row.payment_method,

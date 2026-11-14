@@ -5,6 +5,8 @@ import Input from '../../components/ui/Input';
 import useCartStore from '../../store/useCartStore';
 import DeliveryLocationPicker from './DeliveryLocationPicker';
 import { normalizeTanzanianPhone } from '../../../shared/phone.js';
+import { api } from '../../api/client';
+import { formatCurrency } from '../../utils/format';
 
 const orderTypes = [
   { id: 'dine-in', label: 'Dine In', icon: Utensils, desc: 'Eat at the restaurant' },
@@ -30,21 +32,33 @@ export default function OrderTypeSelector({ isOpen, onClose, onComplete }) {
   const [scheduledFor, setScheduledFor] = useState('');
   const [validationMessage, setValidationMessage] = useState('');
   const [isClosing, setIsClosing] = useState(false);
+  const [tables, setTables] = useState([]);
+  const [tablesLoading, setTablesLoading] = useState(false);
   const { setOrderType, setTableNumber, setCustomerName, setCustomerPhone, setDeliveryLocation, setOrderSource, setPaymentReference, setFulfillmentMode: saveFulfillmentMode, setScheduledFor: saveScheduledFor } = useCartStore();
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setTablesLoading(true);
+    api.getTables().then(setTables).catch((error) => {
+      setTables([]);
+      setValidationMessage(error.message || 'Unable to load table availability.');
+    }).finally(() => setTablesLoading(false));
+  }, [isOpen]);
+
   if (!isOpen) return null;
+  const selectableTables = tables.filter((table) => table.status === 'available' || (table.status === 'occupied' && table.tabId));
 
   const handleConfirm = () => {
     if (selectedType === 'dine-in' && fulfillmentMode !== 'roadside_handoff' && (!localTable || Number(localTable) < 1)) {
       setValidationMessage('Enter a valid table number to continue.');
       return;
     }
-    if (selectedType === 'delivery' && (!localName || (!deliveryAddress && fulfillmentMode !== 'roadside_handoff'))) {
-      setValidationMessage('Enter the customer name and delivery address to continue.');
+    if (selectedType === 'delivery' && !deliveryAddress && fulfillmentMode !== 'roadside_handoff') {
+      setValidationMessage('Enter the delivery address to continue.');
       return;
     }
-    if (fulfillmentMode === 'roadside_handoff' && (!localName.trim() || !localPhone.trim())) {
-      setValidationMessage('Enter the customer name and phone number for roadside handoff updates.');
+    if (fulfillmentMode === 'roadside_handoff' && !localPhone.trim()) {
+      setValidationMessage('Enter a phone number for roadside handoff updates.');
       return;
     }
     if (source === 'whatsapp' && !localPhone.trim()) {
@@ -151,7 +165,15 @@ export default function OrderTypeSelector({ isOpen, onClose, onComplete }) {
           </div>
 
           {selectedType === 'dine-in' && fulfillmentMode !== 'roadside_handoff' && (
-            <Input label="Table Number" type="number" min="1" placeholder="e.g. 5" value={localTable} onChange={(e) => { setLocalTable(e.target.value); setValidationMessage(''); }} required />
+            <label className="block text-xs font-semibold uppercase tracking-wide text-surface-on-variant">Select table
+              <select value={localTable} onChange={(event) => { setLocalTable(event.target.value); setValidationMessage(''); }} className="input-field mt-1 w-full" required disabled={tablesLoading}>
+                <option value="">{tablesLoading ? 'Loading tables…' : 'Choose an available or active table'}</option>
+                {selectableTables.map((table) => <option key={table.id} value={table.number}>
+                  Table {table.number} · {table.seats} seats{table.tabId ? ` · open tab ${formatCurrency(table.balanceDue)} due` : ' · available'}
+                </option>)}
+              </select>
+              {!tablesLoading && selectableTables.length === 0 && <span className="mt-1 block font-normal normal-case">No tables are available for a new visit.</span>}
+            </label>
           )}
           <div><label className="mb-1.5 block text-xs font-semibold uppercase text-surface-on-variant">Order source</label><select className="input-field min-h-12 w-full" value={source} onChange={(e) => { setSource(e.target.value); setValidationMessage(''); }}><option value="foh">FOH / Walk-in</option><option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option></select></div>
           {source === 'whatsapp' && (
@@ -159,12 +181,12 @@ export default function OrderTypeSelector({ isOpen, onClose, onComplete }) {
           )}
           {selectedType === 'delivery' && fulfillmentMode !== 'roadside_handoff' && (
             <div className="space-y-4 md:col-span-2 md:grid md:grid-cols-2 md:items-start md:gap-5 md:space-y-0">
-              <Input label="Customer Name" placeholder="Full name" value={localName} onChange={(e) => setLocalName(e.target.value)} required />
+              <Input label="Customer Name (Optional)" placeholder="Full name" value={localName} onChange={(e) => setLocalName(e.target.value)} />
               <div><label className="mb-1.5 block text-xs font-semibold uppercase text-surface-on-variant">Drop-off location</label><DeliveryLocationPicker value={deliveryAddress} latitude={deliveryLatitude} longitude={deliveryLongitude} onChange={({ address, latitude, longitude }) => { setDeliveryAddress(address); setDeliveryLatitude(latitude); setDeliveryLongitude(longitude); setValidationMessage(''); }} /></div>
             </div>
           )}
           {(selectedType === 'takeout' || fulfillmentMode === 'roadside_handoff') && (
-            <Input label={fulfillmentMode === 'roadside_handoff' ? 'Customer Name' : 'Customer Name (Optional)'} placeholder="Full name" value={localName} onChange={(e) => setLocalName(e.target.value)} required={fulfillmentMode === 'roadside_handoff'} />
+            <Input label="Customer Name (Optional)" placeholder="Full name" value={localName} onChange={(e) => setLocalName(e.target.value)} />
           )}
           {fulfillmentMode === 'roadside_handoff' && <Input label="Customer Phone" type="tel" placeholder="+255 7XX XXX XXX" value={localPhone} onChange={(event) => { setLocalPhone(event.target.value); setValidationMessage(''); }} onBlur={(event) => setLocalPhone(normalizeTanzanianPhone(event.target.value))} required />}
           {validationMessage && <p className="text-sm text-primary md:col-span-2" role="alert">{validationMessage}</p>}
@@ -175,9 +197,9 @@ export default function OrderTypeSelector({ isOpen, onClose, onComplete }) {
             onClick={handleConfirm}
             className="w-full"
             size="lg"
-            disabled={(selectedType === 'dine-in' && fulfillmentMode !== 'roadside_handoff' && (!localTable || Number(localTable) < 1)) || (selectedType === 'delivery' && (!localName || (!deliveryAddress && fulfillmentMode !== 'roadside_handoff'))) || (fulfillmentMode === 'roadside_handoff' && (!localName.trim() || !localPhone.trim())) || (source === 'whatsapp' && !localPhone.trim())}
+            disabled={(selectedType === 'dine-in' && fulfillmentMode !== 'roadside_handoff' && (!localTable || Number(localTable) < 1)) || (selectedType === 'delivery' && !deliveryAddress && fulfillmentMode !== 'roadside_handoff') || (fulfillmentMode === 'roadside_handoff' && !localPhone.trim()) || (source === 'whatsapp' && !localPhone.trim())}
           >
-            Continue to Payment
+            {selectedType === 'dine-in' && fulfillmentMode !== 'roadside_handoff' ? 'Send to kitchen · pay at table' : 'Continue to Payment'}
           </Button>
         </div>
       </div>

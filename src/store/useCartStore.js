@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import useSettingsStore from './useSettingsStore';
+import { estimateOfferDiscount } from '../utils/discounts';
 
 const useCartStore = create(persist((set, get) => ({
   items: [],
@@ -18,6 +19,10 @@ const useCartStore = create(persist((set, get) => ({
   paymentReference: '',
   orderNotes: '',
   discountPercent: 0,
+  discountReason: '',
+  promotionId: '',
+  promotion: null,
+  approveStacking: false,
 
   addItem: (item) => {
     const qty = Math.max(1, parseInt(item.quantity || 1, 10));
@@ -87,6 +92,10 @@ const useCartStore = create(persist((set, get) => ({
     paymentReference: cart.paymentReference || '',
     orderNotes: cart.orderNotes || '',
     discountPercent: Number(cart.discountPercent) || 0,
+    discountReason: cart.discountReason || '',
+    promotionId: cart.promotionId || '',
+    promotion: cart.promotion || null,
+    approveStacking: Boolean(cart.approveStacking),
   }),
 
   resetCart: () => set({
@@ -105,6 +114,10 @@ const useCartStore = create(persist((set, get) => ({
     paymentReference: '',
     orderNotes: '',
     discountPercent: 0,
+    discountReason: '',
+    promotionId: '',
+    promotion: null,
+    approveStacking: false,
   }),
 
   removeItem: (cartId) => {
@@ -144,6 +157,10 @@ const useCartStore = create(persist((set, get) => ({
       paymentReference: '',
       orderNotes: '',
       discountPercent: 0,
+      discountReason: '',
+      promotionId: '',
+      promotion: null,
+      approveStacking: false,
     }),
 
   setOrderType: (orderType) => set({ orderType }),
@@ -159,9 +176,18 @@ const useCartStore = create(persist((set, get) => ({
   setPaymentReference: (paymentReference) => set({ paymentReference }),
   setOrderNotes: (orderNotes) => set({ orderNotes }),
   setDiscountPercent: (discountPercent) => set({ discountPercent }),
+  setDiscountReason: (discountReason) => set({ discountReason }),
+  setPromotion: (promotion) => set({ promotionId: promotion?.id || '', promotion: promotion || null, approveStacking: false }),
+  setApproveStacking: (approveStacking) => set({ approveStacking }),
 
   getSubtotal: () => get().items.reduce((sum, i) => sum + i.price * i.quantity, 0),
-  getDiscountAmount: () => (get().getSubtotal() * (get().discountPercent || 0)) / 100,
+  getDiscountAmount: () => {
+    const state = get();
+    const promotion = state.promotion;
+    const promoDiscount = estimateOfferDiscount(promotion, state.items);
+    const manualDiscount = state.getSubtotal() * (state.discountPercent || 0) / 100;
+    return Math.min(state.getSubtotal(), Math.round((promoDiscount + (state.approveStacking || !promotion ? manualDiscount : 0)) * 100) / 100);
+  },
   getTax: () =>
     (get().getSubtotal() - get().getDiscountAmount()) * useSettingsStore.getState().getTaxRate(),
   getTotal: () => get().getSubtotal() - get().getDiscountAmount() + get().getTax(),
@@ -185,6 +211,10 @@ const useCartStore = create(persist((set, get) => ({
     paymentReference: state.paymentReference,
     orderNotes: state.orderNotes,
     discountPercent: state.discountPercent,
+    discountReason: state.discountReason,
+    promotionId: state.promotionId,
+    promotion: state.promotion,
+    approveStacking: state.approveStacking,
   }),
 }));
 

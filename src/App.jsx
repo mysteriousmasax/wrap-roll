@@ -55,7 +55,7 @@ const ROUTE_ROLES = {
   '/management/menu': ['admin', 'manager'],
   '/management/operations': ['admin', 'manager', 'executive'],
   '/staff-playbook': ['admin', 'manager', 'executive', 'foh', 'kitchen'],
-  '/management/reports': ['admin', 'executive'],
+  '/management/reports': ['admin', 'manager'],
   '/assistant': ['admin', 'executive', 'manager', 'foh', 'kitchen'],
   '/management/people': ['admin'],
   '/management/loyalty': ['admin', 'manager'],
@@ -63,7 +63,7 @@ const ROUTE_ROLES = {
   '/management/email-marketing': ['admin', 'manager', 'executive'],
   '/management/kanban': ['admin', 'manager', 'executive'],
   '/management/settings': ['admin'],
-  '/notifications': ['admin', 'manager', 'foh'],
+  '/notifications': ['admin', 'manager', 'executive', 'foh', 'kitchen'],
 };
 
 function ProtectedRoute({ children }) {

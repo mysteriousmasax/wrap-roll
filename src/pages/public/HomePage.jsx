@@ -26,6 +26,7 @@ import {
 import { api } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { formatCurrency, printFiscalInvoice } from '../../utils/format';
+import { formatElapsedDuration } from '../../utils/elapsedDuration';
 import BrandLogo from '../../components/brand/BrandLogo';
 import useSettingsStore from '../../store/useSettingsStore';
 import useTranslation from '../../i18n/useTranslation';
@@ -77,7 +78,6 @@ function OrderTrackingCard({ order, onOpenPayment, onPrintInvoice, now, settings
     : now;
   const elapsedSeconds = Math.max(0, Math.floor((elapsedEnd - new Date(order.createdAt).getTime()) / 1000));
   const elapsedMinutes = Math.floor(elapsedSeconds / 60);
-  const remainingSeconds = elapsedSeconds % 60;
   const paymentLabel = order.paymentStatus === 'paid' ? 'Payment confirmed' : order.paymentStatus === 'manual_review' ? 'Payment submitted for review' : order.paymentStatus === 'failed' ? 'Payment not approved' : 'Waiting for payment';
   const kitchenLabel = order.status === 'confirmed' ? 'Confirmed and sent to kitchen' : order.status === 'preparing' ? 'Being prepared' : order.status === 'ready' ? 'Ready for collection' : order.status === 'completed' ? 'Completed' : 'Waiting for payment confirmation';
   const isPaid = order.paymentStatus === 'paid';
@@ -100,7 +100,7 @@ function OrderTrackingCard({ order, onOpenPayment, onPrintInvoice, now, settings
       <div className="order-tracking-visual">
         <div className="order-tracking-orbit" />
         <Clock size={42} />
-        <span>{elapsedMinutes} min {String(remainingSeconds).padStart(2, '0')} sec</span>
+        <span>{formatElapsedDuration(order.createdAt, elapsedEnd)}</span>
         <small>time elapsed</small>
       </div>
       <div className="reference-delivery-copy order-tracking-copy">
@@ -611,10 +611,9 @@ export default function HomePage() {
     const normalizedCustomerPhone = normalizeTanzanianPhone(customerPhone);
     setCustomerPhone(normalizedCustomerPhone);
     if (!cartItems.length) return setOrderStatus('Add a dish before checking out.');
-    if (!customerName.trim()) return setOrderStatus('Please enter your full name.');
-    if (!customerPhone.trim()) return setOrderStatus('Please enter your phone number so we can confirm your order.');
+    if (!tableContext && !customerPhone.trim()) return setOrderStatus('Please enter your phone number so we can confirm your order.');
     if (!tableContext && fulfillmentMode !== 'roadside_handoff' && !deliveryAddress.trim()) return setOrderStatus('Please enter a delivery address or table number.');
-    if (customerType === 'company' && (!companyName.trim() || !customerTin.trim())) return setOrderStatus('Company name and TIN are required for a company invoice.');
+    if (!tableContext && customerType === 'company' && (!companyName.trim() || !customerTin.trim())) return setOrderStatus('Company name and TIN are required for a company invoice.');
     setOrderStatus('Sending your order...');
     try {
       const order = await api.createPublicOrder({
@@ -637,6 +636,7 @@ export default function HomePage() {
         deliveryLongitude: tableContext ? null : deliveryCoordinates.longitude,
         orderType: tableContext ? 'dine-in' : fulfillmentMode === 'roadside_handoff' ? 'takeout' : 'delivery',
         tableNumber: tableContext?.number || null,
+        tableTagId: tableContext?.tagId || undefined,
         fulfillmentMode: tableContext ? 'standard' : fulfillmentMode,
         scheduledFor: scheduledFor ? new Date(scheduledFor).toISOString() : undefined,
         paymentTerms: customerType === 'company' && companyInvoiceTerms ? 'invoice' : 'prepaid',
@@ -648,7 +648,7 @@ export default function HomePage() {
       const subscribeForEmailUpdates = emailMarketingConsent && customerEmail.trim();
       setActivePlacedOrder(order);
       const companyInvoiceOrder = order.paymentTerms === 'invoice' && order.reservationStatus === 'confirmed';
-      setPaymentModalOpen(!companyInvoiceOrder);
+      setPaymentModalOpen(!tableContext && !companyInvoiceOrder);
       // Clear the cart (state + persisted copy) so ordered items never linger.
       setCartItems([]);
       localStorage.removeItem('wraproll_public_cart');
@@ -662,7 +662,8 @@ export default function HomePage() {
       setFulfillmentMode('standard');
       setScheduledFor('');
       setOrderStatus('');
-      if (companyInvoiceOrder) setOrderStatus('Company order received. We will email the invoice and fulfillment updates.');
+      if (tableContext) setOrderStatus(`Order ${order.orderNumber || order.id} sent to the kitchen for Table ${tableContext.number}. Please pay your server at the table.`);
+      else if (companyInvoiceOrder) setOrderStatus('Company order received. We will email the invoice and fulfillment updates.');
       if (subscribeForEmailUpdates) {
         api.subscribeToEmailMarketing({
             email: customerEmail,
@@ -1348,20 +1349,21 @@ export default function HomePage() {
               {/* Checkout Form */}
               {cartItems.length > 0 && (
                 <form onSubmit={submitOrder} className="space-y-2.5 pt-2 border-t border-[#eee4d5]">
-                  <input required value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Your Full Name" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
-                  <input required type="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} onBlur={(e) => setCustomerPhone(normalizeTanzanianPhone(e.target.value))} placeholder="Phone Number (e.g., 0712345678)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
+                  <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Your Name (Optional)" autoComplete="name" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
+                  <input required={!tableContext} type="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} onBlur={(e) => setCustomerPhone(normalizeTanzanianPhone(e.target.value))} placeholder={tableContext ? 'Phone Number (Optional)' : 'Phone Number (e.g., 0712345678)'} className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
                   <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="Email for order receipt and invoice (Optional)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
-                  <label className="block text-[11px] font-semibold text-[#746e67]">Invoice type<select value={customerType} onChange={(event) => setCustomerType(event.target.value)} className="mt-1 w-full rounded-xl border border-[#ebdccb] bg-white px-3.5 py-2.5 text-xs focus:outline-none focus:border-[#ae002a]"><option value="individual">Individual</option><option value="company">Company</option></select></label>
-                  {customerType === 'company' && <input required value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Company name" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />}
-                  <input required={customerType === 'company'} value={customerTin} onChange={(event) => setCustomerTin(event.target.value)} placeholder={customerType === 'company' ? 'Company TIN (Required)' : 'Customer TIN (Optional)'} className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />
-                  {customerType === 'company' && <input value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} placeholder="Billing address (Optional)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />}
-                  {customerType === 'company' && <label className="flex items-start gap-2 rounded-xl border border-[#ebdccb] bg-[#fbf6ee] p-3 text-[11px] leading-4 text-[#746e67]"><input type="checkbox" checked={companyInvoiceTerms} onChange={(event) => setCompanyInvoiceTerms(event.target.checked)} className="mt-0.5" /><span><strong className="text-[#24211e]">Use approved company invoice terms</strong><br />Available only to registered company accounts within their approved credit limit. Otherwise, pay now.</span></label>}
+                  {!tableContext && <label className="block text-[11px] font-semibold text-[#746e67]">Invoice type<select value={customerType} onChange={(event) => setCustomerType(event.target.value)} className="mt-1 w-full rounded-xl border border-[#ebdccb] bg-white px-3.5 py-2.5 text-xs focus:outline-none focus:border-[#ae002a]"><option value="individual">Individual</option><option value="company">Company</option></select></label>}
+                  {!tableContext && customerType === 'company' && <input required value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Company name" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />}
+                  {!tableContext && <input required={customerType === 'company'} value={customerTin} onChange={(event) => setCustomerTin(event.target.value)} placeholder={customerType === 'company' ? 'Company TIN (Required)' : 'Customer TIN (Optional)'} className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />}
+                  {!tableContext && customerType === 'company' && <input value={billingAddress} onChange={(event) => setBillingAddress(event.target.value)} placeholder="Billing address (Optional)" className="w-full px-3.5 py-2.5 rounded-xl border border-[#ebdccb] bg-white text-xs focus:outline-none focus:border-[#ae002a]" />}
+                  {!tableContext && customerType === 'company' && <label className="flex items-start gap-2 rounded-xl border border-[#ebdccb] bg-[#fbf6ee] p-3 text-[11px] leading-4 text-[#746e67]"><input type="checkbox" checked={companyInvoiceTerms} onChange={(event) => setCompanyInvoiceTerms(event.target.checked)} className="mt-0.5" /><span><strong className="text-[#24211e]">Use approved company invoice terms</strong><br />Available only to registered company accounts within their approved credit limit. Otherwise, pay now.</span></label>}
                   <label className="flex items-start gap-2 px-1 text-[11px] leading-4 text-[#746e67]"><input type="checkbox" checked={emailMarketingConsent} onChange={(event) => setEmailMarketingConsent(event.target.checked)} disabled={!customerEmail.trim()} className="mt-0.5" /><span>Email me restaurant news and offers. I’ll confirm my subscription from my inbox.</span></label>
                   {!customerEmail.trim() && <p className="px-1 text-[10px] italic text-[#a09a92]">Enter your email above to enable news &amp; offers signup.</p>}
 
                   {!tableContext && <label className="block text-[11px] font-semibold text-[#746e67]">Fulfillment<select value={fulfillmentMode} onChange={(event) => setFulfillmentMode(event.target.value)} className="mt-1 w-full rounded-xl border border-[#ebdccb] bg-white px-3.5 py-2.5 text-xs"><option value="standard">Delivery to an address</option><option value="roadside_handoff">Roadside handoff · Mwai Kibaki Road</option></select></label>}
-                  <label className="block text-[11px] font-semibold text-[#746e67]">Pickup / handoff time (optional)<input type="datetime-local" value={scheduledFor} min={new Date(Date.now() + 5 * 60 * 1000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} onChange={(event) => setScheduledFor(event.target.value)} className="mt-1 w-full rounded-xl border border-[#ebdccb] bg-white px-3.5 py-2.5 text-xs" /></label>
-                  {fulfillmentMode !== 'roadside_handoff' && <div className="flex gap-2">
+                  {!tableContext && <label className="block text-[11px] font-semibold text-[#746e67]">Pickup / handoff time (optional)<input type="datetime-local" value={scheduledFor} min={new Date(Date.now() + 5 * 60 * 1000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} onChange={(event) => setScheduledFor(event.target.value)} className="mt-1 w-full rounded-xl border border-[#ebdccb] bg-white px-3.5 py-2.5 text-xs" /></label>}
+                  {tableContext && <p className="rounded-xl bg-[#fbf6ee] px-3.5 py-2.5 text-xs font-semibold text-[#746e67]">Ordering for Table {tableContext.number}. Payment is collected by your server; online payment does not close this table.</p>}
+                  {!tableContext && fulfillmentMode !== 'roadside_handoff' && <div className="flex gap-2">
                     <input required={!tableContext} value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder="Delivery Address or Table Number" className="flex-1 rounded-xl border border-[#ebdccb] bg-white px-3.5 py-2.5 text-xs focus:outline-none focus:border-[#ae002a]" />
                     <button type="button" onClick={useCustomerLocation} disabled={locating} className="flex items-center gap-1 rounded-xl border border-[#ebdccb] bg-[#faeee2] px-3 py-2 text-xs font-bold text-[#ae002a]">
                       <MapPin size={13} /> {locating ? '...' : 'GPS'}
@@ -1374,7 +1376,7 @@ export default function HomePage() {
                   </div>
 
                   <button type="submit" disabled={!cartItems.length} className="w-full py-3 rounded-2xl bg-[#ae002a] text-white font-bold text-xs sm:text-sm shadow-md hover:bg-[#920023] transition-colors">
-                    {companyInvoiceTerms && customerType === 'company' ? 'Place Company Order' : 'Continue to Payment'} &rarr;
+                    {tableContext ? 'Send order to kitchen · pay at table' : companyInvoiceTerms && customerType === 'company' ? 'Place Company Order' : 'Continue to Payment'} &rarr;
                   </button>
                   {orderStatus && <p className="text-xs font-bold text-[#ae002a] text-center pt-1">{orderStatus}</p>}
                 </form>
@@ -1398,7 +1400,12 @@ export default function HomePage() {
         />
       )}
 
-      {!sharedOrderId && activePlacedOrder && !paymentModalOpen && (
+      {!sharedOrderId && activePlacedOrder && !paymentModalOpen && activePlacedOrder.type === 'dine-in' && (
+        <div className="fixed bottom-6 left-6 z-40 rounded-full border border-[#ebdccb] bg-[#fffdfa] px-4 py-3 text-xs font-bold text-[#ae002a] shadow-xl">
+          Order {activePlacedOrder.orderNumber || activePlacedOrder.id} · Sent to kitchen · Pay at table
+        </div>
+      )}
+      {!sharedOrderId && activePlacedOrder && !paymentModalOpen && activePlacedOrder.type !== 'dine-in' && (
         <button
           type="button"
           onClick={() => setPaymentModalOpen(true)}

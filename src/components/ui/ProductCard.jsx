@@ -17,10 +17,11 @@ export default function ProductCard({ item, onClick }) {
     : item.price;
 
   return (
-    <div
+    <button
+      type="button"
       data-pos-item-id={item.id}
       onClick={() => onClick(item)}
-      className="pos-product-card bg-white rounded-xl shadow-ambient hover:shadow-elevated transition-all cursor-pointer overflow-hidden active:scale-[0.98] group"
+      className="pos-product-card w-full appearance-none border-0 p-0 text-left bg-white rounded-xl shadow-ambient hover:shadow-elevated transition-all cursor-pointer overflow-hidden active:scale-[0.98] group"
     >
       <div className="relative aspect-square bg-surface-container-low overflow-hidden product-card-media-wrap">
         <img
@@ -41,6 +42,6 @@ export default function ProductCard({ item, onClick }) {
         <p className="text-xs text-surface-on-variant mt-0.5 line-clamp-1">{item.description}</p>
         <p className="font-display font-bold text-base text-primary mt-2">{item.variants?.length ? 'From ' : ''}{formatCurrency(startingPrice)}</p>
       </div>
-    </div>
+    </button>
   );
 }

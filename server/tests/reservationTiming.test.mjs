@@ -15,3 +15,9 @@ test('shared order countdown displays months and remaining days', () => {
   const target = new Date(now + 45 * 24 * 60 * 60 * 1000).toISOString();
   assert.equal(formatReservationCountdown(target, now), '1mo 15d 0h 0m');
 });
+
+test('shared order countdown includes years for long lead times', () => {
+  const now = Date.parse('2026-10-19T12:00:00.000Z');
+  const target = new Date(now + 800 * 24 * 60 * 60 * 1000).toISOString();
+  assert.equal(formatReservationCountdown(target, now), '2y 2mo 10d 0h 0m');
+});

@@ -4,6 +4,7 @@ import Button from '../../components/ui/Button';
 import { api } from '../../api/client';
 import useOrderStore from '../../store/useOrderStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { formatElapsedDuration } from '../../utils/elapsedDuration';
 import {
   Clock,
   ChefHat,
@@ -112,7 +113,7 @@ function OrderCard({ order, onStatusChange, onPaymentConfirm, now }) {
 
         <div className="kds-order-card-meta flex items-center justify-between border-b border-[#eadfd2] pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a7d73]">
           <span>{order.status === 'pending' ? 'Queued for kitchen' : order.status === 'preparing' ? 'On the line' : 'Pickup / pass'}</span>
-          <span>{elapsedMins < 1 ? 'Just now' : `${elapsedMins} min active`}</span>
+          <span>{elapsedMins < 1 ? 'Just now' : `${formatElapsedDuration(order.createdAt, now)} active`}</span>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] font-bold">
@@ -487,4 +488,3 @@ export default function KDSPage() {
     </div>
   );
 }
-

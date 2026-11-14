@@ -47,9 +47,30 @@ export function buildThermalReceipt(order, settings = {}) {
   lines.push(
     '-'.repeat(width),
     ...wrap(`Subtotal: ${formatMoney(order.subtotal, currency)}`, width),
-    ...wrap(`Tax: ${formatMoney(order.tax, currency)}`, width),
-    ...wrap(`TOTAL: ${formatMoney(order.total, currency)}`, width),
-    ...wrap(`Payment: ${order.paymentMethod || order.method || ''}`, width),
+  );
+  const discountAmount = Number(order.discountAmount || order.discount_amount || 0);
+  if (discountAmount > 0) {
+    lines.push(...wrap(`${order.discountLabel || order.discount_label || 'Discount'}: -${formatMoney(discountAmount, currency)}`, width));
+    if (order.discountReason || order.discount_reason) lines.push(...wrap(`Reason: ${order.discountReason || order.discount_reason}`, width));
+  }
+  lines.push(...wrap(`Tax: ${formatMoney(order.tax, currency)}`, width), ...wrap(`TOTAL: ${formatMoney(order.total, currency)}`, width));
+  if (order.tabId) {
+    for (const payment of order.payments || []) {
+      if (!['paid', 'completed'].includes(payment.status)) continue;
+      lines.push(...wrap(`Received ${payment.method || 'payment'}: ${formatMoney(payment.amount, currency)}`, width));
+      if (payment.transactionId) lines.push(...wrap(`Reference: ${payment.transactionId}`, width));
+    }
+    lines.push(
+      ...wrap(`Ticket paid: ${formatMoney(order.paidAmount || 0, currency)}`, width),
+      ...wrap(`Ticket due: ${formatMoney(order.balanceDue || 0, currency)}`, width),
+      ...wrap(`TABLE TAB: ${formatMoney(order.tabTotal || 0, currency)}`, width),
+      ...wrap(`Tab paid: ${formatMoney(order.tabPaid || 0, currency)}`, width),
+      ...wrap(`TAB BALANCE: ${formatMoney(order.tabBalanceDue || 0, currency)}`, width),
+    );
+  } else {
+    lines.push(...wrap(`Payment: ${order.paymentMethod || order.method || ''}`, width));
+  }
+  lines.push(
     ...wrap(settings.invoice_footer || 'Thank you for dining with us.', width),
   );
   return lines.join('\n');
@@ -87,7 +108,14 @@ export function buildThermalFiscalInvoice(order, settings = {}) {
   const tax = Number(order.tax || 0);
   const total = Number(order.total || 0);
   if (settings.invoice_show_tax !== 'false') {
-    lines.push(...wrap(`Subtotal: ${formatMoney(total - tax, currency)}`, width));
+    lines.push(...wrap(`Subtotal: ${formatMoney(order.subtotal ?? total - tax + Number(order.discountAmount || order.discount_amount || 0), currency)}`, width));
+  }
+  const discountAmount = Number(order.discountAmount || order.discount_amount || 0);
+  if (discountAmount > 0) {
+    lines.push(...wrap(`${order.discountLabel || order.discount_label || 'Discount'}: -${formatMoney(discountAmount, currency)}`, width));
+    if (order.discountReason || order.discount_reason) lines.push(...wrap(`Reason: ${order.discountReason || order.discount_reason}`, width));
+  }
+  if (settings.invoice_show_tax !== 'false') {
     lines.push(...wrap(`Tax: ${formatMoney(tax, currency)}`, width));
   }
   lines.push(
@@ -120,6 +148,14 @@ export function buildThermalCustomerInvoice(invoice) {
   lines.push(
     '-'.repeat(width),
     ...wrap(`Subtotal: ${formatMoney(invoice.order?.subtotal, currency)}`, width),
+  );
+  const discountAmount = Number(invoice.order?.discount_amount || invoice.order?.discountAmount || 0);
+  if (discountAmount > 0) {
+    lines.push(...wrap(`${invoice.order?.discount_label || invoice.order?.discountLabel || 'Discount'}: -${formatMoney(discountAmount, currency)}`, width));
+    const discountReason = invoice.order?.discount_reason || invoice.order?.discountReason;
+    if (discountReason) lines.push(...wrap(`Reason: ${discountReason}`, width));
+  }
+  lines.push(
     ...wrap(`Tax: ${formatMoney(invoice.order?.tax, currency)}`, width),
     ...wrap(`TOTAL: ${formatMoney(invoice.order?.total, currency)}`, width),
     `Issued: ${new Date(invoice.createdAt || Date.now()).toLocaleString()}`,

@@ -78,7 +78,7 @@ import test from 'node:test';
       const publicStatus = await statusResponse.json();
       assert.equal(publicStatus.type, orderType);
       assert.equal(publicStatus.status, 'confirmed');
-      assert.equal(publicStatus.paymentStatus, 'paid');
+      assert.equal(publicStatus.paymentStatus, orderType === 'dine-in' ? 'pending' : 'paid');
     }
 
     const posCashResponse = await fetch(`${base}/orders`, {

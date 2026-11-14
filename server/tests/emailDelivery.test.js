@@ -59,6 +59,7 @@ test('sendEmail submits messages to the Resend API and returns its ID', async ()
       html: '<p>Welcome</p>',
       reply_to: 'support@example.com',
       headers: {},
+      attachments: [],
     });
   } finally {
     globalThis.fetch = originalFetch;

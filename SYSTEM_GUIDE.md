@@ -57,6 +57,10 @@ Staff sign in at `/login`. Staff routes are protected by authentication and role
 
 An administrator can further restrict page access for an individual staff account. The interface hides pages the user cannot access, and protected routes redirect users who lack access. Server endpoints also apply authentication and role checks where required; hiding a page in the frontend is not the security boundary.
 
+### Shift attendance
+
+Signing in to or out of the browser is separate from attendance and never creates, changes, or closes a shift record. Staff attendance is recorded only through an explicit clock-in or clock-out action in the staff shift workspace (or a manager/admin clock action). The first explicit clock-in is compared with the selected shift's scheduled start for lateness; the active shift retains that schedule, and overtime is counted only for time after its scheduled end when an explicit clock-out is recorded. Repeated browser sign-ins/sign-outs do not change the recorded attendance times.
+
 ## 4. Using the Counter POS
 
 The staff till is at `/pos`.

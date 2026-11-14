@@ -4,6 +4,7 @@ import Card from '../../components/ui/Card';
 import StatCard from '../../components/ui/StatCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Button from '../../components/ui/Button';
+import ShiftProgressAvatar from '../../components/ShiftProgressAvatar';
 import { api } from '../../api/client';
 import { Users, Clock, AlertTriangle, UserCheck, Trash2, LogIn, LogOut, ClipboardCheck, Edit3, Plus, Save, X } from 'lucide-react';
 import { useWebSocket } from '../../hooks/useWebSocket';
@@ -34,7 +35,11 @@ export default function StaffTrackingPage({ embedded = false }) {
   const loadChecklistDefinitions = () => api.getOperationalChecklists(new Date().toLocaleDateString('en-CA'))
     .then(setChecklist)
     .catch((requestError) => setError(requestError.message || 'Unable to load checklist definitions.'));
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 60_000);
+    return () => clearInterval(timer);
+  }, []);
   useEffect(() => { loadChecklistDefinitions(); }, []);
   useWebSocket((event) => {
     if (event === 'staff:updated') load();
@@ -175,29 +180,24 @@ export default function StaffTrackingPage({ embedded = false }) {
       )}
 
       <Card>
-        <h3 className="font-display font-bold text-sm mb-4">Shift Timeline - Today</h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-display font-bold text-sm">Shift Timeline - Today</h3>
+          <p className="text-[10px] text-surface-on-variant">Ring: green on time · amber late/not clocked · purple overtime · blue completed</p>
+        </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {staffMembers.map((staff) => (
             <div key={staff.id} className="rounded-xl border border-outline-variant/60 p-3 hover:bg-surface-container-low">
               <div className="flex items-start gap-3">
-              <div className={'w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs ' +
-                (staff.status === 'on-clock' ? 'bg-success/10 text-success ring-2 ring-success/30' : 'bg-surface-container text-surface-on-variant')}>
-                {staff.avatar}
-              </div>
+              <ShiftProgressAvatar staff={staff} currentMinute={tracking.serverMinuteOfDay} currentDate={tracking.serverDate} size={40} />
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-sm">{staff.name}</p>
                 <p className="text-xs text-surface-on-variant">{staff.role}</p>
               </div>
               <StatusBadge status={staff.status} />
               </div>
-              <div className="mt-3 flex items-center gap-2">
-              <div className="flex-1">
-                <div className="bg-surface-container-low rounded-full h-3 overflow-hidden">
-                  <div className={'h-full rounded-full ' + (staff.status === 'on-clock' ? 'bg-success' : staff.status === 'no-show' ? 'bg-error' : 'bg-outline-variant')}
-                    style={{ width: staff.status === 'on-clock' ? '65%' : staff.attendance?.hours ? `${Math.min(100, (staff.attendance.hours / 8) * 100)}%` : '0%' }} />
-                </div>
-              </div>
-              <p className="text-xs text-surface-on-variant">{staff.attendance?.login || staff.clockIn || '-'}{staff.attendance?.logout ? ` - ${staff.attendance.logout}` : ''}</p>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-outline-variant/40 pt-3 text-[10px]">
+              <p className="text-surface-on-variant"><span className="font-semibold text-surface-on">Clock in:</span> {staff.attendance?.login || staff.clockIn || 'Not recorded'}{staff.attendance?.logout ? ` · Out: ${staff.attendance.logout}` : ''}</p>
+              <p className="text-surface-on-variant">Scheduled {staff.attendance?.scheduledStart || (String(staff.shift).toLowerCase().includes('evening') ? staff.eveningStartTime : staff.morningStartTime) || '--'}–{staff.attendance?.scheduledEnd || (String(staff.shift).toLowerCase().includes('evening') ? staff.eveningEndTime : staff.morningEndTime) || '--'}</p>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2 border-t border-outline-variant/40 pt-3 text-center">
                 <div><p className="text-sm font-bold">{staff.activity.orders}</p><p className="text-[10px] text-surface-on-variant">Orders</p></div>
@@ -228,8 +228,16 @@ export default function StaffTrackingPage({ embedded = false }) {
               return <tr key={entry.id} className="border-b border-outline-variant/40">
                 <td className="p-2 font-semibold">{entry.staffName}</td>
                 <td className="p-2">{entry.date}<span className="block capitalize text-[10px] text-surface-on-variant">{entry.assignedShift || 'Shift'}</span></td>
-                <td className="p-2"><label className="sr-only">{entry.staffName} clock in</label><input type="time" disabled={!['admin', 'manager'].includes(currentUser?.role)} value={edit.startTime ?? toTimeInput(entry.login)} onChange={(event) => setAttendanceEdits((current) => ({ ...current, [entry.id]: { ...current[entry.id], startTime: event.target.value } }))} className="input-field w-28" /></td>
-                <td className="p-2"><label className="sr-only">{entry.staffName} clock out</label><input type="time" disabled={!['admin', 'manager'].includes(currentUser?.role) || entry.status === 'active'} value={edit.endTime ?? toTimeInput(entry.logout)} onChange={(event) => setAttendanceEdits((current) => ({ ...current, [entry.id]: { ...current[entry.id], endTime: event.target.value } }))} className="input-field w-28" /></td>
+                <td className="p-2">
+                  <p className="mb-1 whitespace-nowrap font-semibold">{entry.login || 'Not recorded'}</p>
+                  <label className="sr-only">{entry.staffName} corrected clock-in time</label>
+                  <input type="time" disabled={!['admin', 'manager'].includes(currentUser?.role)} value={edit.startTime ?? toTimeInput(entry.login)} onChange={(event) => setAttendanceEdits((current) => ({ ...current, [entry.id]: { ...current[entry.id], startTime: event.target.value } }))} className="input-field w-28" />
+                </td>
+                <td className="p-2">
+                  <p className="mb-1 whitespace-nowrap font-semibold">{entry.logout || (entry.status === 'active' ? 'In progress' : 'Not recorded')}</p>
+                  <label className="sr-only">{entry.staffName} corrected clock-out time</label>
+                  <input type="time" disabled={!['admin', 'manager'].includes(currentUser?.role) || entry.status === 'active'} value={edit.endTime ?? toTimeInput(entry.logout)} onChange={(event) => setAttendanceEdits((current) => ({ ...current, [entry.id]: { ...current[entry.id], endTime: event.target.value } }))} className="input-field w-28" />
+                </td>
                 <td className="p-2">{entry.hours ? Number(entry.hours).toFixed(2) : '-'}</td>
                 <td className="p-2 text-[10px]">{entry.lateMinutes ? <span className="block text-error">Late {entry.lateMinutes}m</span> : 'On time'}{entry.overtimeMinutes > 0 && <span className="block text-primary">OT {entry.overtimeMinutes}m</span>}<span className="block text-surface-on-variant">Plan {entry.scheduledStart || '-'}–{entry.scheduledEnd || '-'}</span></td>
                 <td className="p-2">{['admin', 'manager'].includes(currentUser?.role) && <Button size="sm" variant="secondary" disabled={entry.status === 'active' || !(edit.endTime ?? toTimeInput(entry.logout))} onClick={() => saveAttendanceEdit(entry)}><Save size={13} />Save</Button>}</td>

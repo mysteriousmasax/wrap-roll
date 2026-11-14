@@ -79,7 +79,7 @@ export default function ReceiptIntake({ inventory = [], onClose, onComplete }) {
           ...item,
           inventoryId: matchedItem ? String(matchedItem.id) : '',
           sku: matchedItem?.sku || '',
-          unit: matchedItem?.unit || item.unit,
+          unit: item.unit || matchedItem?.purchaseUnit || matchedItem?.unit,
           threshold: matchedItem ? String(matchedItem.threshold ?? 0) : '',
           quantity: String(item.quantity),
           unitCost: String(item.unitCost),
@@ -175,7 +175,22 @@ export default function ReceiptIntake({ inventory = [], onClose, onComplete }) {
     };
   }, [cameraOpen]);
 
-  const updateStockLine = (index, field, value) => setStockLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, [field]: value, ...(field === 'inventoryId' ? (() => { const item = inventory.find((entry) => String(entry.id) === value); return item ? { name: item.name, sku: item.sku || '', unit: item.unit || 'pcs', threshold: String(item.threshold ?? 0) } : { threshold: '' }; })() : {}) } : line));
+  const updateStockLine = (index, field, value) => setStockLines((current) => current.map((line, lineIndex) => {
+    if (lineIndex !== index) return line;
+    if (field !== 'inventoryId') return { ...line, [field]: value };
+    const item = inventory.find((entry) => String(entry.id) === value);
+    if (!item) return { ...line, inventoryId: value, threshold: '' };
+    const purchaseFactor = Number(item.purchaseUnitFactor) > 0 ? Number(item.purchaseUnitFactor) : 1;
+    return {
+      ...line,
+      inventoryId: value,
+      name: item.name,
+      sku: item.sku || '',
+      unit: item.purchaseUnit || item.unit || 'pcs',
+      unitCost: String(item.purchaseUnitCost || Number(item.unitCost || 0) * purchaseFactor),
+      threshold: String(item.threshold ?? 0),
+    };
+  }));
 
   const recognizeReceipt = async (event) => {
     const file = event.target.files?.[0];
@@ -306,9 +321,21 @@ export default function ReceiptIntake({ inventory = [], onClose, onComplete }) {
             {stockLines.map((line, index) => <div key={index} className="grid min-w-0 gap-2 rounded-lg border border-outline-variant p-3 sm:grid-cols-2">
               <label className="text-xs font-semibold">Match inventory item<select value={line.inventoryId} onChange={(event) => updateStockLine(index, 'inventoryId', event.target.value)} className="input-field mt-1 w-full"><option value="">New item / enter below</option>{inventory.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.sku || 'no SKU'}</option>)}</select></label>
               <label className="text-xs font-semibold">Item name<input required value={line.name} onChange={(event) => updateStockLine(index, 'name', event.target.value)} className="input-field mt-1 w-full" /></label>
-              {!line.inventoryId && line.name.trim() && <p className="text-[11px] font-semibold text-amber-800 sm:col-span-2">New inventory item. It will be created only after you submit this reviewed receipt.</p>}
+              {!line.inventoryId && line.name.trim() && <p className="text-[11px] font-semibold text-amber-800 sm:col-span-2">New items use this receipt unit as their stock unit. Create the inventory item first if you need a pack-to-stock conversion, such as a 1 kg bag received into grams.</p>}
               <label className="text-xs font-semibold">SKU / barcode<input value={line.sku} onChange={(event) => updateStockLine(index, 'sku', event.target.value)} className="input-field mt-1 w-full" /></label>
-              <div className="grid grid-cols-2 gap-2"><label className="text-xs font-semibold">Qty<input required type="number" min="0.001" step="any" value={line.quantity} onChange={(event) => updateStockLine(index, 'quantity', event.target.value)} className="input-field mt-1 w-full" /></label><label className="text-xs font-semibold">Unit<input value={line.unit} onChange={(event) => updateStockLine(index, 'unit', event.target.value)} className="input-field mt-1 w-full" /></label><label className="text-xs font-semibold">Unit cost (TZS)<input required type="number" min="0" value={line.unitCost} onChange={(event) => updateStockLine(index, 'unitCost', event.target.value)} className="input-field mt-1 w-full" /></label><label className="text-xs font-semibold">Low-stock alert at<input required={!line.inventoryId} type="number" min="0" step="any" disabled={Boolean(line.inventoryId)} value={line.threshold} onChange={(event) => updateStockLine(index, 'threshold', event.target.value)} placeholder="e.g. 2 kg" className="input-field mt-1 w-full disabled:bg-surface-container" /></label></div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-xs font-semibold">Received quantity<input required type="number" min="0.001" step="any" value={line.quantity} onChange={(event) => updateStockLine(index, 'quantity', event.target.value)} className="input-field mt-1 w-full" /></label>
+                <label className="text-xs font-semibold">Receipt unit<input value={line.unit} onChange={(event) => updateStockLine(index, 'unit', event.target.value)} className="input-field mt-1 w-full" /></label>
+                <label className="text-xs font-semibold">Cost per receipt unit (TZS)<input required type="number" min="0" step="any" value={line.unitCost} onChange={(event) => updateStockLine(index, 'unitCost', event.target.value)} className="input-field mt-1 w-full" /></label>
+                <label className="text-xs font-semibold">Low-stock alert at<input required={!line.inventoryId} type="number" min="0" step="any" disabled={Boolean(line.inventoryId)} value={line.threshold} onChange={(event) => updateStockLine(index, 'threshold', event.target.value)} placeholder="e.g. 2 kg" className="input-field mt-1 w-full disabled:bg-surface-container" /></label>
+              </div>
+              {line.inventoryId && (() => {
+                const item = inventory.find((entry) => String(entry.id) === line.inventoryId);
+                const factor = Number(item?.purchaseUnitFactor) > 0 ? Number(item.purchaseUnitFactor) : 1;
+                return item && line.unit.toLowerCase() === String(item.purchaseUnit || '').toLowerCase() && factor !== 1
+                  ? <p className="text-[11px] text-surface-on-variant">1 {item.purchaseUnit} adds {factor} {item.unit} to stock.</p>
+                  : null;
+              })()}
               {stockLines.length > 1 && <Button type="button" size="xs" variant="danger" className="justify-self-end" onClick={() => setStockLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}><Trash2 size={13} /> Remove line</Button>}
             </div>)}
             <Button type="button" size="sm" variant="secondary" onClick={() => { setStockLines((current) => [...current, emptyStockLine()]); setActiveStockLine(stockLines.length); }}><Plus size={14} /> Add stock line</Button>

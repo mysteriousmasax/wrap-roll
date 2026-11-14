@@ -12,16 +12,16 @@ export const ROUTE_ACCESS = {
     '/orders', '/customers', '/roadside', '/management/payments', '/crm', '/crm/whatsapp',
     '/analytics', '/management/menu', '/management/operations',
     '/staff-playbook',
-    '/assistant', '/management/loyalty', '/management/campaigns', '/management/email-marketing',
+    '/management/reports', '/assistant', '/management/loyalty', '/management/campaigns', '/management/email-marketing',
     '/management/kanban', '/notifications',
   ],
   executive: [
     '/crm', '/crm/whatsapp', '/analytics', '/management/operations',
     '/staff-playbook',
     '/management/reports', '/assistant', '/management/campaigns', '/management/email-marketing',
-    '/management/kanban',
+    '/management/kanban', '/notifications',
   ],
-  kitchen: ['/kds', '/assistant', '/staff-playbook'],
+  kitchen: ['/kds', '/assistant', '/staff-playbook', '/notifications'],
   foh: ['/pos', '/pos/payment', '/pos/success', '/pos/tables', '/orders', '/customers', '/roadside', '/management/payments', '/assistant', '/notifications', '/staff-playbook'],
 };
 

@@ -56,9 +56,9 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
   };
 
   return (
-    createPortal(<div className="fixed inset-0 z-[60] flex items-end justify-center p-0 sm:items-center sm:p-4 animate-fade-in">
+    createPortal(<div className="pos-customization-overlay fixed inset-0 z-[60] flex items-end justify-center p-0 sm:items-center sm:p-4 animate-fade-in">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-[#fffdfa] border border-[#ebdccb] rounded-t-3xl sm:rounded-3xl shadow-2xl w-full max-w-xl max-h-[92dvh] sm:max-h-[min(92dvh,900px)] md:max-h-[82dvh] xl:max-h-[min(92dvh,900px)] flex flex-col overflow-hidden animate-slide-up z-10 text-[#24211e]">
+      <div className="pos-customization-sheet relative bg-[#fffdfa] border border-[#ebdccb] rounded-t-3xl sm:rounded-3xl shadow-2xl w-full max-w-xl max-h-[92dvh] sm:max-h-[min(92dvh,900px)] md:max-h-[82dvh] xl:max-h-[min(92dvh,900px)] flex flex-col overflow-hidden animate-slide-up z-10 text-[#24211e]">
         {/* Header with image banner */}
         <div className="relative p-5 border-b border-[#eee4d5] bg-gradient-to-r from-[#fff9f0] to-[#fffdfa] flex items-start justify-between gap-4">
           <div className="flex items-start gap-3.5">
@@ -94,7 +94,7 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
         </div>
 
         {/* Scrollable Customization Content */}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-6 [webkit-overflow-scrolling:touch]">
+        <div className="pos-customization-content min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-6 [webkit-overflow-scrolling:touch]">
           {item.variants?.length > 0 && (
             <section aria-label="Choose a size">
               <h3 className="mb-2.5 text-xs font-bold uppercase tracking-wider text-[#746e67]">Choose a size</h3>
@@ -287,7 +287,7 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
         </div>
 
         {/* Footer with sticky CTA */}
-        <div style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }} className="shrink-0 p-3 sm:p-5 border-t border-[#eee4d5] bg-white flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 md:flex-col md:items-stretch xl:flex-row xl:items-center shadow-lg">
+        <div style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }} className="pos-customization-footer shrink-0 p-3 sm:p-5 border-t border-[#eee4d5] bg-white flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 md:flex-col md:items-stretch xl:flex-row xl:items-center shadow-lg">
           <div className="leading-tight">
             <span className="text-[11px] font-semibold text-[#746e67] uppercase tracking-wider block">
               Total ({quantity} {quantity === 1 ? 'item' : 'items'})

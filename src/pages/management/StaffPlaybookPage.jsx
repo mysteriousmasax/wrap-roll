@@ -324,9 +324,27 @@ export default function StaffPlaybookPage() {
     try {
       const inventoryCounts = (handover.inventoryCounts || []).map(({ clientKey, ...row }) => row);
       const result = await api.saveShiftHandover({ ...handover, inventoryCounts, date, shift });
-      setHandover((current) => ({ ...current, ...result, inventoryCounts: current.inventoryCounts }));
+      setHandover((current) => ({
+        ...current,
+        ...result,
+        inventoryCounts: (result.inventoryCounts || []).map((row, index) => ({
+          ...row,
+          clientKey: current.inventoryCounts[index]?.clientKey || `${date}-${shift}-${index}`,
+        })),
+      }));
       await saveDailyStockReport({ approve: false });
-      setMessage('Shift handover saved.');
+      const pending = result.inventoryCounts.filter((row) => row.confirmationStatus === 'pending-confirmation').length;
+      const mismatched = result.inventoryCounts.filter((row) => row.confirmationStatus === 'mismatch').length;
+      const reconciliationRows = Object.values(result.reconciliation || {});
+      const pendingReconciliations = reconciliationRows.filter((row) => row.countStatus === 'pending-discrepancy').length;
+      const waitingReconciliations = reconciliationRows.filter((row) => row.countStatus === 'awaiting-second-staff').length;
+      setMessage([
+        `Shift handover saved. Inventory was updated for ${result.updatedInventoryItems || 0} item(s) with confirmed counts.`,
+        pending ? `${pending} item(s) are waiting for a second staff member to enter the same closing count; their inventory has not changed yet.` : '',
+        mismatched ? `${mismatched} item(s) have mismatched counts; their inventory has not changed.` : '',
+        waitingReconciliations ? `${waitingReconciliations} payment channel(s) are waiting for an independent second count.` : '',
+        pendingReconciliations ? `${pendingReconciliations} payment channel(s) have a logged discrepancy; the next shift may start.` : '',
+      ].filter(Boolean).join(' '));
     } catch (error) {
       setMessage(error.message || 'Unable to save shift handover.');
     } finally {
@@ -545,6 +563,7 @@ export default function StaffPlaybookPage() {
 
               <Card className="min-w-0 p-4 sm:p-5">
                 <h2 className="mb-3 font-display font-bold">Payment reconciliation · TZS</h2>
+                <p className="mb-3 text-xs text-surface-on-variant">Expected sales are calculated from settled cash and Lipa Namba payments recorded against this shift, including split table-tab payments. Two staff members must independently count each channel. Your count stays hidden from the other person until both counts are submitted, and a mismatch is logged without blocking the next shift.</p>
                 {Object.entries(handover.reconciliation || {}).some(([key, row]) => key !== 'cashFloat' && row.actual !== '' && Number(row.actual) < Number(row.expected || 0)) && (
                   <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
                     <ShieldAlert size={15} className="mt-0.5 shrink-0" />
@@ -552,14 +571,15 @@ export default function StaffPlaybookPage() {
                   </div>
                 )}
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[620px] text-left text-xs">
+                  <table className="w-full min-w-[900px] text-left text-xs">
                     <thead>
                       <tr className="border-b border-outline-variant text-surface-on-variant">
                         <th className="py-2">Payment channel</th>
-                        <th className="py-2">Expected POS total</th>
+                        <th className="py-2">Expected sales total</th>
                         <th className="py-2">Actual count</th>
                         <th className="py-2">Variance</th>
                         <th className="py-2">Notes</th>
+                        <th className="py-2">Independent check</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -569,10 +589,32 @@ export default function StaffPlaybookPage() {
                         return (
                           <tr key={key} className="border-b border-outline-variant/50">
                             <td className="py-2 font-semibold capitalize">{key.replace(/([A-Z])/g, ' $1')}</td>
-                            <td className="py-2"><input aria-label={`Expected POS total for ${key}`} type="number" min="0" step="1" value={row.expected ?? ''} onChange={(event) => updateReconciliation(key, 'expected', event.target.value)} className="input-field w-36" /></td>
-                            <td className="py-2"><input type="number" min="0" value={row.actual ?? ''} onChange={(event) => updateReconciliation(key, 'actual', event.target.value)} className="input-field w-32" /></td>
+                            <td className="py-2">{key === 'cashFloat'
+                              ? <input aria-label={`Expected cash float for ${key}`} type="number" min="0" step="1" value={row.expected ?? ''} onChange={(event) => updateReconciliation(key, 'expected', event.target.value)} className="input-field w-36" />
+                              : <span aria-label={`Auto-calculated expected sales for ${key}`} className="font-semibold">{formatCurrency(expected)}</span>}</td>
+                            <td className="py-2"><input aria-label={`Actual count for ${key}`} type="number" min="0" step="1" value={row.actual ?? ''} disabled={!row.canSubmitCount} onChange={(event) => updateReconciliation(key, 'actual', event.target.value)} className="input-field w-32 disabled:cursor-not-allowed disabled:opacity-70" /></td>
                             <td className={`py-2 font-bold ${row.actual === '' ? '' : actual - expected === 0 ? 'text-green-700' : 'text-red-700'}`}>{row.actual === '' ? '—' : formatCurrency(actual - expected)}</td>
-                            <td className="py-2 text-surface-on-variant">{row.notes || ''}</td>
+                            <td className="py-2"><input aria-label={`Reconciliation notes for ${key}`} value={row.notes || ''} disabled={!row.canSubmitCount} onChange={(event) => updateReconciliation(key, 'notes', event.target.value)} className="input-field min-w-36 disabled:cursor-not-allowed disabled:opacity-70" placeholder="Notes / variance reason" /></td>
+                            <td className="py-2">
+                              <div className={`font-semibold ${row.countStatus === 'matched' ? 'text-green-700' : row.countStatus === 'pending-discrepancy' ? 'text-red-700' : 'text-surface-on-variant'}`}>
+                                {row.countStatus === 'matched' ? 'Matched by 2 staff'
+                                  : row.countStatus === 'pending-discrepancy' ? 'Mismatch pending'
+                                    : row.countStatus === 'awaiting-second-staff' ? 'Waiting for second count'
+                                      : 'Awaiting counts'}
+                              </div>
+                              {row.countStatus === 'awaiting-second-staff' && (
+                                <div className="text-[11px] text-surface-on-variant">
+                                  {row.canSubmitCount ? 'One count is saved; its amount is hidden.' : 'Your count is saved and hidden from the next staff member.'}
+                                </div>
+                              )}
+                              {row.countEntries?.map((entry) => (
+                                <div key={entry.userId} className="whitespace-nowrap text-[11px] text-surface-on-variant">
+                                  {entry.staffName || 'Staff'} · {formatCurrency(Number(entry.actual))}
+                                  {entry.submittedAt ? ` · ${new Date(entry.submittedAt).toLocaleString()}` : ''}
+                                  {entry.notes ? ` · ${entry.notes}` : ''}
+                                </div>
+                              ))}
+                            </td>
                           </tr>
                         );
                       })}
@@ -583,7 +625,7 @@ export default function StaffPlaybookPage() {
 
               <Card className="min-w-0 p-4 sm:p-5">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <div><h2 className="font-display font-bold">Stock count</h2><p className="text-xs text-surface-on-variant">Enter a closing count to reconcile live inventory and low-stock alerts.</p></div>
+                  <div><h2 className="font-display font-bold">Stock count</h2><p className="text-xs text-surface-on-variant">Enter a closing count. Inventory updates only after two different staff members enter the same closing count.</p></div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[760px] text-left text-xs">
@@ -595,6 +637,7 @@ export default function StaffPlaybookPage() {
                         <th className="py-2">Added prep</th>
                         <th className="py-2">Closing</th>
                         <th className="py-2">Status / requisition</th>
+                        <th className="py-2">Inventory update</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -611,6 +654,18 @@ export default function StaffPlaybookPage() {
                               <option value="restock">Needs restock</option>
                               <option value="prep">Needs prep</option>
                             </select>
+                          </td>
+                          <td className="py-2">
+                            <span className={`font-semibold ${row.confirmationStatus === 'confirmed' ? 'text-success' : row.confirmationStatus === 'mismatch' ? 'text-error' : 'text-surface-on-variant'}`}>
+                              {row.confirmationStatus === 'confirmed'
+                                ? 'Confirmed · inventory updated'
+                                : row.confirmationStatus === 'mismatch'
+                                  ? 'Mismatch · inventory unchanged'
+                                  : row.confirmationStatus === 'pending-confirmation'
+                                    ? 'Waiting for second count · not updated'
+                                    : 'Not counted'}
+                            </span>
+                            {row.staffCounts?.length > 0 && <span className="mt-1 block text-[10px] text-surface-on-variant">{row.staffCounts.map((count) => `${count.staffName}: ${count.closing === '' || count.closing == null ? 'no closing count' : `${count.closing} ${row.unit}`}`).join(' · ')}</span>}
                           </td>
                         </tr>
                       ))}
