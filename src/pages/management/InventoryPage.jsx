@@ -10,6 +10,7 @@ import { downloadAsset } from '../../utils/downloadAsset';
 import { getStockUnitConversionFactor } from '../../utils/stockUnits';
 import ReceiptIntake from '../../components/ReceiptIntake';
 import { Package, AlertTriangle, CalendarClock, Edit3, Search, Plus, MapPin, Truck, X, Upload, History, SlidersHorizontal, Download, Trash2, ScanLine } from 'lucide-react';
+import { useWebSocket } from '../../hooks/useWebSocket';
 
 const fallbackImage = 'https://images.unsplash.com/photo-1547592180-85f173990554?w=240&h=180&fit=crop';
 const inventoryUnitOptions = ['kg', 'g', 'litre', 'ml', 'pcs', 'bottle', 'can', 'box', 'cup', 'pack', 'loaves', 'units', 'cards', 'pieces (half)', 'pieces (full)'];
@@ -90,6 +91,9 @@ export default function InventoryPage({ embedded = false }) {
 
   const load = () => api.getInventory().then(setItems).catch((err) => setError(err.message || 'Unable to load inventory.')).finally(() => setLoading(false));
   useEffect(() => { load(); loadInventoryOptions(); }, []);
+  useWebSocket((event) => {
+    if (event === 'inventory:updated') load();
+  });
 
   const lowStock = items.filter(isLowStock);
   const expiringSoon = items.filter((item) => { const days = daysUntil(item.expiryDate); return days !== null && days <= 7; });

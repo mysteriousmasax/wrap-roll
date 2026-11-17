@@ -505,6 +505,28 @@ function getFinancialReport(type) {
     payroll: { title: 'Payroll and Labor', columns: ['pay_period', 'staff_name', 'basic_pay', 'overtime', 'allowances', 'deductions', 'net_pay', 'status'], rows: payroll },
     inventory: { title: 'Inventory Valuation', columns: ['name', 'sku', 'category', 'quantity', 'unit', 'unit_cost', 'value', 'supplier', 'expiry_date'], rows: inventory },
     orders: { title: 'Order Performance', columns: ['status', 'order_type', 'order_source', 'orders', 'revenue'], rows: orderPerformance },
+    discounts: {
+      title: 'Offer and Manager Discounts',
+      columns: ['date', 'order', 'customer', 'subtotal', 'manual_discount', 'offer_discount', 'total_discount'],
+      rows: db.prepare(`SELECT created_at AS date, COALESCE(order_number, id) AS 'order',
+          COALESCE(customer_name, 'Walk-in guest') AS customer, subtotal,
+          manual_discount_amount AS manual_discount, offer_discount_amount AS offer_discount,
+          manual_discount_amount + offer_discount_amount AS total_discount
+        FROM orders
+        WHERE status = 'completed' AND payment_status IN ('paid', 'completed')
+          AND (manual_discount_amount > 0 OR offer_discount_amount > 0)
+        ORDER BY created_at DESC`).all(),
+    },
+    refunds: {
+      title: 'Refunds and Reversals',
+      columns: ['requested_at', 'order', 'payment_reference', 'amount', 'reason', 'status', 'payout_method', 'payout_reference', 'processed_at'],
+      rows: db.prepare(`SELECT r.requested_at, COALESCE(o.order_number, r.order_id) AS 'order',
+          p.payment_reference, r.amount, r.reason, r.status, r.payout_method, r.payout_reference, r.processed_at
+        FROM refunds r
+        LEFT JOIN orders o ON o.id = r.order_id
+        LEFT JOIN payments p ON p.id = r.payment_id
+        ORDER BY r.requested_at DESC`).all(),
+    },
   };
   return reports[type] || reports.sales;
 }
@@ -553,7 +575,7 @@ function getSettledPaymentTotals() {
 
 router.get('/reports/data', authMiddleware, (req, res) => {
   const type = String(req.query.type || 'sales');
-  const allowedTypes = ['sales', 'pnl', 'payments', 'tax', 'expenses', 'payroll', 'inventory', 'orders'];
+  const allowedTypes = ['sales', 'pnl', 'payments', 'tax', 'expenses', 'payroll', 'inventory', 'orders', 'discounts', 'refunds'];
   if (!allowedTypes.includes(type)) return res.status(400).json({ error: 'Unknown financial report type' });
   res.json(getFinancialReport(type));
 });
@@ -757,29 +779,34 @@ async function pptxBuffer(report) {
 router.get('/reports/export', authMiddleware, async (req, res) => {
   const type = String(req.query.type || 'sales');
   const format = String(req.query.format || 'csv').toLowerCase();
-  const allowedTypes = ['sales', 'pnl', 'payments', 'tax', 'expenses', 'payroll', 'inventory', 'orders'];
+  const allowedTypes = ['sales', 'pnl', 'payments', 'tax', 'expenses', 'payroll', 'inventory', 'orders', 'discounts', 'refunds'];
   const allowedFormats = ['csv', 'json', 'html', 'pdf', 'xlsx', 'docx', 'pptx'];
   if (!allowedTypes.includes(type)) return res.status(400).json({ error: 'Unknown financial report type' });
   if (!allowedFormats.includes(format)) return res.status(400).json({ error: 'Unsupported export format' });
-  const report = getFinancialReport(type);
-  const filename = `wrap-roll-${type}-report.${format}`;
-  if (format === 'pdf' || format === 'xlsx' || format === 'docx' || format === 'pptx') {
-    const generators = { pdf: pdfBuffer, xlsx: xlsxBuffer, docx: docxBuffer, pptx: pptxBuffer };
-    const contentTypes = { pdf: 'application/pdf', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' };
-    const content = await generators[format](report);
-    res.type(contentTypes[format]).set('Content-Disposition', `attachment; filename="${filename}"`).send(content);
-    return;
+  try {
+    const report = getFinancialReport(type);
+    const filename = `wrap-roll-${type}-report.${format}`;
+    if (format === 'pdf' || format === 'xlsx' || format === 'docx' || format === 'pptx') {
+      const generators = { pdf: pdfBuffer, xlsx: xlsxBuffer, docx: docxBuffer, pptx: pptxBuffer };
+      const contentTypes = { pdf: 'application/pdf', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' };
+      const content = await generators[format](report);
+      res.type(contentTypes[format]).set('Content-Disposition', `attachment; filename="${filename}"`).send(content);
+      return;
+    }
+    if (format === 'json') {
+      res.type('application/json').set('Content-Disposition', `attachment; filename="${filename}"`).send(JSON.stringify(report, null, 2));
+      return;
+    }
+    if (format === 'html') {
+      res.type('text/html').set('Content-Disposition', `attachment; filename="${filename}"`).send(reportHtml(report));
+      return;
+    }
+    const csv = [report.columns.join(','), ...report.rows.map((row) => report.columns.map((column) => csvValue(row[column])).join(','))].join('\n');
+    res.type('text/csv').set('Content-Disposition', `attachment; filename="${filename}"`).send(csv);
+  } catch (error) {
+    console.error(`Financial report export failed (${type}/${format}):`, error);
+    res.status(500).json({ error: 'Unable to create the financial report export.' });
   }
-  if (format === 'json') {
-    res.type('application/json').set('Content-Disposition', `attachment; filename="${filename}"`).send(JSON.stringify(report, null, 2));
-    return;
-  }
-  if (format === 'html') {
-    res.type('text/html').set('Content-Disposition', `attachment; filename="${filename}"`).send(reportHtml(report));
-    return;
-  }
-  const csv = [report.columns.join(','), ...report.rows.map((row) => report.columns.map((column) => csvValue(row[column])).join(','))].join('\n');
-  res.type('text/csv').set('Content-Disposition', `attachment; filename="${filename}"`).send(csv);
 });
 
 // Range-parameterized analytics export: day / week / month revenue, orders, and profit.
@@ -792,23 +819,28 @@ router.get('/export', authMiddleware, async (req, res) => {
     return res.status(400).json({ error: 'Choose a valid report date.' });
   }
 
-  const report = buildAnalyticsExport(range, requestedDate);
-  const dateSuffix = requestedDate ? `-${requestedDate}` : '';
-  const filename = `wrap-roll-analytics-${range}${dateSuffix}.${format}`;
+  try {
+    const report = buildAnalyticsExport(range, requestedDate);
+    const dateSuffix = requestedDate ? `-${requestedDate}` : '';
+    const filename = `wrap-roll-analytics-${range}${dateSuffix}.${format}`;
 
-  if (format === 'xlsx' || format === 'docx' || format === 'pdf') {
-    const generators = { xlsx: xlsxBuffer, docx: docxBuffer, pdf: pdfBuffer };
-    const contentTypes = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', pdf: 'application/pdf' };
-    const content = await generators[format](report);
-    res.type(contentTypes[format]).set('Content-Disposition', `attachment; filename="${filename}"`).send(content);
-    return;
+    if (format === 'xlsx' || format === 'docx' || format === 'pdf') {
+      const generators = { xlsx: xlsxBuffer, docx: docxBuffer, pdf: pdfBuffer };
+      const contentTypes = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', pdf: 'application/pdf' };
+      const content = await generators[format](report);
+      res.type(contentTypes[format]).set('Content-Disposition', `attachment; filename="${filename}"`).send(content);
+      return;
+    }
+    if (format === 'json') {
+      res.type('application/json').set('Content-Disposition', `attachment; filename="${filename}"`).send(JSON.stringify(report, null, 2));
+      return;
+    }
+    const csv = [report.columns.join(','), ...report.rows.map((row) => report.columns.map((column) => csvValue(row[column])).join(','))].join('\n');
+    res.type('text/csv').set('Content-Disposition', `attachment; filename="${filename}"`).send(csv);
+  } catch (error) {
+    console.error(`Analytics export failed (${range}/${format}):`, error);
+    res.status(500).json({ error: 'Unable to create the analytics export.' });
   }
-  if (format === 'json') {
-    res.type('application/json').set('Content-Disposition', `attachment; filename="${filename}"`).send(JSON.stringify(report, null, 2));
-    return;
-  }
-  const csv = [report.columns.join(','), ...report.rows.map((row) => report.columns.map((column) => csvValue(row[column])).join(','))].join('\n');
-  res.type('text/csv').set('Content-Disposition', `attachment; filename="${filename}"`).send(csv);
 });
 
 router.get('/export/preview', authMiddleware, (req, res) => {

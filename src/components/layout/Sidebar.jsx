@@ -93,7 +93,7 @@ export default function Sidebar({ isOpen, onClose, compact, onToggleCollapse }) 
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
+      <nav className="dashboard-sidebar-nav min-h-0 flex-1 overflow-y-auto p-2 space-y-0.5">
         {filteredNav.map((item) => (
           <NavLink
             key={item.path}

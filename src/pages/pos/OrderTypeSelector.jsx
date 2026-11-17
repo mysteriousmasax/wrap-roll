@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Utensils, ShoppingBag, Truck, CalendarDays, MapPin, CheckCircle2 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
@@ -88,7 +89,7 @@ export default function OrderTypeSelector({ isOpen, onClose, onComplete }) {
     }, 420);
   };
 
-  return (
+  return createPortal(
     <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}>
       <div className={`fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${isClosing ? 'opacity-0' : 'opacity-100'}`} onClick={onClose} />
       <div className={`relative flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-elevated md:max-h-[90dvh] md:max-w-4xl ${isClosing ? 'animate-slide-down' : 'animate-slide-up'}`}>
@@ -203,6 +204,7 @@ export default function OrderTypeSelector({ isOpen, onClose, onComplete }) {
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

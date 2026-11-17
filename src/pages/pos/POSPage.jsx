@@ -81,10 +81,10 @@ function CustomItemModal({ isOpen, onClose, onAdd }) {
     onClose();
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-[#fffdfa] border border-[#ebdccb] rounded-3xl shadow-2xl w-full max-w-md p-6 animate-slide-up z-10 text-[#24211e]">
+      <div className="relative max-h-[calc(100dvh-2rem)] overflow-y-auto bg-[#fffdfa] border border-[#ebdccb] rounded-3xl shadow-2xl w-full max-w-md p-6 animate-slide-up z-10 text-[#24211e]">
         <div className="flex items-center justify-between pb-3 border-b border-[#eee4d5] mb-4">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-[#fde8d7] text-[#ae002a] flex items-center justify-center">
@@ -186,14 +186,15 @@ function CustomItemModal({ isOpen, onClose, onAdd }) {
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
 function WifiQrModal({ isOpen, onClose, wifi, loading, error }) {
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section role="dialog" aria-modal="true" aria-labelledby="wifi-qr-title" className="w-full max-w-sm rounded-2xl border border-[#ebdccb] bg-white p-5 text-center shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
@@ -218,7 +219,8 @@ function WifiQrModal({ isOpen, onClose, wifi, loading, error }) {
           </>
         )}
       </section>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -606,7 +608,7 @@ function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, 
       </div>
 
       {/* Clear Confirmation Modal */}
-      {showClearConfirm && (
+      {showClearConfirm && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
           <div className="bg-[#fffdfa] border border-[#ebdccb] rounded-2xl p-5 max-w-xs w-full shadow-2xl text-center space-y-3">
             <h4 className="font-bold text-sm text-[#1f1d1b]">Clear Current Order?</h4>
@@ -629,7 +631,8 @@ function CartPanel({ onCheckout, onOpenCustomModal, onCustomizeItem, heldBills, 
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -773,7 +776,6 @@ export default function POSPage() {
   });
 
   const handleItemClick = (item) => {
-    document.querySelector(`[data-pos-item-id="${CSS.escape(String(item.id))}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
     setEditingCartItem(null);
     setSelectedItem(item);
     setShowCustomization(true);

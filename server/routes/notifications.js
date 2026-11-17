@@ -41,12 +41,19 @@ router.get('/', authMiddleware, (req, res) => {
 });
 
 router.patch('/:id/read', authMiddleware, (req, res) => {
-  db.prepare('UPDATE notifications SET read = 1 WHERE id = ?').run(req.params.id);
+  db.prepare(`UPDATE notifications SET read = 1
+    WHERE id = ?
+      AND (audience_user_id IS NULL OR audience_user_id = ?)
+      AND (audience_role IS NULL OR audience_role = ? OR ? = 'admin')`)
+    .run(req.params.id, req.user.id, req.user.role, req.user.role);
   res.json({ ok: true });
 });
 
 router.patch('/read-all', authMiddleware, (req, res) => {
-  db.prepare('UPDATE notifications SET read = 1').run();
+  db.prepare(`UPDATE notifications SET read = 1
+    WHERE (audience_user_id IS NULL OR audience_user_id = ?)
+      AND (audience_role IS NULL OR audience_role = ? OR ? = 'admin')`)
+    .run(req.user.id, req.user.role, req.user.role);
   res.json({ ok: true });
 });
 

@@ -78,6 +78,7 @@ router.get('/agent/jobs/next', (req, res) => {
   const agent = getPrinterAgent(req);
   if (!agent) return res.status(401).json({ error: 'Invalid printer agent token.' });
 
+  const now = new Date();
   const staleClaim = new Date(now.getTime() - 2 * 60 * 1000).toISOString();
   const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   const ready = req.query.ready !== 'false';
@@ -104,7 +105,6 @@ router.get('/agent/jobs/next', (req, res) => {
   if (job) return res.json({ job: { id: job.id, type: 'order', order: getOrderById(job.order_id), settings: receiptSettings } });
   if (!ready) return res.json({ job: null });
 
-  const now = new Date();
   const claimDocumentJob = db.transaction(() => {
     db.prepare("UPDATE printer_document_jobs SET status = 'queued', claimed_agent_id = NULL, claimed_at = NULL WHERE branch_code = ? AND status = 'claimed' AND claimed_at < ?")
       .run(agent.branch_code, staleClaim);

@@ -40,6 +40,11 @@ test('compliance reports aggregate real paid orders and recorded audit activity'
     addPayment.run('payment-cash-2', 'paid-order-2', 'REF-CASH-2', 'cash', 100, 'completed', '2026-03-09T11:00:00.000Z', '2026-03-09T11:00:00.000Z', '2026-03-09T11:00:00.000Z');
     addPayment.run('payment-lipa-2', 'paid-order-2', 'REF-LIPA-2', 'lipa_namba_2', 116, 'paid', '2026-03-09T11:00:00.000Z', '2026-03-09T11:00:00.000Z', '2026-03-09T11:00:00.000Z');
     addPayment.run('payment-unpaid', 'unpaid-order', 'REF-UNPAID', 'lipa_namba', 1080, 'pending', null, '2026-03-09T12:00:00.000Z', '2026-03-09T12:00:00.000Z');
+    db.prepare('UPDATE orders SET manual_discount_amount = 10, offer_discount_amount = 5 WHERE id = ?').run('paid-order-1');
+    db.prepare(`INSERT INTO refunds
+      (id, payment_id, order_id, amount, reason, status, requested_at, processed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run('refund-1', 'payment-cash-1', 'paid-order-1', 25, 'Duplicate item', 'processed', '2026-03-10T10:00:00.000Z', '2026-03-10T10:05:00.000Z');
     db.prepare('INSERT INTO order_items (order_id, name, qty, price) VALUES (?, ?, ?, ?)')
       .run('paid-order-1', 'Test Item', 2, 54);
     db.prepare(`INSERT INTO order_events (order_id, event_type, status, actor_user_id, occurred_at)
@@ -89,6 +94,26 @@ test('compliance reports aggregate real paid orders and recorded audit activity'
       { method: 'cash', orders: 2, paid_orders: 2, amount: 208 },
       { method: 'lipa_namba', orders: 2, paid_orders: 2, amount: 166 },
     ], 'reconciliation groups settled tender records, including split and Lipa Namba payments, and ignores unpaid intents');
+
+    const discountReportResponse = await fetch(`${base}/reports/data?type=discounts`, { headers: authHeaders });
+    assert.equal(discountReportResponse.status, 200);
+    const discountReport = await discountReportResponse.json();
+    assert.equal(discountReport.rows.length, 1);
+    assert.equal(discountReport.rows[0].manual_discount, 10);
+    assert.equal(discountReport.rows[0].offer_discount, 5);
+    assert.equal(discountReport.rows[0].total_discount, 15);
+
+    const refundReportResponse = await fetch(`${base}/reports/data?type=refunds`, { headers: authHeaders });
+    assert.equal(refundReportResponse.status, 200);
+    const refundReport = await refundReportResponse.json();
+    assert.equal(refundReport.rows.length, 1);
+    assert.equal(refundReport.rows[0].payment_reference, 'REF-CASH-1');
+    assert.equal(refundReport.rows[0].amount, 25);
+    assert.equal(refundReport.rows[0].status, 'processed');
+
+    const refundExportResponse = await fetch(`${base}/reports/export?type=refunds&format=json`, { headers: authHeaders });
+    assert.equal(refundExportResponse.status, 200);
+    assert.equal((await refundExportResponse.json()).rows[0].order, 'R-1001');
 
     const analyticsSummaryResponse = await fetch(`${base}/reports`, { headers: authHeaders });
     assert.equal(analyticsSummaryResponse.status, 200);

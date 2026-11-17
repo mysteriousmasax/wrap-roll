@@ -199,7 +199,7 @@ export default function ItemCustomization({ isOpen, item, modifiers: allModifier
                 </h3>
                 <span className="text-[11px] text-[#8c8278]">Adds {selectedModifiers.filter((mod) => mod.type === 'add').length} min each</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="pos-customization-extras-list grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {addModifiers.map((mod) => {
                   const selected = selectedModifiers.some((m) => m.id === mod.id);
                   return (

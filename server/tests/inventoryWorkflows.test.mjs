@@ -6,7 +6,7 @@ import path from 'node:path';
 import express from 'express';
 import test from 'node:test';
 
-test('handover counts require two staff confirmations and packaging is deducted only for takeout and delivery', async () => {
+test('handover counts update live stock immediately, confirm with a second staff count, and deduct packaging only for takeout and delivery', async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'wrap-roll-inventory-workflows-'));
   const previousPath = process.env.DB_PATH;
   let setupDb;
@@ -80,21 +80,26 @@ test('handover counts require two staff confirmations and packaging is deducted 
     const saved = await saveHandover([{ item: 'Test Mozzarella', unit: 'kg', closing: 4 }]);
     assert.equal(saved.status, 200);
     const savedBody = await saved.json();
-    assert.equal(savedBody.updatedInventoryItems, 0);
+    assert.equal(savedBody.updatedInventoryItems, 1);
     assert.equal(savedBody.inventoryCounts[0].confirmationStatus, 'pending-confirmation');
-    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 10);
+    assert.equal(savedBody.inventoryCounts[0].closing, 4);
+    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 4);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM inventory_audit WHERE inventory_id = ?').get(mozzarellaId).count, 1);
 
     const mismatched = await saveHandover([{ item: 'Test Mozzarella', unit: 'kg', closing: 3 }], confirmingHeaders);
     assert.equal(mismatched.status, 200);
-    assert.equal((await mismatched.json()).inventoryCounts[0].confirmationStatus, 'mismatch');
-    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 10);
+    const mismatchedBody = await mismatched.json();
+    assert.equal(mismatchedBody.inventoryCounts[0].confirmationStatus, 'mismatch');
+    assert.equal(mismatchedBody.inventoryCounts[0].closing, 4, 'the saved inventory total remains the first staff count while the discrepancy is reviewed');
+    assert.equal(mismatchedBody.inventoryCounts[0].currentStaffCount.closing, 3, 'the second staff member retains their independent count');
+    assert.equal(mismatchedBody.updatedInventoryItems, 0);
+    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 4);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM inventory_audit WHERE inventory_id = ?').get(mozzarellaId).count, 2);
 
     const confirmed = await saveHandover([{ item: 'Test Mozzarella', unit: 'kg', closing: 4 }], confirmingHeaders);
     const confirmedBody = await confirmed.json();
     assert.equal(confirmedBody.inventoryCounts[0].confirmationStatus, 'confirmed');
-    assert.equal(confirmedBody.updatedInventoryItems, 1);
+    assert.equal(confirmedBody.updatedInventoryItems, 0);
     assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 4);
     const firstCountAudit = JSON.parse(db.prepare('SELECT changes FROM inventory_audit WHERE inventory_id = ? ORDER BY id LIMIT 1').get(mozzarellaId).changes);
     assert.match(firstCountAudit.shiftCount.to, /2026-10-10 morning:.*closing 4 kg.*pending-confirmation/);
@@ -119,7 +124,7 @@ test('handover counts require two staff confirmations and packaging is deducted 
     ], requestHeaders);
     const firstPizzaPrepCount = await countPizzaPrep(headers);
     assert.equal(firstPizzaPrepCount.status, 200);
-    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(pizzaPrepId).quantity, 1);
+    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(pizzaPrepId).quantity, 0);
     const secondPizzaPrepCount = await countPizzaPrep(confirmingHeaders);
     assert.equal(secondPizzaPrepCount.status, 200);
     assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(pizzaPrepId).quantity, 0);
@@ -229,6 +234,23 @@ test('handover counts require two staff confirmations and packaging is deducted 
       body: JSON.stringify({ backFreezerChiller: 900, refrigerator: 300 }),
     });
     assert.equal(invalidStorageCounts.status, 400);
+
+    db.prepare('UPDATE inventory SET back_freezer_chiller = 900, refrigerator = 300 WHERE id = ?').run(coffee.id);
+    const metadataEditWithExistingOverage = await fetch(`${base}/inventory/${coffee.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ supplier: 'Updated supplier' }),
+    });
+    assert.equal(metadataEditWithExistingOverage.status, 200, 'existing storage inconsistencies do not block unrelated inventory edits');
+    const metadataEditBody = await metadataEditWithExistingOverage.json();
+    assert.equal(metadataEditBody.supplier, 'Updated supplier');
+    assert.equal(metadataEditBody.total, 1200, 'unrelated edits preserve the existing location counts for later correction');
+    const correctStorageCounts = await fetch(`${base}/inventory/${coffee.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ backFreezerChiller: 500, refrigerator: 300 }),
+    });
+    assert.equal(correctStorageCounts.status, 200, 'stock location edits can correct the overage');
 
     const coffeeMenuItemId = db.prepare('INSERT INTO menu_items (name, description, price, category, active) VALUES (?, ?, ?, ?, 1)')
       .run('Test Coffee Drink', '', 5000, 'drinks').lastInsertRowid;

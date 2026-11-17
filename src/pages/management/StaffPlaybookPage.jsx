@@ -43,6 +43,27 @@ function summarizeStockRows(rows = []) {
   };
 }
 
+function withCurrentStaffCounts(handover, inventoryItems, date, shift) {
+  return {
+    ...handover,
+    inventoryCounts: (handover.inventoryCounts || []).map((row, index) => {
+      const match = inventoryItems.find((item) => Number(item.id) === Number(row.inventoryId))
+        || inventoryItems.find((item) => item.name.trim().toLowerCase() === String(row.item || '').trim().toLowerCase());
+      const ownCount = row.currentStaffCount;
+      return {
+        ...row,
+        inventoryId: row.inventoryId || match?.id || '',
+        unit: match?.unit || row.unit,
+        opening: ownCount ? String(ownCount.opening ?? '') : '',
+        added: ownCount ? String(ownCount.added ?? '') : '',
+        closing: ownCount ? String(ownCount.closing ?? '') : '',
+        status: ownCount?.status || row.status || 'ok',
+        clientKey: `${date}-${shift}-${index}`,
+      };
+    }),
+  };
+}
+
 const allTabs = [
   { id: 'workspace', label: 'My Shift', Icon: Activity },
   { id: 'recovery', label: 'Guest recovery', Icon: ShieldAlert },
@@ -174,8 +195,9 @@ export default function StaffPlaybookPage() {
     }
   };
 
-  const saveDailyStockReport = async ({ approve = false } = {}) => {
-    const rows = (handover?.inventoryCounts || []).map((row) => ({
+  const saveDailyStockReport = async ({ approve = false, inventoryCounts } = {}) => {
+    const savedCounts = inventoryCounts || (await api.getShiftHandover(date, shift)).inventoryCounts || handover?.inventoryCounts || [];
+    const rows = savedCounts.map((row) => ({
       item: row?.item || 'New stock item',
       unit: row?.unit || 'units',
       opening: Number(row?.opening || 0),
@@ -221,19 +243,7 @@ export default function StaffPlaybookPage() {
     api.getShiftHandover(date, shift)
       .then((result) => {
         if (!cancelled) {
-          setHandover({
-            ...result,
-              inventoryCounts: (result.inventoryCounts || []).map((row, index) => {
-                const match = inventoryItems.find((item) => item.name.trim().toLowerCase() === String(row.item || '').trim().toLowerCase());
-                return {
-                  ...row,
-                  inventoryId: row.inventoryId || match?.id || '',
-                  unit: match?.unit || row.unit,
-                  opening: row.opening === '' || row.opening == null ? (match ? String(match.quantity ?? '') : '') : row.opening,
-                  clientKey: `${date}-${shift}-${index}`,
-                };
-              }),
-          });
+          setHandover(withCurrentStaffCounts(result, inventoryItems, date, shift));
         }
       })
       .catch((error) => { if (!cancelled) setMessage(error.message || 'Unable to load handover.'); })
@@ -251,7 +261,10 @@ export default function StaffPlaybookPage() {
           ...row,
           inventoryId: row.inventoryId || match?.id || '',
           unit: match?.unit || row.unit,
-          opening: row.opening === '' || row.opening == null ? (match ? String(match.quantity ?? '') : '') : row.opening,
+          opening: row.currentStaffCount ? String(row.currentStaffCount.opening ?? '') : '',
+          added: row.currentStaffCount ? String(row.currentStaffCount.added ?? '') : '',
+          closing: row.currentStaffCount ? String(row.currentStaffCount.closing ?? '') : '',
+          status: row.currentStaffCount?.status || row.status || 'ok',
         };
       }),
     } : current);
@@ -327,21 +340,20 @@ export default function StaffPlaybookPage() {
       setHandover((current) => ({
         ...current,
         ...result,
-        inventoryCounts: (result.inventoryCounts || []).map((row, index) => ({
-          ...row,
-          clientKey: current.inventoryCounts[index]?.clientKey || `${date}-${shift}-${index}`,
-        })),
+        inventoryCounts: withCurrentStaffCounts(result, inventoryItems, date, shift).inventoryCounts
+          .map((row, index) => ({ ...row, clientKey: current.inventoryCounts[index]?.clientKey || row.clientKey })),
       }));
-      await saveDailyStockReport({ approve: false });
+      setInventoryItems(await api.getInventory());
+      await saveDailyStockReport({ approve: false, inventoryCounts: result.inventoryCounts || [] });
       const pending = result.inventoryCounts.filter((row) => row.confirmationStatus === 'pending-confirmation').length;
       const mismatched = result.inventoryCounts.filter((row) => row.confirmationStatus === 'mismatch').length;
       const reconciliationRows = Object.values(result.reconciliation || {});
       const pendingReconciliations = reconciliationRows.filter((row) => row.countStatus === 'pending-discrepancy').length;
       const waitingReconciliations = reconciliationRows.filter((row) => row.countStatus === 'awaiting-second-staff').length;
       setMessage([
-        `Shift handover saved. Inventory was updated for ${result.updatedInventoryItems || 0} item(s) with confirmed counts.`,
-        pending ? `${pending} item(s) are waiting for a second staff member to enter the same closing count; their inventory has not changed yet.` : '',
-        mismatched ? `${mismatched} item(s) have mismatched counts; their inventory has not changed.` : '',
+        `Shift handover saved. Inventory was updated for ${result.updatedInventoryItems || 0} item(s).`,
+        pending ? `${pending} item(s) are waiting for a second staff member to verify the count; the first count is already reflected in inventory.` : '',
+        mismatched ? `${mismatched} item(s) have mismatched counts; inventory remains at the first staff count until they agree.` : '',
         waitingReconciliations ? `${waitingReconciliations} payment channel(s) are waiting for an independent second count.` : '',
         pendingReconciliations ? `${pendingReconciliations} payment channel(s) have a logged discrepancy; the next shift may start.` : '',
       ].filter(Boolean).join(' '));
@@ -625,7 +637,7 @@ export default function StaffPlaybookPage() {
 
               <Card className="min-w-0 p-4 sm:p-5">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <div><h2 className="font-display font-bold">Stock count</h2><p className="text-xs text-surface-on-variant">Enter a closing count. Inventory updates only after two different staff members enter the same closing count.</p></div>
+                  <div><h2 className="font-display font-bold">Stock count</h2><p className="text-xs text-surface-on-variant">Enter a closing count. The first staff count updates live inventory immediately; a second staff member verifies it.</p></div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[760px] text-left text-xs">
@@ -660,9 +672,9 @@ export default function StaffPlaybookPage() {
                               {row.confirmationStatus === 'confirmed'
                                 ? 'Confirmed · inventory updated'
                                 : row.confirmationStatus === 'mismatch'
-                                  ? 'Mismatch · inventory unchanged'
+                                  ? 'Mismatch · first count remains in inventory'
                                   : row.confirmationStatus === 'pending-confirmation'
-                                    ? 'Waiting for second count · not updated'
+                                      ? 'Waiting for second count · inventory updated'
                                     : 'Not counted'}
                             </span>
                             {row.staffCounts?.length > 0 && <span className="mt-1 block text-[10px] text-surface-on-variant">{row.staffCounts.map((count) => `${count.staffName}: ${count.closing === '' || count.closing == null ? 'no closing count' : `${count.closing} ${row.unit}`}`).join(' · ')}</span>}

@@ -464,6 +464,7 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
         seenInventoryIds.add(item.id);
         const savedItem = existing || {};
         const staffCounts = Array.isArray(savedItem.staffCounts) ? [...savedItem.staffCounts] : [];
+        const previousClosingCounts = staffCounts.filter((count) => count.closing !== '' && count.closing != null);
         const currentStaffCount = {
           userId: Number(req.user.id),
           staffName: req.user?.name || req.user?.username || 'Staff',
@@ -481,6 +482,14 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
           else staffCounts.push(currentStaffCount);
         }
         const confirmationStatus = inventoryCountStatus(staffCounts);
+        const closingCounts = staffCounts.filter((count) => count.closing !== '' && count.closing != null);
+        const onlyCurrentStaffCounted = closingCounts.length === 1
+          && String(closingCounts[0].userId) === String(req.user.id);
+        const shouldApplyClosing = closingCounts.length > 0
+          && (confirmationStatus === 'confirmed'
+            || (confirmationStatus === 'pending-confirmation'
+              && onlyCurrentStaffCounted
+              && previousClosingCounts.length <= 1));
         const updatedRow = {
           ...savedItem,
           item: item.name,
@@ -489,26 +498,30 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
           staffCounts,
         };
         let confirmedStorage = null;
-        if (confirmationStatus === 'confirmed') {
-          const confirmedCounts = staffCounts.filter((count) => count.closing !== '' && count.closing != null);
-          const confirmedClosing = Number(confirmedCounts[0].closing);
+        if (shouldApplyClosing) {
+          const appliedClosing = Number(closingCounts[0].closing);
           updatedRow.opening = row.opening;
           updatedRow.added = row.added;
-          updatedRow.closing = confirmedClosing;
+          updatedRow.closing = appliedClosing;
           updatedRow.status = row.status;
-          confirmedStorage = getStorageAfterConsumption(item, Math.max(0, Number(item.quantity) - confirmedClosing), confirmedClosing);
+          confirmedStorage = getStorageAfterConsumption(item, Math.max(0, Number(item.quantity) - appliedClosing), appliedClosing);
           const storageChanged = inventoryStorageColumns.some((column) => Number(item[column] || 0) !== confirmedStorage[column]);
-          if (Math.abs(Number(item.quantity) - confirmedClosing) > 1e-9 || storageChanged) {
+          const quantityChanged = Math.abs(Number(item.quantity) - appliedClosing) > 1e-9;
+          if (quantityChanged || storageChanged) {
             db.prepare('UPDATE inventory SET quantity = ?, back_freezer_chiller = ?, refrigerator = ?, front_sandwich = ?, front_pizza = ?, front_burger = ? WHERE id = ?')
-              .run(confirmedClosing, confirmedStorage.back_freezer_chiller, confirmedStorage.refrigerator, confirmedStorage.front_sandwich, confirmedStorage.front_pizza, confirmedStorage.front_burger, item.id);
-            updatedInventoryIds.push(item.id);
+              .run(appliedClosing, confirmedStorage.back_freezer_chiller, confirmedStorage.refrigerator, confirmedStorage.front_sandwich, confirmedStorage.front_pizza, confirmedStorage.front_burger, item.id);
+            if (quantityChanged || storageChanged) updatedInventoryIds.push(item.id);
           }
           stockNotifications.push(...recordInventoryStockAlerts(
             item,
-            { ...item, quantity: confirmedClosing },
-            `after the ${shift} shift count was confirmed`,
+            { ...item, quantity: appliedClosing },
+            confirmationStatus === 'confirmed'
+              ? `after the ${shift} shift count was confirmed`
+              : `after the first ${shift} shift count was recorded`,
             now
           ));
+        } else if (closingCounts.length) {
+          updatedRow.closing = Number(item.quantity);
         }
         if (hasCount) {
           const summarizeCount = (count) => count
@@ -520,9 +533,14 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
               to: `${date} ${shift}: ${summarizeCount(currentStaffCount)} (${confirmationStatus})`,
             },
           };
-          if (confirmationStatus === 'confirmed' && Math.abs(Number(item.quantity) - Number(updatedRow.closing)) > 1e-9) {
+          if (shouldApplyClosing && Math.abs(Number(item.quantity) - Number(updatedRow.closing)) > 1e-9) {
             changes.quantity = { from: item.quantity, to: updatedRow.closing };
-            changes.reason = { from: null, to: `${shift} shift count confirmed by multiple staff` };
+            changes.reason = {
+              from: null,
+              to: confirmationStatus === 'confirmed'
+                ? `${shift} shift count confirmed by multiple staff`
+                : `${shift} shift count recorded by first staff member`,
+            };
           }
           if (confirmedStorage && inventoryStorageColumns.some((column) => Number(item[column] || 0) !== confirmedStorage[column])) {
             changes.storage = Object.fromEntries(inventoryStorageColumns.filter((column) => Number(item[column] || 0) !== confirmedStorage[column]).map((column) => [column, { from: item[column] || 0, to: confirmedStorage[column] }]));

@@ -510,7 +510,9 @@ router.put('/:id', authMiddleware, (req, res) => {
   let storage;
   try {
     storage = getStorageValues(req.body, existing);
-    validateStorageTotal(nextQuantity, storage);
+    const stockChanged = nextQuantity !== Number(existing.quantity)
+      || storageFields.some(([, column]) => Number(storage[column]) !== Number(existing[column] || 0));
+    if (stockChanged) validateStorageTotal(nextQuantity, storage);
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }

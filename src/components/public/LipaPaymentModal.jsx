@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Check,
   Copy,
@@ -72,6 +73,13 @@ export default function LipaPaymentModal({
   const [paymentAccounts, setPaymentAccounts] = useState([]);
   const [selectedAccountIndex, setSelectedAccountIndex] = useState(0);
   const [accountsLoading, setAccountsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [isOpen]);
 
   const lipaAccount = paymentAccounts[selectedAccountIndex] || paymentAccounts[0];
   const lipaNumber = lipaAccount?.number || '';
@@ -192,10 +200,10 @@ export default function LipaPaymentModal({
   const isManualReview = liveOrder.paymentStatus === 'manual_review';
   const isFailed = liveOrder.paymentStatus === 'failed';
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto animate-fade-in">
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex min-h-[100dvh] items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto animate-fade-in">
       <div
-        className="bg-[#fffdfa] border border-[#ebdccb] w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto max-h-[92vh] animate-slide-up"
+        className="bg-[#fffdfa] border border-[#ebdccb] w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto max-h-[calc(100dvh-2rem)] animate-slide-up"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -496,6 +504,7 @@ export default function LipaPaymentModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
