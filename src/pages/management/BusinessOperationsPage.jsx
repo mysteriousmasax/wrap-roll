@@ -27,6 +27,29 @@ function Metric({ label, value, detail, icon: Icon, tone = 'green' }) {
   );
 }
 
+function ExpenseActions({ expense, onEdit, onStatusChange, onDelete }) {
+  const actionClass = 'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold whitespace-nowrap';
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      <button type="button" onClick={() => onEdit(expense)} className={`${actionClass} bg-slate-100 text-slate-800`} title="Edit expense">
+        <Pencil size={14} /> Edit
+      </button>
+      {expense.status === 'pending' && <>
+        <button type="button" onClick={() => onStatusChange(expense.id, 'approved')} className={`${actionClass} bg-emerald-50 text-emerald-800`} title="Approve expense">
+          <Check size={14} /> Approve
+        </button>
+        <button type="button" onClick={() => onStatusChange(expense.id, 'rejected')} className={`${actionClass} bg-amber-50 text-amber-900`} title="Reject expense">
+          <X size={14} /> Reject
+        </button>
+      </>}
+      <button type="button" onClick={() => onDelete(expense.id)} className={`${actionClass} bg-red-50 text-red-800`} title="Delete expense">
+        <Trash2 size={14} /> Delete
+      </button>
+    </div>
+  );
+}
+
 export default function BusinessOperationsPage({ embedded = false }) {
   const [overview, setOverview] = useState(null);
   const [inventory, setInventory] = useState([]);
@@ -182,8 +205,27 @@ export default function BusinessOperationsPage({ embedded = false }) {
       <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
           <div className="mb-4 flex min-w-0 flex-wrap items-start justify-between gap-2"><div className="min-w-0"><h2 className="font-display font-bold">Expense control</h2><p className="text-xs text-surface-on-variant">Review bills before they affect the books.</p></div><Badge className="max-w-full whitespace-normal text-center" variant="yellow">{overview.pendingExpenses} pending</Badge></div>
-          <div className="hidden overflow-x-auto sm:block"><table className="w-full min-w-[680px]"><thead><tr className="border-b border-outline-variant text-left text-[10px] uppercase tracking-wider text-surface-on-variant"><th className="p-2">Date</th><th className="p-2">Description</th><th className="p-2">Supplier</th><th className="p-2 text-right">Amount</th><th className="p-2">Status</th><th className="p-2">Action</th></tr></thead><tbody>{expenses.map((expense) => <tr key={expense.id} className="border-b border-outline-variant/40 text-sm"><td className="p-2">{expense.expense_date}</td><td className="p-2 font-semibold">{expense.description}<span className="block text-xs text-surface-on-variant">{expense.category}</span>{expense.has_receipt_image && <span className="mt-1 block text-xs text-surface-on-variant">Receipt photo attached · open Edit to view</span>}</td><td className="p-2 text-surface-on-variant">{expense.supplier || 'Unassigned'}</td><td className="p-2 text-right font-bold">{formatCurrency(expense.amount)}</td><td className="p-2"><Badge variant={expense.status === 'approved' ? 'green' : expense.status === 'rejected' ? 'red' : 'yellow'}>{expense.status}</Badge></td><td className="p-2"><div className="flex gap-1"><button type="button" onClick={() => editExpense(expense)} className="rounded-md bg-slate-50 p-1.5 text-slate-700" title="Edit expense" aria-label="Edit expense"><Pencil size={14} /></button>{expense.status === 'pending' && <><button type="button" onClick={() => setExpenseStatus(expense.id, 'approved')} className="rounded-md bg-emerald-50 p-1.5 text-emerald-700" title="Approve" aria-label="Approve expense"><Check size={14} /></button><button type="button" onClick={() => setExpenseStatus(expense.id, 'rejected')} className="rounded-md bg-red-50 p-1.5 text-red-700" title="Reject" aria-label="Reject expense"><X size={14} /></button></>}<button type="button" onClick={() => deleteExpense(expense.id)} className="rounded-md bg-red-50 p-1.5 text-red-700" title="Delete expense" aria-label="Delete expense"><Trash2 size={14} /></button></div></td></tr>)}</tbody></table></div>
-          <div className="space-y-3 sm:hidden">
+          <div className="hidden overflow-x-auto xl:block">
+            <table className="w-full min-w-[860px]">
+              <thead>
+                <tr className="border-b border-outline-variant text-left text-[10px] uppercase tracking-wider text-surface-on-variant">
+                  <th className="p-2">Date</th><th className="p-2">Description</th><th className="p-2">Supplier</th><th className="p-2 text-right">Amount</th><th className="p-2">Status</th>
+                  <th className="sticky right-0 z-10 min-w-[230px] bg-white p-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {expenses.map((expense) => <tr key={expense.id} className="border-b border-outline-variant/40 text-sm">
+                  <td className="p-2">{expense.expense_date}</td>
+                  <td className="p-2 font-semibold">{expense.description}<span className="block text-xs text-surface-on-variant">{expense.category}</span>{expense.has_receipt_image && <span className="mt-1 block text-xs text-surface-on-variant">Receipt photo attached · open Edit to view</span>}</td>
+                  <td className="p-2 text-surface-on-variant">{expense.supplier || 'Unassigned'}</td>
+                  <td className="p-2 text-right font-bold">{formatCurrency(expense.amount)}</td>
+                  <td className="p-2"><Badge variant={expense.status === 'approved' ? 'green' : expense.status === 'rejected' ? 'red' : 'yellow'}>{expense.status}</Badge></td>
+                  <td className="sticky right-0 z-10 bg-white p-2"><ExpenseActions expense={expense} onEdit={editExpense} onStatusChange={setExpenseStatus} onDelete={deleteExpense} /></td>
+                </tr>)}
+              </tbody>
+            </table>
+          </div>
+          <div className="space-y-3 xl:hidden">
             {expenses.map((expense) => <article key={expense.id} className="min-w-0 rounded-xl border border-outline-variant p-3">
               <div className="flex min-w-0 items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -197,11 +239,8 @@ export default function BusinessOperationsPage({ embedded = false }) {
                 <div><dt className="text-surface-on-variant">Amount</dt><dd className="mt-0.5 break-words font-bold">{formatCurrency(expense.amount)}</dd></div>
               </dl>
               {expense.has_receipt_image && <p className="mt-2 text-xs text-surface-on-variant">Receipt photo attached · open Edit to view</p>}
-              <div className="mt-3 grid grid-cols-2 gap-2 border-t border-outline-variant pt-3">
-                <button type="button" onClick={() => editExpense(expense)} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2 py-2 text-xs font-semibold text-slate-800"><Pencil size={14} /> Edit</button>
-                {expense.status === 'pending' && <button type="button" onClick={() => setExpenseStatus(expense.id, 'approved')} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-emerald-50 px-2 py-2 text-xs font-semibold text-emerald-800"><Check size={14} /> Accept</button>}
-                {expense.status === 'pending' && <button type="button" onClick={() => setExpenseStatus(expense.id, 'rejected')} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-amber-50 px-2 py-2 text-xs font-semibold text-amber-900"><X size={14} /> Reject</button>}
-                <button type="button" onClick={() => deleteExpense(expense.id)} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-red-50 px-2 py-2 text-xs font-semibold text-red-800"><Trash2 size={14} /> Delete</button>
+              <div className="mt-3 border-t border-outline-variant pt-3">
+                <ExpenseActions expense={expense} onEdit={editExpense} onStatusChange={setExpenseStatus} onDelete={deleteExpense} />
               </div>
             </article>)}
           </div>
