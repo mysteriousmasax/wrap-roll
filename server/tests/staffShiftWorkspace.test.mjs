@@ -79,6 +79,10 @@ test('staff workspace clocks shifts, reports assigned POS totals, and permits sc
     addOrder('SHIFT-UNPAID-CASH', 'cash', 99000, createdAt, { paymentStatus: 'pending', paidAt: null });
     addOrder('SHIFT-PAID-INVOICE', 'invoice', 88000);
     addOrder('SHIFT-EVENING-COLLECTED-CASH', 'cash', 3000, createdAt, { receivedByUserId: otherUserId });
+    addOrder('SHIFT-MOBILE-OTHER-RECEIVER', 'lipa_namba', 16000, createdAt, { receivedByUserId: managerUserId });
+    addOrder('SHIFT-CARD', 'tab', 2500, createdAt, { tenderMethod: 'card' });
+    addOrder('SHIFT-BANK-TRANSFER', 'tab', 1500, createdAt, { tenderMethod: 'bank_transfer' });
+    addOrder('SHIFT-OTHER-TENDER', 'tab', 500, createdAt, { tenderMethod: 'other' });
     const taskId = db.prepare(`INSERT INTO staff_tasks (staff_id, title, task_type, status, created_at)
       VALUES (?, 'Prepare shift station', 'kanban', 'open', ?)`).run(staffId, createdAt).lastInsertRowid;
 
@@ -215,11 +219,18 @@ test('staff workspace clocks shifts, reports assigned POS totals, and permits sc
     assert.deepEqual({
       expectedCashTakings: handover.reconciliation.cashSales.expected,
       expectedLipaNamba: handover.reconciliation.mobileMoney.expected,
-    }, { expectedCashTakings: 41000, expectedLipaNamba: 42000 });
+      expectedNfc: handover.reconciliation.nfc.expected,
+      expectedCard: handover.reconciliation.card.expected,
+      expectedBankTransfer: handover.reconciliation.bankTransfer.expected,
+      expectedOther: handover.reconciliation.other.expected,
+    }, { expectedCashTakings: 44000, expectedLipaNamba: 58000, expectedNfc: 0, expectedCard: 2500, expectedBankTransfer: 1500, expectedOther: 88500 });
+    const settledTenderTotal = ['cashSales', 'mobileMoney', 'nfc', 'card', 'bankTransfer', 'other']
+      .reduce((total, channel) => total + handover.reconciliation[channel].expected, 0);
+    assert.equal(settledTenderTotal, 194500, 'all settled tender methods contribute to the shift expected total');
     assert.equal(handover.reconciliation.cashSales.expectedSource, 'transactions');
     const eveningHandoverResponse = await fetch(`${base}/business/shift-handover?date=${businessDate}&shift=evening`, { headers: staffHeaders });
     assert.equal(eveningHandoverResponse.status, 200);
-    assert.equal((await eveningHandoverResponse.json()).reconciliation.cashSales.expected, 3000, 'cash tenders follow the staff member who received payment, not the order creator');
+    assert.equal((await eveningHandoverResponse.json()).reconciliation.cashSales.expected, 0, 'sales stay with the order staff when another shift member confirms payment');
 
     const alteredRosterResponse = await fetch(`${base}/business/shift-handover`, {
       method: 'PUT', headers: staffHeaders,
@@ -247,7 +258,7 @@ test('staff workspace clocks shifts, reports assigned POS totals, and permits sc
     assert.equal(saveHandoverResponse.status, 200);
     const refreshedHandover = await fetch(`${base}/business/shift-handover?date=${businessDate}&shift=morning`, { headers: staffHeaders });
     const refreshedReconciliation = (await refreshedHandover.json()).reconciliation;
-    assert.equal(refreshedReconciliation.cashSales.expected, 41000, 'expected totals remain derived from settled transactions');
+    assert.equal(refreshedReconciliation.cashSales.expected, 44000, 'expected totals remain derived from settled transactions');
     assert.equal(refreshedReconciliation.cashSales.expectedSource, 'transactions');
     assert.equal(refreshedReconciliation.cashSales.actual, '41000', 'the submitting staff member can see their own saved count');
     assert.equal(refreshedReconciliation.cashSales.countStatus, 'awaiting-second-staff');

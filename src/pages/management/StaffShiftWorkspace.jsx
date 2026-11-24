@@ -321,7 +321,15 @@ export default function StaffShiftWorkspace() {
   const checklistTasks = visiblePhases.flatMap((phase) => phase.tasks);
   const completedTasks = checklistTasks.filter((task) => task.completed).length;
   const reconciliationRows = Object.entries(handover?.reconciliation || {});
-  const paymentChannelLabels = { cashFloat: 'Cash float', cashSales: 'Cash takings', mobileMoney: 'Lipa Namba', nfc: 'NFC' };
+  const paymentChannelLabels = {
+    cashFloat: 'Cash float',
+    cashSales: 'Cash takings',
+    mobileMoney: 'Lipa Namba',
+    nfc: 'NFC',
+    card: 'Card',
+    bankTransfer: 'Bank transfer',
+    other: 'Other',
+  };
   const shortfalls = reconciliationRows.filter(([key, row]) => key !== 'cashFloat' && row.actual !== '' && Number(row.actual) < Number(row.expected || 0));
   const inventoryCounts = handover?.inventoryCounts || [];
   const inventoryDiscrepancies = inventoryCounts.filter((row) => row.confirmationStatus === 'mismatch'
@@ -329,7 +337,7 @@ export default function StaffShiftWorkspace() {
   const availableInventoryItems = inventoryItems.filter((item) => !inventoryCounts.some((row) => (
     Number(row.inventoryId) === Number(item.id) || inventoryName(row) === inventoryName(item)
   )));
-  const paymentSummaries = ['cashSales', 'mobileMoney', 'nfc'].map((key) => {
+  const paymentSummaries = ['cashSales', 'mobileMoney', 'nfc', 'card', 'bankTransfer', 'other'].map((key) => {
     const row = handover?.reconciliation?.[key] || {};
     const expected = Number(row.expected) || 0;
     const actual = row.actual === '' || row.actual == null ? null : Number(row.actual) || 0;
@@ -396,7 +404,7 @@ export default function StaffShiftWorkspace() {
 
       <form onSubmit={saveHandover} className="space-y-4">
         <Card className="min-w-0 p-4 sm:p-5">
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-primary">Till close · TZS</p><h2 className="mt-1 font-display font-bold">Payment reconciliation</h2><p className="mt-1 text-xs text-surface-on-variant">Expected cash and Lipa Namba totals load automatically from settled POS payments for this shift, including split table-tab payments. Enter only the cash physically counted and the Lipa Namba statement total; cash float is separate.</p></div><CircleDollarSign size={20} className="text-primary" /></div>
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-primary">Till close · TZS</p><h2 className="mt-1 font-display font-bold">Payment reconciliation</h2><p className="mt-1 text-xs text-surface-on-variant">Expected tender totals load from settled POS payments assigned to this shift's selling staff, including split table-tab payments. Enter the actual cash, mobile-money, NFC, card, bank-transfer, and other amounts counted or confirmed; cash float is separate.</p></div><CircleDollarSign size={20} className="text-primary" /></div>
           {shortfalls.length > 0 && <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900"><ShieldAlert size={15} className="mt-0.5 shrink-0" /><span>{shortfalls.map(([key]) => paymentChannelLabels[key] || key.replace(/([A-Z])/g, ' $1')).join(', ')} is below the expected POS total. Recount the till and add a handover note.</span></div>}
           <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{paymentSummaries.map(({ key, label, expected, actual }) => {
             const variance = actual === null ? null : actual - expected;

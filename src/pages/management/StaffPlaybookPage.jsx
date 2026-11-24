@@ -8,6 +8,16 @@ import { formatCurrency } from '../../utils/format';
 import useAuthStore from '../../store/useAuthStore';
 import StaffShiftWorkspace from './StaffShiftWorkspace';
 
+const paymentChannelLabels = {
+  cashFloat: 'Cash float',
+  cashSales: 'Cash takings',
+  mobileMoney: 'Lipa Namba',
+  nfc: 'NFC',
+  card: 'Card',
+  bankTransfer: 'Bank transfer',
+  other: 'Other',
+};
+
 function summarizeStockRows(rows = []) {
   const normalized = (Array.isArray(rows) ? rows : []).map((row) => ({
     item: String(row?.item || 'New stock item').trim() || 'New stock item',
@@ -580,7 +590,7 @@ export default function StaffPlaybookPage() {
 
               <Card className="min-w-0 p-4 sm:p-5">
                 <h2 className="mb-3 font-display font-bold">Payment reconciliation · TZS</h2>
-                <p className="mb-3 text-xs text-surface-on-variant">Expected cash and Lipa Namba sales load automatically from settled POS payments recorded against this shift, including split table-tab payments. Enter the cash physically counted and the Lipa Namba statement total. Two staff members count independently; each count stays hidden until both are submitted, and mismatches are logged without blocking the next shift.</p>
+                <p className="mb-3 text-xs text-surface-on-variant">Expected tender totals load automatically from settled POS payments assigned to this shift's selling staff, including split table-tab payments. Enter the actual cash, Lipa Namba, NFC, card, bank-transfer, and other amounts counted or confirmed. Two staff members count independently; each count stays hidden until both are submitted, and mismatches are logged without blocking the next shift.</p>
                 {Object.entries(handover.reconciliation || {}).some(([key, row]) => key !== 'cashFloat' && row.actual !== '' && Number(row.actual) < Number(row.expected || 0)) && (
                   <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
                     <ShieldAlert size={15} className="mt-0.5 shrink-0" />
@@ -605,7 +615,7 @@ export default function StaffPlaybookPage() {
                         const actual = Number(row.actual) || 0;
                         return (
                           <tr key={key} className="border-b border-outline-variant/50">
-                            <td className="py-2 font-semibold capitalize">{key.replace(/([A-Z])/g, ' $1')}</td>
+                            <td className="py-2 font-semibold">{paymentChannelLabels[key] || key.replace(/([A-Z])/g, ' $1')}</td>
                             <td className="py-2">{key === 'cashFloat'
                               ? <input aria-label={`Expected cash float for ${key}`} type="number" min="0" step="1" value={row.expected ?? ''} onChange={(event) => updateReconciliation(key, 'expected', event.target.value)} className="input-field w-36" />
                               : <span aria-label={`Auto-calculated expected sales for ${key}`} className="font-semibold">{formatCurrency(expected)}</span>}</td>

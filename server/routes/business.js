@@ -52,7 +52,7 @@ const operationalChecklists = [
 ];
 
 const checklistSettingsKey = 'operational_checklists';
-const paymentCountChannels = ['cashFloat', 'cashSales', 'mobileMoney', 'nfc'];
+const paymentCountChannels = ['cashFloat', 'cashSales', 'mobileMoney', 'nfc', 'card', 'bankTransfer', 'other'];
 const shiftStorageCountColumns = [...inventoryStorageColumns, 'unassigned'];
 
 function getOperationalChecklists() {
@@ -162,7 +162,7 @@ function getShiftTransactionTotals(date, shift) {
   const shiftName = shift === 'evening' ? '%evening%' : '%morning%';
   const staffUsers = db.prepare(`SELECT user_id FROM staff
     WHERE user_id IS NOT NULL AND status != 'removed' AND lower(shift) LIKE ?`).all(shiftName).map((row) => row.user_id);
-  const totals = { cashSales: 0, mobileMoney: 0, nfc: 0 };
+  const totals = { cashSales: 0, mobileMoney: 0, nfc: 0, card: 0, bankTransfer: 0, other: 0 };
   if (!staffUsers.length) return totals;
   const placeholders = staffUsers.map(() => '?').join(',');
   const tenderRows = db.prepare(`SELECT lower(p.payment_method) AS method, SUM(p.amount) AS amount
@@ -170,7 +170,7 @@ function getShiftTransactionTotals(date, shift) {
     JOIN orders o ON o.id = p.order_id
     WHERE COALESCE(p.paid_at, p.created_at) >= ? AND COALESCE(p.paid_at, p.created_at) < ?
       AND p.status IN ('paid', 'completed') AND o.status != 'cancelled'
-      AND COALESCE(p.received_by_user_id, o.staff_id) IN (${placeholders})
+      AND COALESCE(o.staff_id, p.received_by_user_id) IN (${placeholders})
     GROUP BY lower(p.payment_method)
     UNION ALL
     SELECT lower(o.payment_method) AS method, SUM(o.total) AS amount
@@ -189,8 +189,12 @@ function getShiftTransactionTotals(date, shift) {
         ? 'nfc'
         : /^(lipa_namba(?:_\d+)?|mobile|mobile_money|mpesa|m-pesa|mixx|tigopesa|airtel_money|halopesa)$/.test(method)
           ? 'mobileMoney'
-          : null;
-    if (key) totals[key] += Number(row.amount || 0);
+          : method === 'card'
+            ? 'card'
+            : /^(bank|bank_transfer|banktransfer)$/.test(method)
+              ? 'bankTransfer'
+              : 'other';
+    totals[key] += Number(row.amount || 0);
   }
   return totals;
 }
