@@ -463,7 +463,13 @@ router.post('/', authMiddleware, (req, res) => {
   if (!normalizedUnit || !normalizedPurchaseUnit || !Number.isFinite(purchaseFactor) || purchaseFactor <= 0 || !Number.isFinite(packCost) || packCost < 0) {
     return res.status(400).json({ error: 'Choose a base unit, purchase unit, positive pack conversion, and non-negative pack cost.' });
   }
-  const baseUnitCost = packCost > 0 ? packCost / purchaseFactor : Number(unitCost || 0);
+  const enteredUnitCost = unitCost == null || unitCost === '' ? null : Number(unitCost);
+  if (enteredUnitCost !== null && (!Number.isFinite(enteredUnitCost) || enteredUnitCost < 0)) {
+    return res.status(400).json({ error: 'Unit cost must be a non-negative number.' });
+  }
+  const baseUnitCost = enteredUnitCost !== null && (enteredUnitCost > 0 || packCost === 0)
+    ? enteredUnitCost
+    : packCost > 0 ? packCost / purchaseFactor : 0;
   if (!Number.isFinite(baseUnitCost) || baseUnitCost < 0) return res.status(400).json({ error: 'Unit cost must be a non-negative number.' });
   const existing = db.prepare('SELECT * FROM inventory WHERE lower(trim(name)) = lower(?) AND lower(trim(unit)) = lower(?) ORDER BY id LIMIT 1').get(normalizedName, normalizedUnit);
   let item;
@@ -507,7 +513,7 @@ router.post('/', authMiddleware, (req, res) => {
     validateStorageTotal(baseQuantity, storage);
     const result = db.prepare(
       'INSERT INTO inventory (name, quantity, unit, threshold, supplier, last_restocked, image_url, category, sku, unit_cost, expiry_date, storage_location, delivery_date, back_freezer_chiller, refrigerator, front_sandwich, front_pizza, front_burger, purchase_unit, purchase_unit_factor, purchase_unit_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(normalizedName, baseQuantity, normalizedUnit, threshold ?? 10, supplier || '', today, imageUrl || '', category || 'ingredients', sku || `INV-${Date.now().toString().slice(-6)}`, baseUnitCost, expiryDate || '', storageLocation || 'Main store', deliveryDate || '', storage.back_freezer_chiller, storage.refrigerator, storage.front_sandwich, storage.front_pizza, storage.front_burger, normalizedPurchaseUnit, purchaseFactor, purchaseFactor * baseUnitCost);
+    ).run(normalizedName, baseQuantity, normalizedUnit, threshold ?? 10, supplier || '', today, imageUrl || '', category || 'ingredients', sku || `INV-${Date.now().toString().slice(-6)}`, baseUnitCost, expiryDate || '', storageLocation || 'Main store', deliveryDate || '', storage.back_freezer_chiller, storage.refrigerator, storage.front_sandwich, storage.front_pizza, storage.front_burger, normalizedPurchaseUnit, purchaseFactor, packCost || baseUnitCost * purchaseFactor);
     item = mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(result.lastInsertRowid));
     if (baseQuantity > 0) recordInventoryMovement(db, {
       inventoryId: item.id, itemName: item.name, movementType: 'opening_stock',
@@ -548,7 +554,7 @@ router.put('/:id', authMiddleware, (req, res) => {
   ensureInventoryColumn('purchase_unit_cost', 'REAL DEFAULT 0');
   const existing = db.prepare('SELECT * FROM inventory WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Item not found' });
-  const { name, quantity, unit, threshold, supplier, lastRestocked, imageUrl, category, sku, purchaseUnit, purchaseUnitFactor, expiryDate, storageLocation, deliveryDate } = req.body;
+  const { name, quantity, unit, threshold, supplier, lastRestocked, imageUrl, category, sku, purchaseUnit, purchaseUnitFactor, purchaseUnitCost, unitCost, expiryDate, storageLocation, deliveryDate } = req.body;
   const nextUnit = String(unit ?? existing.unit ?? 'pcs').trim();
   const unitChanged = nextUnit.toLowerCase() !== String(existing.unit || '').toLowerCase();
   let baseUnitConversion = unitChanged ? getStockUnitConversionFactor(existing.unit, nextUnit) : 1;
@@ -565,13 +571,11 @@ router.put('/:id', authMiddleware, (req, res) => {
   const nextPurchaseFactor = reinterpretUnit
     ? 1
     : Number(purchaseUnitFactor ?? (Number(existing.purchase_unit_factor || 1) * baseUnitConversion));
-  const nextPackCost = reinterpretUnit
-    ? Number(existing.unit_cost || 0)
-    : Number(existing.purchase_unit_cost || 0);
+  const nextPackCost = Number(purchaseUnitCost ?? (reinterpretUnit ? existing.unit_cost : existing.purchase_unit_cost) ?? 0);
   if (!Number.isFinite(nextPurchaseFactor) || nextPurchaseFactor <= 0 || !Number.isFinite(nextPackCost) || nextPackCost < 0) {
     return res.status(400).json({ error: 'Purchase-unit conversion must be positive and purchase cost cannot be negative.' });
   }
-  const nextUnitCost = Number(existing.unit_cost || 0) / baseUnitConversion;
+  const nextUnitCost = Number(unitCost ?? Number(existing.unit_cost || 0) / baseUnitConversion);
   if (!Number.isFinite(nextUnitCost) || nextUnitCost < 0) return res.status(400).json({ error: 'Unit cost must be a non-negative number.' });
   let storage;
   try {

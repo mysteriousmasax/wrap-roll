@@ -107,7 +107,7 @@ export default function InventoryPage({ embedded = false }) {
   });
 
   const openAdd = () => { setEditingItem(null); setForm(emptyForm); setShowModal(true); };
-  const openEdit = (item) => { setEditingItem(item); setForm({ ...emptyForm, ...item, quantity: String(item.quantity), threshold: String(item.threshold), unitCost: String(item.unitCost || ''), purchaseUnit: item.purchaseUnit || item.unit, purchaseUnitFactor: String(item.purchaseUnitFactor || 1), purchaseUnitCost: String(item.purchaseUnitCost || 0), backFreezerChiller: String(item.backFreezerChiller || 0), refrigerator: String(item.refrigerator || 0), frontSandwich: String(item.frontSandwich || 0), frontPizza: String(item.frontPizza || 0), frontBurger: String(item.frontBurger || 0) }); setShowModal(true); };
+  const openEdit = (item) => { setEditingItem(item); setForm({ ...emptyForm, ...item, quantity: String(item.quantity), threshold: String(item.threshold), unitCost: String(item.unitCost ?? ''), purchaseUnit: item.purchaseUnit || item.unit, purchaseUnitFactor: String(item.purchaseUnitFactor || 1), purchaseUnitCost: String(item.purchaseUnitCost || 0), backFreezerChiller: String(item.backFreezerChiller || 0), refrigerator: String(item.refrigerator || 0), frontSandwich: String(item.frontSandwich || 0), frontPizza: String(item.frontPizza || 0), frontBurger: String(item.frontBurger || 0) }); setShowModal(true); };
   const changeBaseUnit = (nextUnit) => {
     if (!editingItem) {
       setForm((current) => ({ ...current, unit: nextUnit, purchaseUnit: current.purchaseUnit === current.unit ? nextUnit : current.purchaseUnit }));
@@ -180,7 +180,7 @@ export default function InventoryPage({ embedded = false }) {
         reinterpretUnit: Boolean(form.reinterpretUnit && form.confirmUnitReinterpretation),
         quantity: Number(form.quantity),
         threshold: Number(form.threshold),
-        unitCost: Number(form.unitCost) || 0,
+        unitCost: form.unitCost === '' ? null : Number(form.unitCost),
         purchaseUnitFactor: Number(form.purchaseUnitFactor) || 1,
         purchaseUnitCost: Number(form.purchaseUnitCost) || 0,
         backFreezerChiller: Number(form.backFreezerChiller) || 0,
@@ -379,22 +379,21 @@ export default function InventoryPage({ embedded = false }) {
           </div>}
           <div className="rounded-xl border border-outline-variant bg-surface-container-low p-3">
             <p className="text-xs font-bold uppercase tracking-wide text-surface-on">Purchase pack and cost</p>
-            <p className="mt-1 text-[11px] text-surface-on-variant">Stock is tracked in the base unit; set how much one purchased pack adds. Example: one 1 kg bag = 1,000 g. For existing stock, record each delivery through receipt intake to update the moving average and keep supplier price history.</p>
+            <p className="mt-1 text-[11px] text-surface-on-variant">Stock value uses on-hand quantity × moving-average cost per base unit. Edit the latest pack cost and moving-average cost independently; receipt intake also recalculates the moving average from received stock.</p>
             <div className="mt-3 grid grid-cols-2 gap-3">
               <Input label="Purchase unit (bag, case, bottle)" value={form.purchaseUnit} onChange={(e) => setForm({ ...form, purchaseUnit: e.target.value })} />
               <Input label={`Base ${form.unit} per purchase unit`} type="number" min="0.000001" step="any" value={form.purchaseUnitFactor} onChange={(e) => setForm({ ...form, purchaseUnitFactor: e.target.value })} />
-              <Input label="Latest purchase pack cost (TZS)" type="number" min="0" step="any" disabled={Boolean(editingItem)} value={form.purchaseUnitCost} onChange={(e) => setForm({ ...form, purchaseUnitCost: e.target.value })} />
+              <Input label="Latest purchase pack cost (TZS)" type="number" min="0" step="any" value={form.purchaseUnitCost} onChange={(e) => setForm({ ...form, purchaseUnitCost: e.target.value })} />
               <Input
                 label={`${editingItem ? 'Current moving-average' : 'Initial'} cost per ${form.unit} (TZS)`}
                 type="number"
                 min="0"
                 step="any"
-                disabled={Boolean(editingItem) || (Number(form.purchaseUnitCost) > 0 && Number(form.purchaseUnitFactor) > 0)}
-                value={editingItem
+                value={form.unitCost !== ''
                   ? form.unitCost
                   : Number(form.purchaseUnitCost) > 0 && Number(form.purchaseUnitFactor) > 0
                     ? String(Number(form.purchaseUnitCost) / Number(form.purchaseUnitFactor))
-                    : form.unitCost}
+                    : ''}
                 onChange={(e) => setForm({ ...form, unitCost: e.target.value })}
               />
             </div>

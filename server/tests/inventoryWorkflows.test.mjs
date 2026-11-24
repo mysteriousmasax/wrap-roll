@@ -349,6 +349,24 @@ test('handover counts alert on stock variance, apply only verified counts, and t
     assert.equal(coffeeCreated.status, 201);
     const coffee = await coffeeCreated.json();
     assert.equal(coffee.unitCost, 12);
+    const manuallyPricedResponse = await fetch(`${base}/inventory`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        name: 'Test Independent Cost Item',
+        quantity: 2,
+        unit: 'pcs',
+        unitCost: 4200,
+        purchaseUnit: 'box',
+        purchaseUnitFactor: 6,
+        purchaseUnitCost: 45000,
+      }),
+    });
+    assert.equal(manuallyPricedResponse.status, 201);
+    const manuallyPricedItem = await manuallyPricedResponse.json();
+    assert.equal(manuallyPricedItem.unitCost, 4200);
+    assert.equal(manuallyPricedItem.purchaseUnitCost, 45000);
+    assert.equal(manuallyPricedItem.quantity * manuallyPricedItem.unitCost, 8400);
     const coffeeReceipt = await fetch(`${base}/inventory/receive-receipt`, {
       method: 'POST',
       headers,
@@ -501,14 +519,24 @@ test('handover counts alert on stock variance, apply only verified counts, and t
         unit: 'pcs',
         purchaseUnit: 'pcs',
         purchaseUnitFactor: 1,
-        purchaseUnitCost: 4200,
+        purchaseUnitCost: 4500,
         unitCost: 4200,
       }),
     });
     assert.equal(editVariableCostItem.status, 200);
     const editedVariableCostItem = await editVariableCostItem.json();
-    assert.equal(editedVariableCostItem.unitCost, 4350);
-    assert.equal(editedVariableCostItem.purchaseUnitCost, 4200);
+    assert.equal(editedVariableCostItem.unitCost, 4200);
+    assert.equal(editedVariableCostItem.purchaseUnitCost, 4500);
+    assert.equal(db.prepare('SELECT quantity * unit_cost AS stock_value FROM inventory WHERE id = ?').get(variableCostItemId).stock_value, 84000);
+
+    const invalidCostEdit = await fetch(`${base}/inventory/${variableCostItemId}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ unit: 'pcs', unitCost: -1, purchaseUnitCost: 4500 }),
+    });
+    assert.equal(invalidCostEdit.status, 400);
+    const unchangedCostItem = db.prepare('SELECT unit_cost, purchase_unit_cost FROM inventory WHERE id = ?').get(variableCostItemId);
+    assert.deepEqual(unchangedCostItem, { unit_cost: 4200, purchase_unit_cost: 4500 });
   } finally {
     if (server) await new Promise((resolve) => server.close(resolve));
     db?.close();
