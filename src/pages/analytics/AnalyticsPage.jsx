@@ -43,6 +43,26 @@ import {
 
 const BRAND_COLORS = ['#ae002a', '#e6ac29', '#227653', '#d97706', '#8b5cf6', '#0284c7'];
 
+function formatAnalyticsPayment(methods, fallbackMethod, paymentStatus) {
+  const labels = {
+    cash: 'Cash',
+    lipa_namba: 'Mobile money',
+    mobile_money: 'Mobile money',
+    mpesa: 'Mobile money',
+    'm-pesa': 'Mobile money',
+    card: 'Card',
+    bank_transfer: 'Bank transfer',
+    other: 'Other',
+  };
+  const recordedMethods = [...new Set((methods || [])
+    .map((method) => String(method || '').trim().toLowerCase())
+    .filter((method) => method && method !== 'tab'))];
+  if (recordedMethods.length) return recordedMethods.map((method) => labels[method] || method.replaceAll('_', ' ')).join(' + ');
+  const fallback = String(fallbackMethod || '').trim().toLowerCase();
+  if (fallback && fallback !== 'tab') return labels[fallback] || fallback.replaceAll('_', ' ');
+  return ['paid', 'completed', 'partially_paid'].includes(String(paymentStatus || '').toLowerCase()) ? 'Payment recorded' : 'Unpaid';
+}
+
 const CustomTooltip = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
     return (
@@ -160,7 +180,7 @@ export default function AnalyticsPage() {
         api.getSales(),
         api.getCategorySales(),
         api.getAnalyticsSummary(selectedDate),
-        api.getOrders(),
+        api.getAnalyticsRecentOrders(),
       ]);
       const errors = [];
       const labels = ['Sales trend', 'Category sales', 'Analytics summary', 'Recent orders'];
@@ -179,7 +199,7 @@ export default function AnalyticsPage() {
         setSalesSummaryRows((operational.dailySales || []).map((row, index) => ({ ...row, id: row.id || index + 1, quantity: String(row.quantity || ''), openingStock: String(row.openingStock || ''), closingStock: String(row.closingStock || ''), price: String(row.price || '') })));
       }
       if (ordersResult.status === 'fulfilled') {
-        setRecentOrders((ordersResult.value || []).filter((order) => order.status === 'completed' && ['paid', 'completed'].includes(order.paymentStatus)).slice(0, 5));
+        setRecentOrders(ordersResult.value || []);
       }
       setAnalyticsError(errors.join(' '));
       if (results.some((result) => result.status === 'fulfilled')) setLastUpdated(new Date());
@@ -608,14 +628,14 @@ export default function AnalyticsPage() {
                 <div>
                   <p className="text-xs font-bold text-[#1f1d1b]">{tx.customerName || 'Walk-in Guest'}</p>
                   <p className="text-[10px] text-[#746e67]">
-                    {tx.items?.slice(0, 3).map((i) => `${i.qty}x ${i.name}`).join(', ')}
+                    {[tx.type === 'dine-in' ? 'Dine-in' : '', tx.items?.slice(0, 3).map((i) => `${i.qty}x ${i.name}`).join(', ')].filter(Boolean).join(' · ')}
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-3">
                 <span className="text-[10px] px-2.5 py-1 rounded-full bg-white border border-[#ebdccb] font-bold capitalize text-[#554e46]">
-                  {tx.paymentMethod || 'cash'}
+                  {formatAnalyticsPayment(tx.paymentMethods, tx.paymentMethod, tx.paymentStatus)}
                 </span>
                 <span className="font-display font-bold text-sm text-[#ae002a]">
                   {formatCurrency(tx.total)}

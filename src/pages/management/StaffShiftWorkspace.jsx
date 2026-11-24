@@ -25,6 +25,15 @@ const phasesByShift = {
 };
 
 const inventoryName = (item) => String(item?.name || '').trim().toLowerCase();
+const shiftStorageLocations = [
+  { column: 'back_freezer_chiller', label: 'Back / freezer / chiller' },
+  { column: 'refrigerator', label: 'Refrigerator' },
+  { column: 'front_sandwich', label: 'Front sandwich' },
+  { column: 'front_pizza', label: 'Front pizza' },
+  { column: 'front_burger', label: 'Front burger' },
+  { column: 'unassigned', label: 'Unassigned' },
+];
+const emptyStorageCounts = () => Object.fromEntries(shiftStorageLocations.map(({ column }) => [column, '']));
 const normalizeShift = (value, fallback = 'morning') => {
   const normalized = String(value || '').trim().toLowerCase();
   return normalized.includes('evening') ? 'evening' : normalized.includes('morning') ? 'morning' : fallback;
@@ -41,9 +50,13 @@ function withInventoryLinks(handover, items, date, shift) {
         ...row,
         inventoryId: row.inventoryId || match?.id || '',
         unit: match?.unit || row.unit || 'units',
+        expectedQuantity: row.expectedQuantity ?? match?.quantity ?? null,
         opening: ownCount ? String(ownCount.opening ?? '') : '',
         added: ownCount ? String(ownCount.added ?? '') : '',
         closing: ownCount ? String(ownCount.closing ?? '') : '',
+        storageCounts: ownCount?.storageCounts
+          ? Object.fromEntries(shiftStorageLocations.map(({ column }) => [column, String(ownCount.storageCounts[column] ?? '')]))
+          : emptyStorageCounts(),
         status: ownCount?.status || row.status || 'ok',
         clientKey: `${date}-${shift}-${index}`,
       };
@@ -200,6 +213,22 @@ export default function StaffShiftWorkspace() {
     inventoryCounts: current.inventoryCounts.map((row, rowIndex) => rowIndex === index ? { ...row, [field]: value } : row),
   }));
 
+  const updateInventoryStorageCount = (index, column, value) => setHandover((current) => ({
+    ...current,
+    inventoryCounts: current.inventoryCounts.map((row, rowIndex) => {
+      if (rowIndex !== index) return row;
+      const storageCounts = { ...emptyStorageCounts(), ...(row.storageCounts || {}), [column]: value };
+      const hasAllLocations = shiftStorageLocations.every(({ column: location }) => storageCounts[location] !== '');
+      return {
+        ...row,
+        storageCounts,
+        ...(hasAllLocations
+          ? { closing: String(shiftStorageLocations.reduce((sum, { column: location }) => sum + Number(storageCounts[location]), 0)) }
+          : {}),
+      };
+    }),
+  }));
+
   const addInventoryCount = () => {
     const item = inventoryItems.find((entry) => String(entry.id) === selectedInventoryId);
     if (!item) return;
@@ -214,6 +243,7 @@ export default function StaffShiftWorkspace() {
           opening: '',
           added: '',
           closing: '',
+          storageCounts: emptyStorageCounts(),
           status: 'ok',
           staffCounts: [],
           clientKey: `${date}-${shift}-${item.id}`,
@@ -269,10 +299,12 @@ export default function StaffShiftWorkspace() {
       setHandover(withInventoryLinks(saved, inventoryItems, date, shift));
       const pending = saved.inventoryCounts.filter((row) => row.confirmationStatus === 'pending-confirmation').length;
       const mismatched = saved.inventoryCounts.filter((row) => row.confirmationStatus === 'mismatch').length;
+      const variances = saved.inventoryCounts.filter((row) => row.variance != null && Math.abs(Number(row.variance)) >= 1e-9).length;
       setMessage([
         `Payment reconciliation and stock count saved. Inventory was updated for ${saved.updatedInventoryItems || 0} item(s).`,
-        pending ? `${pending} item(s) need a second staff member to verify the count; the first count is already reflected in inventory.` : '',
-        mismatched ? `${mismatched} item(s) have mismatched counts; recount together. Inventory remains at the first staff count until they agree.` : '',
+        pending ? `${pending} item(s) are waiting for an independent second staff count; system stock is unchanged until both counts agree.` : '',
+        variances ? `${variances} item(s) differ from expected system stock. Staff and managers were notified; recount and investigate before confirming.` : '',
+        mismatched ? `${mismatched} item(s) have conflicting staff counts; system stock remains unchanged.` : '',
       ].filter(Boolean).join(' '));
     } catch (requestError) {
       setError(requestError.message || 'Unable to save shift reconciliation.');
@@ -292,7 +324,8 @@ export default function StaffShiftWorkspace() {
   const paymentChannelLabels = { cashFloat: 'Cash float', cashSales: 'Cash takings', mobileMoney: 'Lipa Namba', nfc: 'NFC' };
   const shortfalls = reconciliationRows.filter(([key, row]) => key !== 'cashFloat' && row.actual !== '' && Number(row.actual) < Number(row.expected || 0));
   const inventoryCounts = handover?.inventoryCounts || [];
-  const inventoryDiscrepancies = inventoryCounts.filter((row) => row.confirmationStatus === 'mismatch');
+  const inventoryDiscrepancies = inventoryCounts.filter((row) => row.confirmationStatus === 'mismatch'
+    || (row.variance != null && Math.abs(Number(row.variance)) >= 1e-9));
   const availableInventoryItems = inventoryItems.filter((item) => !inventoryCounts.some((row) => (
     Number(row.inventoryId) === Number(item.id) || inventoryName(row) === inventoryName(item)
   )));
@@ -363,7 +396,7 @@ export default function StaffShiftWorkspace() {
 
       <form onSubmit={saveHandover} className="space-y-4">
         <Card className="min-w-0 p-4 sm:p-5">
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-primary">Till close · TZS</p><h2 className="mt-1 font-display font-bold">Payment reconciliation</h2><p className="mt-1 text-xs text-surface-on-variant">Expected cash and Lipa Namba totals load automatically from settled POS payments for this shift, including split table-tab payments. Enter the cash physically counted and the Lipa Namba statement total; cash float is separate.</p></div><CircleDollarSign size={20} className="text-primary" /></div>
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-primary">Till close · TZS</p><h2 className="mt-1 font-display font-bold">Payment reconciliation</h2><p className="mt-1 text-xs text-surface-on-variant">Expected cash and Lipa Namba totals load automatically from settled POS payments for this shift, including split table-tab payments. Enter only the cash physically counted and the Lipa Namba statement total; cash float is separate.</p></div><CircleDollarSign size={20} className="text-primary" /></div>
           {shortfalls.length > 0 && <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900"><ShieldAlert size={15} className="mt-0.5 shrink-0" /><span>{shortfalls.map(([key]) => paymentChannelLabels[key] || key.replace(/([A-Z])/g, ' $1')).join(', ')} is below the expected POS total. Recount the till and add a handover note.</span></div>}
           <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{paymentSummaries.map(({ key, label, expected, actual }) => {
             const variance = actual === null ? null : actual - expected;
@@ -382,7 +415,7 @@ export default function StaffShiftWorkspace() {
         </Card>
 
         <Card className="min-w-0 p-4 sm:p-5">
-          <div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-primary">Inventory close</p><h2 className="mt-1 font-display font-bold">Stock count</h2><p className="mt-1 text-xs text-surface-on-variant">Choose items from live inventory. The first closing count updates live stock immediately; a second staff count verifies it and mismatches are flagged.</p></div><PackageCheck size={20} className="text-primary" /></div>
+          <div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-primary">Inventory close</p><h2 className="mt-1 font-display font-bold">Stock count</h2><p className="mt-1 text-xs text-surface-on-variant">Compare the physical count with system stock. A second staff member must independently confirm it before any count changes inventory.</p></div><PackageCheck size={20} className="text-primary" /></div>
           <div className="mb-3 flex flex-col gap-2 sm:flex-row">
             <label className="sr-only" htmlFor="shift-inventory-item">Add inventory item</label>
             <select id="shift-inventory-item" value={selectedInventoryId} onChange={(event) => setSelectedInventoryId(event.target.value)} className="input-field min-w-0 flex-1">
@@ -394,12 +427,12 @@ export default function StaffShiftWorkspace() {
               <Button type="button" variant="secondary" disabled={!selectedInventoryId} onClick={addInventoryCount}><PackageCheck size={14} />Add to count</Button>
             </div>
           </div>
-          {inventoryDiscrepancies.length > 0 && <div role="alert" className="mb-3 rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-xs font-semibold text-error">
-            <div className="flex items-center gap-2"><AlertTriangle size={15} />Count mismatch. Recount these items together; live inventory has not been changed.</div>
-            {inventoryDiscrepancies.map((row) => <p key={row.inventoryId || row.item} className="mt-1">{row.item}: {row.staffCounts.filter((count) => count.closing !== '' && count.closing != null).map((count) => `${count.staffName}: ${count.closing} ${row.unit}`).join(' · ')}</p>)}
+          {inventoryDiscrepancies.length > 0 && <div role="alert" className="mb-3 rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950">
+            <div className="flex items-center gap-2"><AlertTriangle size={15} />Stock discrepancy detected. Check recent sales, deliveries, wastage, and physical stock. System quantity stays unchanged until two staff counts agree.</div>
+            {inventoryDiscrepancies.map((row) => <p key={row.inventoryId || row.item} className="mt-1">{row.item}: expected {row.expectedQuantity ?? '—'} {row.unit}; {row.staffCounts.filter((count) => count.closing !== '' && count.closing != null).map((count) => `${count.staffName}: ${count.closing} ${row.unit}`).join(' · ')}{row.variance != null ? ` · variance ${Number(row.variance) > 0 ? '+' : ''}${row.variance} ${row.unit}` : ''}{row.confirmationStatus === 'mismatch' ? ' · counts disagree' : row.confirmationStatus === 'confirmed-variance' ? ' · verified and reconciled' : ' · awaiting independent verification'}</p>)}
           </div>}
-          <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-xs"><thead><tr className="border-b border-outline-variant text-surface-on-variant"><th className="py-2">Item</th><th className="py-2">Unit</th><th className="py-2">Opening</th><th className="py-2">Added prep</th><th className="py-2">Closing</th><th className="py-2">Status</th><th className="py-2">Staff confirmation</th></tr></thead><tbody>{inventoryCounts.map((row, index) => <tr key={row.clientKey || index} className="border-b border-outline-variant/50"><td className="py-2 font-semibold">{row.item || 'Stock item'}</td><td className="py-2">{row.unit || 'units'}</td>{['opening', 'added', 'closing'].map((field) => <td key={field} className="py-2"><input aria-label={`${field} ${row.item || 'stock item'}`} type="number" min="0" step="any" value={row[field] ?? ''} onChange={(event) => updateInventoryCount(index, field, event.target.value)} className="input-field w-24" /></td>)}<td className="py-2"><select aria-label={`Status for ${row.item || 'stock item'}`} value={row.status || 'ok'} onChange={(event) => updateInventoryCount(index, 'status', event.target.value)} className="input-field"><option value="ok">OK</option><option value="restock">Needs restock</option><option value="prep">Needs prep</option></select></td><td className="py-2"><span className={`font-semibold ${row.confirmationStatus === 'mismatch' ? 'text-error' : row.confirmationStatus === 'confirmed' ? 'text-success' : 'text-surface-on-variant'}`}>{row.confirmationStatus === 'confirmed' ? 'Confirmed' : row.confirmationStatus === 'mismatch' ? 'Mismatch · first count applied' : row.confirmationStatus === 'pending-confirmation' ? 'Waiting for second count · inventory updated' : 'Not counted'}</span>{row.staffCounts?.length > 0 && <span className="mt-1 block text-[10px] text-surface-on-variant">{row.staffCounts.map((count) => `${count.staffName}: ${count.closing === '' || count.closing == null ? 'no closing count' : `${count.closing} ${row.unit}`}`).join(' · ')}</span>}</td></tr>)}</tbody></table>{inventoryCounts.length === 0 && <p className="py-4 text-center text-sm text-surface-on-variant">No items selected. Add items from live inventory to count this shift.</p>}</div>
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="flex items-center gap-2 text-[11px] text-surface-on-variant"><ShieldAlert size={14} />Any closing count updates live inventory and creates an audit record.</p><Button type="submit" disabled={saving || !handover}><Save size={14} />{saving ? 'Saving...' : 'Save shift close'}</Button></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1400px] text-left text-xs"><thead><tr className="border-b border-outline-variant text-surface-on-variant"><th className="py-2">Item</th><th className="py-2">Unit</th><th className="py-2">System expected</th><th className="py-2">Opening</th><th className="py-2">Added prep</th><th className="py-2">Physical closing</th><th className="min-w-[520px] py-2">Closing by storage location</th><th className="py-2">Status</th><th className="py-2">Staff verification</th></tr></thead><tbody>{inventoryCounts.map((row, index) => <tr key={row.clientKey || index} className="border-b border-outline-variant/50"><td className="py-2 font-semibold">{row.item || 'Stock item'}</td><td className="py-2">{row.unit || 'units'}</td><td className={`py-2 font-semibold ${row.variance != null && Math.abs(Number(row.variance)) >= 1e-9 ? 'text-error' : 'text-surface-on-variant'}`}>{row.expectedQuantity ?? '—'} {row.unit}</td>{['opening', 'added', 'closing'].map((field) => <td key={field} className="py-2"><input aria-label={`${field} ${row.item || 'stock item'}`} type="number" min="0" step="any" value={row[field] ?? ''} onChange={(event) => updateInventoryCount(index, field, event.target.value)} className="input-field w-24" /></td>)}<td className="py-2"><div className="grid grid-cols-3 gap-2">{shiftStorageLocations.map(({ column, label }) => <label key={column} className="min-w-0 text-[10px] text-surface-on-variant">{label}<input aria-label={`${label} count for ${row.item || 'stock item'}`} type="number" min="0" step="any" value={row.storageCounts?.[column] ?? ''} onChange={(event) => updateInventoryStorageCount(index, column, event.target.value)} className="input-field mt-1 w-full px-2 py-1 text-xs" /></label>)}</div><p className="mt-1 text-[10px] text-surface-on-variant">Enter all six locations, including zeroes. The closing total is calculated from these counts.</p></td><td className="py-2"><select aria-label={`Status for ${row.item || 'stock item'}`} value={row.status || 'ok'} onChange={(event) => updateInventoryCount(index, 'status', event.target.value)} className="input-field"><option value="ok">OK</option><option value="restock">Needs restock</option><option value="prep">Needs prep</option></select></td><td className="py-2"><span className={`font-semibold ${row.confirmationStatus === 'mismatch' ? 'text-error' : ['confirmed', 'confirmed-variance'].includes(row.confirmationStatus) ? 'text-success' : 'text-surface-on-variant'}`}>{row.confirmationStatus === 'confirmed' ? 'Verified · matches expected' : row.confirmationStatus === 'confirmed-variance' ? 'Verified · variance reconciled' : row.confirmationStatus === 'mismatch' ? 'Staff counts disagree · stock unchanged' : row.confirmationStatus === 'pending-confirmation' ? 'Awaiting second count · stock unchanged' : 'Not counted'}</span>{row.staffCounts?.length > 0 && <span className="mt-1 block text-[10px] text-surface-on-variant">{row.staffCounts.map((count) => `${count.staffName}: ${count.closing === '' || count.closing == null ? 'no closing count' : `${count.closing} ${row.unit}`}`).join(' · ')}</span>}</td></tr>)}</tbody></table>{inventoryCounts.length === 0 && <p className="py-4 text-center text-sm text-surface-on-variant">No items selected. Add items from live inventory to count this shift.</p>}</div>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="flex items-center gap-2 text-[11px] text-surface-on-variant"><ShieldAlert size={14} />Staff and managers are alerted when a count differs. Stock updates only after two matching counts.</p><Button type="submit" disabled={saving || !handover}><Save size={14} />{saving ? 'Saving...' : 'Save shift close'}</Button></div>
         </Card>
       </form>
 

@@ -55,7 +55,7 @@ export default function EmailAudiencePanel({ onReport }) {
     try {
       const result = await api.importOrderEmailContacts();
       await load();
-      onReport('success', `Added ${result.added} order emails as pending consent. ${result.existing} already in the audience; ${result.suppressed} suppressed. No marketing emails were sent.`);
+      onReport('success', `Added ${result.added} order emails as pending consent; filled in names for ${result.enriched || 0} existing contacts. ${result.existing} already existed; ${result.suppressed} suppressed. No marketing emails were sent.`);
     } catch (error) { onReport('error', error.message || 'Unable to fetch order emails.'); }
     finally { setImportingOrders(false); }
   };

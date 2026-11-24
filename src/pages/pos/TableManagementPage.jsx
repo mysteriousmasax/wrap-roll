@@ -16,6 +16,14 @@ import InternalQrCode from '../../components/ui/InternalQrCode';
 const defaultTableImage = 'https://images.unsplash.com/photo-1559339352-11d035aa65de?w=800&h=600&fit=crop';
 const emptyForm = { number: '', seats: '4', status: 'available', tagId: '', zone: 'Main Dining', imageUrl: '', reservation: '', note: '' };
 
+function formatTableOrderTime(value) {
+  if (!value) return 'Time not recorded';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? 'Time not recorded'
+    : date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 export default function TableManagementPage() {
   const [tables, setTables] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
@@ -265,6 +273,34 @@ export default function TableManagementPage() {
                 {table.tabId && <div className="flex items-center justify-between gap-2 font-semibold text-on-surface"><span>Tab · {table.tabOrderCount} ticket{table.tabOrderCount === 1 ? '' : 's'}</span><span>{formatCurrency(table.balanceDue)} due</span></div>}
                 {table.reservation && <div className="flex items-center justify-between gap-2"><span className="inline-flex items-center gap-1.5"><Clock size={12} /> Reservation</span><span className="font-semibold text-secondary">{table.reservation}</span></div>}
               </div>
+
+              <section className="rounded-xl border border-outline-variant bg-white p-3" aria-label={`Orders for table ${table.number}`}>
+                <h4 className="text-xs font-bold text-on-surface">Ordered food items</h4>
+                {table.tickets?.length ? (
+                  <div className="mt-2 space-y-3">
+                    {table.tickets.map((ticket) => (
+                      <div key={ticket.id} className="border-t border-outline-variant/60 pt-2 first:border-0 first:pt-0">
+                        <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-surface-on-variant">
+                          <span className="font-semibold text-primary">Ticket {ticket.orderNumber}</span>
+                          <span className="capitalize">{ticket.status}</span>
+                        </div>
+                        <ul className="mt-1 space-y-0.5 text-xs text-on-surface">
+                          {ticket.items?.length
+                            ? ticket.items.map((item, index) => <li key={`${ticket.id}-${index}`}>{item.quantity} × {item.name}</li>)
+                            : <li>No food items recorded</li>}
+                        </ul>
+                        <p className="mt-1 text-[10px] text-surface-on-variant">
+                          {ticket.servedAt
+                            ? `Served by ${ticket.servedBy || 'Staff not recorded'} · ${formatTableOrderTime(ticket.servedAt)}`
+                            : `Order taken by ${ticket.orderedBy || 'Staff not recorded'} · ${formatTableOrderTime(ticket.createdAt)}`}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-[11px] text-surface-on-variant">No current orders for this table.</p>
+                )}
+              </section>
 
               <div className="flex items-center justify-between gap-2 rounded-lg border border-outline-variant bg-white px-2.5 py-2 text-xs text-surface-on-variant">
                 <span className="inline-flex items-center gap-1.5"><Camera size={12} /> Table view</span>

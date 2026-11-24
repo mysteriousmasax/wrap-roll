@@ -7,6 +7,7 @@ import { buildCampaignBody, buildCampaignSubject, plainTextToHtml, selectAudienc
 import { getEmailProvider, isEmailDeliveryConfigured, isResendConfigured, publicEmailUrl, sendEmail, senderSummary, verifyEmailToken, verifyEmailDelivery } from '../utils/emailDelivery.js';
 import { enrollSubscriberForAutomations } from '../utils/emailAutomationWorker.js';
 import { processEmailCampaign, sendCampaignTest } from '../utils/emailCampaignService.js';
+import { getCustomerEmailNames, withCustomerNameFallback } from '../utils/emailCustomerNames.js';
 import { buildTeamDigestReport, getTeamDigestConfig, getTeamDigestStaff, saveTeamDigestConfig, sendTeamDigest } from '../utils/teamEmailDigest.js';
 
 const router = Router();
@@ -472,25 +473,12 @@ router.post('/subscribers/import', authMiddleware, requireRole(...adminRoles), (
 });
 
 router.post('/order-contacts/import', authMiddleware, requireRole(...adminRoles), (req, res) => {
-  // Pull every email we know: from completed orders and from the customer records
-  // (so CRM-entered contacts are included even if they have not ordered online).
-  const orderContacts = db.prepare(`SELECT lower(trim(customer_email)) AS email, MAX(customer_name) AS customer_name
-    FROM orders WHERE customer_email IS NOT NULL AND trim(customer_email) != ''
-    GROUP BY lower(trim(customer_email))`).all();
-  const customerContacts = db.prepare(`SELECT lower(trim(email)) AS email, MAX(name) AS customer_name
-    FROM customers WHERE email IS NOT NULL AND trim(email) != ''
-    GROUP BY lower(trim(email))`).all();
-
-  const byEmail = new Map();
-  for (const contact of [...orderContacts, ...customerContacts]) {
-    if (!contact.email) continue;
-    if (!byEmail.has(contact.email)) byEmail.set(contact.email, contact.customer_name || '');
-  }
-
+  const byEmail = getCustomerEmailNames(db);
   const now = new Date().toISOString();
   let added = 0;
   let existing = 0;
   let suppressed = 0;
+  let enriched = 0;
 
   const insert = db.prepare(`INSERT INTO email_subscribers
     (email, first_name, last_name, segment, source, preferred_channel, active, verified, consent_status, consent_source, created_at, updated_at)
@@ -502,8 +490,16 @@ router.post('/order-contacts/import', authMiddleware, requireRole(...adminRoles)
       suppressed += 1;
       continue;
     }
-    if (db.prepare('SELECT id FROM email_subscribers WHERE lower(email) = ?').get(email)) {
+    const existingSubscriber = db.prepare('SELECT * FROM email_subscribers WHERE lower(email) = ?').get(email);
+    if (existingSubscriber) {
       existing += 1;
+      const personalizedSubscriber = withCustomerNameFallback(existingSubscriber, name);
+      if (personalizedSubscriber.first_name !== existingSubscriber.first_name
+        || personalizedSubscriber.last_name !== existingSubscriber.last_name) {
+        db.prepare('UPDATE email_subscribers SET first_name = ?, last_name = ?, updated_at = ? WHERE id = ?')
+          .run(personalizedSubscriber.first_name, personalizedSubscriber.last_name, now, existingSubscriber.id);
+        enriched += 1;
+      }
       continue;
     }
     const nameParts = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -511,7 +507,7 @@ router.post('/order-contacts/import', authMiddleware, requireRole(...adminRoles)
     added += 1;
   }
 
-  res.json({ added, existing, suppressed, totalOrderEmails: byEmail.size });
+  res.json({ added, existing, enriched, suppressed, totalOrderEmails: byEmail.size });
 });
 
 router.get('/subscribers/export', authMiddleware, requireRole(...adminRoles), (_req, res) => {

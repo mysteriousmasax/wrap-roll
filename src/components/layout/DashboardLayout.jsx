@@ -104,6 +104,14 @@ export default function DashboardLayout() {
 
   useWebSocket((event, data) => {
     if (event === 'order:created' || event === 'order:updated') upsertOrder(data);
+    if (event === 'staff:updated' && data?.userId === currentUser?.id) {
+      useAuthStore.getState().refreshCurrentUser().catch((error) => {
+        setLiveNotice({
+          title: 'Access update could not be refreshed',
+          message: `${error.message || 'Unable to refresh your account access.'} Reload the page to apply your updated access.`,
+        });
+      });
+    }
     if (event === 'notification:created') {
       const roles = data?.audienceRoles || (data?.audienceRole ? [data.audienceRole] : []);
       const visible = isPageAllowedForUser(currentUser, '/notifications')

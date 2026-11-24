@@ -77,7 +77,7 @@ router.get('/me', authMiddleware, (req, res) => {
     pageAccess: expandImpliedPageAccess(normalizePageAccess(user.page_access || getRolePageAccess({ role: normalizedRole, pageAccess: [] }))),
   };
   db.prepare('UPDATE users SET role = ?, page_access = ? WHERE id = ?').run(normalizedUser.role, JSON.stringify(normalizedUser.pageAccess), user.id);
-  res.json({ user: normalizedUser });
+  res.json({ user: normalizedUser, token: signToken(normalizedUser) });
 });
 
 router.post('/logout', authMiddleware, (req, res) => {

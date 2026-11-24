@@ -13,12 +13,20 @@ const useAuthStore = create((set) => ({
       return;
     }
     try {
-      const { user } = await api.me();
+      const { user, token: refreshedToken } = await api.me();
+      if (refreshedToken) setToken(refreshedToken);
       set({ currentUser: user, isAuthenticated: true, loading: false });
     } catch {
       setToken(null);
       set({ currentUser: null, isAuthenticated: false, loading: false });
     }
+  },
+
+  refreshCurrentUser: async () => {
+    if (!localStorage.getItem('wraproll_token')) return;
+    const { user, token: refreshedToken } = await api.me();
+    if (refreshedToken) setToken(refreshedToken);
+    set({ currentUser: user, isAuthenticated: true, loading: false });
   },
 
   login: async (pin) => {

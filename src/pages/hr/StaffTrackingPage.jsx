@@ -9,6 +9,7 @@ import { api } from '../../api/client';
 import { Users, Clock, AlertTriangle, UserCheck, Trash2, LogIn, LogOut, ClipboardCheck, Edit3, Plus, Save, X } from 'lucide-react';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import useAuthStore from '../../store/useAuthStore';
+import { isPageAllowedForUser } from '../../utils/roleAccess';
 
 function toTimeInput(value) {
   const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i);
@@ -30,6 +31,7 @@ export default function StaffTrackingPage({ embedded = false }) {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const currentUser = useAuthStore((state) => state.currentUser);
+  const canManagePeople = isPageAllowedForUser(currentUser, '/management/people');
 
   const load = () => api.getStaffTracking().then(setTracking).catch((requestError) => setError(requestError.message || 'Unable to load staff tracking.')).finally(() => setLoading(false));
   const loadChecklistDefinitions = () => api.getOperationalChecklists(new Date().toLocaleDateString('en-CA'))
@@ -132,7 +134,7 @@ export default function StaffTrackingPage({ embedded = false }) {
     }
   };
   const removeStaff = async (staff) => {
-    if (currentUser?.role !== 'admin' || !window.confirm(`Remove ${staff.name} from active staff?`)) return;
+    if (!canManagePeople || !window.confirm(`Remove ${staff.name} from active staff?`)) return;
     try {
       setError('');
       await api.deleteStaff(staff.id);
@@ -161,7 +163,7 @@ export default function StaffTrackingPage({ embedded = false }) {
         <StatCard title="No Show" value={staffMembers.filter((s) => s.status === 'no-show').length} icon={AlertTriangle} iconColor="red" />
       </div>
 
-      {['admin', 'manager', 'executive'].includes(currentUser?.role) && (
+      {canManagePeople && (
         <Card className="mb-6">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div><h3 className="flex items-center gap-2 font-display text-sm font-bold"><ClipboardCheck size={16} className="text-primary" />Daily checklist definitions</h3><p className="mt-1 text-xs text-surface-on-variant">Add, rename, or remove shared checklist items here. Staff only record completion in My Shift.</p></div>
@@ -208,7 +210,7 @@ export default function StaffTrackingPage({ embedded = false }) {
                 {staff.status === 'on-clock' ? <LogOut size={14} /> : <LogIn size={14} />}
                 {staff.status === 'on-clock' ? 'Clock Out' : 'Clock In'}
               </Button>
-              {currentUser?.role === 'admin' && <Button variant="ghost" size="sm" onClick={() => removeStaff(staff)} aria-label={`Remove ${staff.name}`}><Trash2 size={14} /></Button>}
+              {canManagePeople && <Button variant="ghost" size="sm" onClick={() => removeStaff(staff)} aria-label={`Remove ${staff.name}`}><Trash2 size={14} /></Button>}
               </div>
             </div>
           ))}
@@ -231,16 +233,16 @@ export default function StaffTrackingPage({ embedded = false }) {
                 <td className="p-2">
                   <p className="mb-1 whitespace-nowrap font-semibold">{entry.login || 'Not recorded'}</p>
                   <label className="sr-only">{entry.staffName} corrected clock-in time</label>
-                  <input type="time" disabled={!['admin', 'manager'].includes(currentUser?.role)} value={edit.startTime ?? toTimeInput(entry.login)} onChange={(event) => setAttendanceEdits((current) => ({ ...current, [entry.id]: { ...current[entry.id], startTime: event.target.value } }))} className="input-field w-28" />
+                  <input type="time" disabled={!canManagePeople} value={edit.startTime ?? toTimeInput(entry.login)} onChange={(event) => setAttendanceEdits((current) => ({ ...current, [entry.id]: { ...current[entry.id], startTime: event.target.value } }))} className="input-field w-28" />
                 </td>
                 <td className="p-2">
                   <p className="mb-1 whitespace-nowrap font-semibold">{entry.logout || (entry.status === 'active' ? 'In progress' : 'Not recorded')}</p>
                   <label className="sr-only">{entry.staffName} corrected clock-out time</label>
-                  <input type="time" disabled={!['admin', 'manager'].includes(currentUser?.role) || entry.status === 'active'} value={edit.endTime ?? toTimeInput(entry.logout)} onChange={(event) => setAttendanceEdits((current) => ({ ...current, [entry.id]: { ...current[entry.id], endTime: event.target.value } }))} className="input-field w-28" />
+                  <input type="time" disabled={!canManagePeople || entry.status === 'active'} value={edit.endTime ?? toTimeInput(entry.logout)} onChange={(event) => setAttendanceEdits((current) => ({ ...current, [entry.id]: { ...current[entry.id], endTime: event.target.value } }))} className="input-field w-28" />
                 </td>
                 <td className="p-2">{entry.hours ? Number(entry.hours).toFixed(2) : '-'}</td>
                 <td className="p-2 text-[10px]">{entry.lateMinutes ? <span className="block text-error">Late {entry.lateMinutes}m</span> : 'On time'}{entry.overtimeMinutes > 0 && <span className="block text-primary">OT {entry.overtimeMinutes}m</span>}<span className="block text-surface-on-variant">Plan {entry.scheduledStart || '-'}–{entry.scheduledEnd || '-'}</span></td>
-                <td className="p-2">{['admin', 'manager'].includes(currentUser?.role) && <Button size="sm" variant="secondary" disabled={entry.status === 'active' || !(edit.endTime ?? toTimeInput(entry.logout))} onClick={() => saveAttendanceEdit(entry)}><Save size={13} />Save</Button>}</td>
+                <td className="p-2">{canManagePeople && <Button size="sm" variant="secondary" disabled={entry.status === 'active' || !(edit.endTime ?? toTimeInput(entry.logout))} onClick={() => saveAttendanceEdit(entry)}><Save size={13} />Save</Button>}</td>
               </tr>;
             })}</tbody>
           </table>

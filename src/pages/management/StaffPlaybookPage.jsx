@@ -16,6 +16,7 @@ function summarizeStockRows(rows = []) {
     added: Number(row?.added || 0),
     closing: Number(row?.closing || 0),
     status: ['ok', 'restock', 'prep', 'low'].includes(String(row?.status || 'ok')) ? String(row.status || 'ok') : 'ok',
+    storageCounts: row?.currentStaffCount?.storageCounts || row?.storageCounts || null,
   }));
 
   const totals = normalized.reduce((acc, row) => {
@@ -57,6 +58,7 @@ function withCurrentStaffCounts(handover, inventoryItems, date, shift) {
         opening: ownCount ? String(ownCount.opening ?? '') : '',
         added: ownCount ? String(ownCount.added ?? '') : '',
         closing: ownCount ? String(ownCount.closing ?? '') : '',
+        storageCounts: ownCount?.storageCounts || {},
         status: ownCount?.status || row.status || 'ok',
         clientKey: `${date}-${shift}-${index}`,
       };
@@ -156,6 +158,7 @@ const today = () => new Date().toLocaleDateString('en-CA');
 export default function StaffPlaybookPage() {
   const currentUser = useAuthStore((state) => state.currentUser);
   const role = currentUser?.role || 'manager';
+  const canApproveDailyStock = ['admin', 'manager', 'executive'].includes(role);
   const tabs = useMemo(() => roleTabs[role] || allTabs, [role]);
   const [activeTab, setActiveTab] = useState(tabs[0]?.id || 'workspace');
   const [date, setDate] = useState(today());
@@ -204,6 +207,7 @@ export default function StaffPlaybookPage() {
       added: Number(row?.added || 0),
       closing: Number(row?.closing || 0),
       status: row?.status || 'ok',
+      storageCounts: row?.currentStaffCount?.storageCounts || row?.storageCounts || null,
     }));
 
     const payload = summarizeStockRows(rows);
@@ -264,6 +268,7 @@ export default function StaffPlaybookPage() {
           opening: row.currentStaffCount ? String(row.currentStaffCount.opening ?? '') : '',
           added: row.currentStaffCount ? String(row.currentStaffCount.added ?? '') : '',
           closing: row.currentStaffCount ? String(row.currentStaffCount.closing ?? '') : '',
+          storageCounts: row.currentStaffCount?.storageCounts || {},
           status: row.currentStaffCount?.status || row.status || 'ok',
         };
       }),
@@ -694,7 +699,7 @@ export default function StaffPlaybookPage() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button type="button" variant="secondary" size="sm" onClick={() => saveDailyStockReport({ approve: false })}>Save report</Button>
-                    <Button type="button" size="sm" onClick={approveDailyStock}>Approve</Button>
+                    {canApproveDailyStock && <Button type="button" size="sm" onClick={approveDailyStock}>Approve</Button>}
                   </div>
                 </div>
 

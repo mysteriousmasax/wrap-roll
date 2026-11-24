@@ -3,10 +3,12 @@ import db from '../db/database.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { broadcast } from '../ws.js';
 import { deletionViewer, requireAdilaDeletion, recordDeletion } from '../utils/deletionPolicy.js';
-import { normalizeTraReceiptUrl } from '../utils/traReceiptUrl.js';
+import { normalizeTraReceiptUrl, resolveTraReceiptRedirect } from '../utils/traReceiptUrl.js';
+import { normalizeReceiptImage } from '../utils/receiptImage.js';
 import { getStockUnitConversionFactor } from '../../src/utils/stockUnits.js';
 import { getStorageAfterConsumption } from '../utils/inventoryStorage.js';
 import { recordInventoryStockAlerts } from '../utils/inventoryStockAlerts.js';
+import { recordInventoryMovement } from '../utils/inventoryMovements.js';
 
 const router = Router();
 const storageFields = [
@@ -52,10 +54,10 @@ function mapInventory(row) {
   };
 }
 
-function getStorageValues(body, existing = null) {
+function getStorageValues(body, existing = null, conversionFactor = 1) {
   const values = {};
   for (const [field, column] of storageFields) {
-    const raw = body[field] ?? existing?.[column] ?? 0;
+    const raw = body[field] ?? (existing ? Number(existing[column] || 0) * conversionFactor : 0);
     const value = Number(raw);
     if (!Number.isFinite(value) || value < 0) throw new Error(`${field} must be a non-negative number.`);
     values[column] = value;
@@ -192,12 +194,26 @@ router.post('/receipt-qr', authMiddleware, async (req, res) => {
   }
 
   try {
-    const response = await fetch(receiptUrl, {
-      headers: { Accept: 'text/html' },
-      redirect: 'manual',
-      signal: AbortSignal.timeout(10000),
-    });
-    if (response.status >= 300 && response.status < 400) return res.status(502).json({ error: 'TRA redirected this receipt link; open the receipt in TRA and try its current QR link.' });
+    let currentUrl = receiptUrl;
+    let response;
+    for (let redirectCount = 0; redirectCount <= 3; redirectCount += 1) {
+      response = await fetch(currentUrl, {
+        headers: {
+          Accept: 'text/html,application/xhtml+xml',
+          'Accept-Language': 'en-TZ,en;q=0.9',
+          'User-Agent': 'Mozilla/5.0 (compatible; WrapRollReceiptVerifier/1.0)',
+        },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(10000),
+      });
+      if (response.status < 300 || response.status >= 400) break;
+      if (redirectCount === 3) return res.status(502).json({ error: 'TRA redirected this receipt too many times. Open the receipt in TRA and use its current QR link.' });
+      try {
+        currentUrl = resolveTraReceiptRedirect(currentUrl, response.headers.get('location'));
+      } catch (error) {
+        return res.status(502).json({ error: error.message });
+      }
+    }
     if (!response.ok) return res.status(502).json({ error: `TRA receipt verification returned HTTP ${response.status}.` });
     if (!(response.headers.get('content-type') || '').toLowerCase().includes('text/html')) {
       return res.status(502).json({ error: 'TRA did not return a readable receipt page.' });
@@ -237,6 +253,14 @@ router.post('/receive-receipt', authMiddleware, (req, res) => {
   }
   if (expenseInput && (!String(expenseInput.category || '').trim() || !String(expenseInput.description || '').trim() || !Number.isFinite(Number(expenseInput.amount)) || Number(expenseInput.amount) <= 0)) {
     return res.status(400).json({ error: 'A category, description, and positive expense total are required to post both.' });
+  }
+  let expenseReceiptImage = null;
+  if (expenseInput) {
+    try {
+      expenseReceiptImage = normalizeReceiptImage(expenseInput.receiptImage);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
   }
 
   ensureInventoryColumn('delivery_date', "TEXT DEFAULT ''");
@@ -285,6 +309,18 @@ router.post('/receive-receipt', authMiddleware, (req, res) => {
             : (nextUnitCost * purchaseFactor);
           db.prepare(`UPDATE inventory SET quantity = ?, supplier = ?, unit_cost = ?, purchase_unit_cost = ?, last_restocked = ?, delivery_date = ?
             WHERE id = ?`).run(nextQuantity, supplier || existing.supplier || '', nextUnitCost, nextPurchaseCost, today, today, existing.id);
+          recordInventoryMovement(db, {
+            inventoryId: existing.id,
+            itemName: existing.name,
+            movementType: 'purchase_receipt',
+            quantityBefore: existing.quantity,
+            quantityAfter: nextQuantity,
+            unitBefore: existing.unit,
+            referenceType: 'receipt',
+            referenceId: receiptRef || null,
+            note: `Received ${line.quantity} ${line.unit}${supplier ? ` from ${supplier}` : ''}`,
+            actor: req.user,
+          });
           auditInventoryChange(existing.id, 'updated', req.user, {
             quantity: { from: existing.quantity, to: nextQuantity, received: receivedQuantity, receiptUnit: line.unit },
             supplier: { from: existing.supplier || '', to: supplier || existing.supplier || '' },
@@ -326,6 +362,18 @@ router.post('/receive-receipt', authMiddleware, (req, res) => {
             line.name, line.quantity, line.unit, line.threshold, supplier || '', today, 'Stock items',
             line.sku || `INV-${Date.now().toString().slice(-6)}`, line.unitCost, 'Stock sheet', today, line.unit, line.unitCost
           );
+          recordInventoryMovement(db, {
+            inventoryId: result.lastInsertRowId,
+            itemName: line.name,
+            movementType: 'purchase_receipt',
+            quantityBefore: 0,
+            quantityAfter: line.quantity,
+            unitBefore: line.unit,
+            referenceType: 'receipt',
+            referenceId: receiptRef || null,
+            note: `Opening receipt${supplier ? ` from ${supplier}` : ''}`,
+            actor: req.user,
+          });
           auditInventoryChange(result.lastInsertRowid, 'created', req.user, {
             item: { from: null, to: line.name },
             quantity: { from: null, to: line.quantity },
@@ -365,8 +413,8 @@ router.post('/receive-receipt', authMiddleware, (req, res) => {
       }
       if (expenseInput) {
         const expenseResult = db.prepare(`INSERT INTO business_expenses
-          (expense_date, category, description, supplier, amount, payment_method, status, receipt_ref, created_by, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`).run(
+          (expense_date, category, description, supplier, amount, payment_method, status, receipt_ref, receipt_image, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`).run(
           today,
           String(expenseInput.category).trim(),
           String(expenseInput.description).trim(),
@@ -374,6 +422,7 @@ router.post('/receive-receipt', authMiddleware, (req, res) => {
           Number(expenseInput.amount),
           expenseInput.paymentMethod || 'cash',
           receiptRef || null,
+          expenseReceiptImage,
           req.user?.name || 'Admin',
           new Date().toISOString()
         );
@@ -428,6 +477,11 @@ router.post('/', authMiddleware, (req, res) => {
         : baseUnitCost;
       db.prepare(`UPDATE inventory SET quantity = ?, threshold = ?, supplier = ?, last_restocked = ?, image_url = ?, category = ?, unit_cost = ?, purchase_unit = ?, purchase_unit_factor = ?, purchase_unit_cost = ?, expiry_date = ?, storage_location = ?, delivery_date = ?, back_freezer_chiller = ?, refrigerator = ?, front_sandwich = ?, front_pizza = ?, front_burger = ? WHERE id = ?`)
         .run(nextQuantity, threshold ?? existing.threshold, supplier || existing.supplier, today, imageUrl || existing.image_url, category || existing.category, nextUnitCost, normalizedPurchaseUnit, purchaseFactor, packCost || baseUnitCost * purchaseFactor, expiryDate || existing.expiry_date, storageLocation || existing.storage_location, deliveryDate ?? existing.delivery_date, storage.back_freezer_chiller, storage.refrigerator, storage.front_sandwich, storage.front_pizza, storage.front_burger, existing.id);
+      recordInventoryMovement(db, {
+        inventoryId: existing.id, itemName: existing.name, movementType: 'purchase_receipt',
+        quantityBefore: existing.quantity, quantityAfter: nextQuantity, unitBefore: existing.unit,
+        referenceType: 'inventory_entry', note: `Received ${baseQuantity} ${normalizedUnit}`, actor: req.user,
+      });
       item = mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(existing.id));
       db.prepare(`INSERT INTO inventory_purchase_history
         (inventory_id, item_name, item_sku, supplier, purchase_date, purchase_quantity, purchase_unit,
@@ -455,6 +509,11 @@ router.post('/', authMiddleware, (req, res) => {
       'INSERT INTO inventory (name, quantity, unit, threshold, supplier, last_restocked, image_url, category, sku, unit_cost, expiry_date, storage_location, delivery_date, back_freezer_chiller, refrigerator, front_sandwich, front_pizza, front_burger, purchase_unit, purchase_unit_factor, purchase_unit_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(normalizedName, baseQuantity, normalizedUnit, threshold ?? 10, supplier || '', today, imageUrl || '', category || 'ingredients', sku || `INV-${Date.now().toString().slice(-6)}`, baseUnitCost, expiryDate || '', storageLocation || 'Main store', deliveryDate || '', storage.back_freezer_chiller, storage.refrigerator, storage.front_sandwich, storage.front_pizza, storage.front_burger, normalizedPurchaseUnit, purchaseFactor, purchaseFactor * baseUnitCost);
     item = mapInventory(db.prepare('SELECT * FROM inventory WHERE id = ?').get(result.lastInsertRowid));
+    if (baseQuantity > 0) recordInventoryMovement(db, {
+      inventoryId: item.id, itemName: item.name, movementType: 'opening_stock',
+      quantityBefore: 0, quantityAfter: baseQuantity, unitBefore: normalizedUnit,
+      referenceType: 'inventory_item', referenceId: item.id, note: 'Opening stock', actor: req.user,
+    });
     if (baseQuantity > 0) {
       db.prepare(`INSERT INTO inventory_purchase_history
         (inventory_id, item_name, item_sku, supplier, purchase_date, purchase_quantity, purchase_unit,
@@ -490,18 +549,25 @@ router.put('/:id', authMiddleware, (req, res) => {
   const existing = db.prepare('SELECT * FROM inventory WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Item not found' });
   const { name, quantity, unit, threshold, supplier, lastRestocked, imageUrl, category, sku, purchaseUnit, purchaseUnitFactor, expiryDate, storageLocation, deliveryDate } = req.body;
-  const nextQuantity = Number(quantity ?? existing.quantity);
   const nextUnit = String(unit ?? existing.unit ?? 'pcs').trim();
   const unitChanged = nextUnit.toLowerCase() !== String(existing.unit || '').toLowerCase();
+  let baseUnitConversion = unitChanged ? getStockUnitConversionFactor(existing.unit, nextUnit) : 1;
+  const reinterpretUnit = unitChanged && baseUnitConversion === null && req.body.reinterpretUnit === true;
+  if (baseUnitConversion === null && !reinterpretUnit) return res.status(400).json({ error: `Cannot convert ${existing.unit} to ${nextUnit}; confirm that this is a unit-label correction to keep the entered quantities unchanged.` });
+  if (reinterpretUnit) baseUnitConversion = 1;
+  const nextQuantity = Number(quantity ?? Number(existing.quantity) * baseUnitConversion);
+  const nextThreshold = Number(threshold ?? Number(existing.threshold || 0) * baseUnitConversion);
   if (!Number.isFinite(nextQuantity) || nextQuantity < 0) return res.status(400).json({ error: 'Stock quantity must be a non-negative number.' });
-  if (unitChanged && Number(existing.quantity) > 0) {
-    return res.status(400).json({ error: 'Cannot change the stock unit while quantity is on hand. Adjust stock to zero first.' });
-  }
-  const baseUnitConversion = unitChanged ? getStockUnitConversionFactor(existing.unit, nextUnit) : 1;
-  if (baseUnitConversion === null) return res.status(400).json({ error: `Cannot convert ${existing.unit} to ${nextUnit}; use compatible units.` });
-  const nextPurchaseUnit = String(purchaseUnit ?? existing.purchase_unit ?? nextUnit).trim() || nextUnit;
-  const nextPurchaseFactor = Number(purchaseUnitFactor ?? (Number(existing.purchase_unit_factor || 1) * baseUnitConversion));
-  const nextPackCost = Number(existing.purchase_unit_cost || 0);
+  if (!Number.isFinite(nextThreshold) || nextThreshold < 0) return res.status(400).json({ error: 'Low-stock threshold must be a non-negative number.' });
+  const nextPurchaseUnit = reinterpretUnit
+    ? nextUnit
+    : String(purchaseUnit ?? existing.purchase_unit ?? nextUnit).trim() || nextUnit;
+  const nextPurchaseFactor = reinterpretUnit
+    ? 1
+    : Number(purchaseUnitFactor ?? (Number(existing.purchase_unit_factor || 1) * baseUnitConversion));
+  const nextPackCost = reinterpretUnit
+    ? Number(existing.unit_cost || 0)
+    : Number(existing.purchase_unit_cost || 0);
   if (!Number.isFinite(nextPurchaseFactor) || nextPurchaseFactor <= 0 || !Number.isFinite(nextPackCost) || nextPackCost < 0) {
     return res.status(400).json({ error: 'Purchase-unit conversion must be positive and purchase cost cannot be negative.' });
   }
@@ -509,7 +575,7 @@ router.put('/:id', authMiddleware, (req, res) => {
   if (!Number.isFinite(nextUnitCost) || nextUnitCost < 0) return res.status(400).json({ error: 'Unit cost must be a non-negative number.' });
   let storage;
   try {
-    storage = getStorageValues(req.body, existing);
+    storage = getStorageValues(req.body, existing, baseUnitConversion);
     const stockChanged = nextQuantity !== Number(existing.quantity)
       || storageFields.some(([, column]) => Number(storage[column]) !== Number(existing[column] || 0));
     if (stockChanged) validateStorageTotal(nextQuantity, storage);
@@ -519,7 +585,7 @@ router.put('/:id', authMiddleware, (req, res) => {
   db.prepare(
     'UPDATE inventory SET name = ?, quantity = ?, unit = ?, threshold = ?, supplier = ?, last_restocked = ?, image_url = ?, category = ?, sku = ?, unit_cost = ?, purchase_unit = ?, purchase_unit_factor = ?, purchase_unit_cost = ?, expiry_date = ?, storage_location = ?, delivery_date = ?, back_freezer_chiller = ?, refrigerator = ?, front_sandwich = ?, front_pizza = ?, front_burger = ? WHERE id = ?'
   ).run(
-    name ?? existing.name, nextQuantity, nextUnit, threshold ?? existing.threshold, supplier ?? existing.supplier,
+    name ?? existing.name, nextQuantity, nextUnit, nextThreshold, supplier ?? existing.supplier,
     lastRestocked ?? existing.last_restocked, imageUrl ?? existing.image_url, category ?? existing.category,
     sku ?? existing.sku, nextUnitCost, nextPurchaseUnit, nextPurchaseFactor, nextPackCost,
     expiryDate ?? existing.expiry_date, storageLocation ?? existing.storage_location, deliveryDate ?? existing.delivery_date,
@@ -543,6 +609,21 @@ router.put('/:id', authMiddleware, (req, res) => {
     .filter((field) => String(existing[columnForField[field] || field]) !== String(updated[field]))
     .map((field) => [field, { from: existing[columnForField[field] || field], to: updated[field] }]));
   if (Object.keys(changes).length) auditInventoryChange(updated.id, 'updated', req.user, changes);
+  if (Number(existing.quantity) !== Number(updated.quantity) || unitChanged) {
+    recordInventoryMovement(db, {
+      inventoryId: updated.id, itemName: updated.name,
+      movementType: unitChanged ? 'unit_correction' : 'manual_adjustment',
+      quantityBefore: existing.quantity, quantityAfter: updated.quantity,
+      unitBefore: existing.unit, unitAfter: updated.unit,
+      referenceType: 'inventory_edit', referenceId: updated.id,
+      note: reinterpretUnit
+        ? `Unit label corrected from ${existing.unit} to ${updated.unit}; numeric stock values were preserved`
+        : unitChanged
+          ? `Base unit converted from ${existing.unit} to ${updated.unit}`
+          : 'On-hand quantity edited in inventory management',
+      actor: req.user,
+    });
+  }
   recordInventoryStockAlerts(existing, updated, 'after an inventory update')
     .forEach((notification) => broadcast('notification:created', notification));
   if (Object.keys(changes).length) broadcast('inventory:updated', { itemId: updated.id, action: 'updated' });
@@ -561,6 +642,17 @@ router.post('/:id/adjust', authMiddleware, (req, res) => {
   const storage = getStorageAfterConsumption(existing, Math.max(0, -amount), quantity);
   db.prepare('UPDATE inventory SET quantity = ?, back_freezer_chiller = ?, refrigerator = ?, front_sandwich = ?, front_pizza = ?, front_burger = ? WHERE id = ?')
     .run(quantity, storage.back_freezer_chiller, storage.refrigerator, storage.front_sandwich, storage.front_pizza, storage.front_burger, req.params.id);
+  const normalizedReason = reason.toLowerCase();
+  const movementType = normalizedReason.includes('wastage') ? 'wastage'
+    : normalizedReason.includes('damaged') ? 'damaged_goods'
+      : normalizedReason.includes('transfer') ? (amount > 0 ? 'transfer_in' : 'transfer_out')
+        : normalizedReason.includes('received') ? 'purchase_receipt'
+          : 'stock_adjustment';
+  recordInventoryMovement(db, {
+    inventoryId: existing.id, itemName: existing.name, movementType,
+    quantityBefore: existing.quantity, quantityAfter: quantity, unitBefore: existing.unit,
+    referenceType: 'inventory_adjustment', referenceId: existing.id, note: reason, actor: req.user,
+  });
   auditInventoryChange(existing.id, 'updated', req.user, { quantity: { from: existing.quantity, to: quantity }, storage, reason: { from: null, to: reason } });
   recordInventoryStockAlerts(existing, { ...existing, quantity }, reason)
     .forEach((notification) => broadcast('notification:created', notification));
@@ -584,6 +676,22 @@ router.get('/:id/purchase-history', authMiddleware, (req, res) => {
                            FROM inventory_purchase_history
                            WHERE inventory_id = ?
                            ORDER BY purchase_date DESC, id DESC
+                           LIMIT 200`).all(req.params.id);
+  res.json(rows);
+});
+
+router.get('/:id/movements', authMiddleware, (req, res) => {
+  const item = db.prepare('SELECT id FROM inventory WHERE id = ?').get(req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+  const rows = db.prepare(`SELECT id, item_name AS itemName, movement_type AS movementType,
+                                  quantity_delta AS quantityDelta, quantity_before AS quantityBefore,
+                                  quantity_after AS quantityAfter, unit_before AS unitBefore,
+                                  unit_after AS unitAfter, reference_type AS referenceType,
+                                  reference_id AS referenceId, note, actor_name AS actorName,
+                                  created_at AS createdAt
+                           FROM inventory_movements
+                           WHERE inventory_id = ?
+                           ORDER BY created_at DESC, id DESC
                            LIMIT 200`).all(req.params.id);
   res.json(rows);
 });

@@ -31,6 +31,10 @@ export function formatOrder(row, items, { includeInvoiceEmailStatus = false } = 
   const paidAmount = paymentRecords
     .filter((payment) => ['paid', 'completed'].includes(payment.status))
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const paymentMethods = [...new Set(paymentRecords
+    .filter((payment) => ['paid', 'completed'].includes(payment.status))
+    .map((payment) => payment.payment_method)
+    .filter((method) => method && String(method).toLowerCase() !== 'tab'))];
   const tabSummary = row.dine_in_tab_id ? db.prepare(`SELECT
       COALESCE(SUM(o.total), 0) AS total,
       COALESCE(SUM((SELECT SUM(p.amount) FROM payments p WHERE p.order_id = o.id AND p.status IN ('paid', 'completed'))), 0) AS paid
@@ -123,6 +127,7 @@ export function formatOrder(row, items, { includeInvoiceEmailStatus = false } = 
     tax: row.tax,
     total: row.total,
     paymentMethod: row.payment_method,
+    paymentMethods,
     paymentStatus: row.payment_status || 'pending',
     invoiceEmailStatus: invoiceEmail
       ? (['pending', 'sending'].includes(invoiceEmail.status) ? 'queued' : invoiceEmail.status)

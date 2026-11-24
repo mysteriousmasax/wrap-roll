@@ -31,6 +31,49 @@ const IMPLIED_PAGE_ACCESS = {
   '/pos': ['/pos/payment', '/pos/success'],
 };
 
+const API_PAGE_ACCESS = [
+  { api: '/api/menu', path: /^\/(?:categories|modifiers|export)(?:\/|$)|^\/[^/]*$/, pages: ['/management/menu'] },
+  { api: '/api/orders', path: /^\/offers(?:\/|$)/, pages: ['/management/loyalty', '/management/campaigns'] },
+  { api: '/api/orders', path: /^\/reservations(?:\/|$)/, pages: ['/roadside'] },
+  { api: '/api/orders', path: /^\/[^/]+\/refunds$/, method: 'POST', pages: ['/orders', '/management/payments'] },
+  { api: '/api/orders', path: /^\/held(?:\/|$)/, pages: ['/pos'] },
+  { api: '/api/orders', path: /^\/[^/]+\/(?:share-link|reservation)(?:\/|$)/, pages: ['/orders', '/roadside'] },
+  { api: '/api/tables', path: /^\/[^/]+\/(?:tab|payments)(?:\/|$)/, pages: ['/pos', '/pos/tables'] },
+  { api: '/api/staff', path: /^\/kanban(?:\/|$)/, pages: ['/management/kanban'] },
+  { api: '/api/staff', path: /^\/(?:roles|attendance|tracking)(?:\/|$)|^\/[^/]+(?:\/credentials)?$|^\/$/, pages: ['/management/people'] },
+  { api: '/api/business', path: /^\/checklists\/tasks(?:\/|$)/, pages: ['/management/operations', '/management/people'] },
+  { api: '/api/business', path: /^\/expenses\/[^/]+$/, pages: ['/management/operations'] },
+  { api: '/api/crm-intelligence', path: /^\/(?:snapshot|swot|briefing|ask|actions)(?:\/|$)/, pages: ['/crm'] },
+  { api: '/api/email-marketing', path: /^\/.+$/, pages: ['/management/email-marketing', '/management/campaigns'] },
+  { api: '/api/settings', path: /^\/(?:wifi-qr|)$/, pages: ['/management/settings'] },
+  { api: '/api/loyalty', path: /^\/.+$/, pages: ['/management/loyalty', '/crm'] },
+  { api: '/api/payments', path: /^\/.+$/, pages: ['/management/payments', '/pos'] },
+  { api: '/api/roadside', path: /^\/.+$/, pages: ['/roadside'] },
+];
+
+export function getApiPageAccess(apiPath, routePath, method, body) {
+  const normalizedApiPath = String(apiPath ?? '').replace(/\/+$/, '');
+  const normalizedRoutePath = `/${String(routePath ?? '').replace(/^\/+|\/+$/g, '')}`.replace(/\/$/, '') || '/';
+  const normalizedMethod = String(method ?? '').toUpperCase();
+  const pages = API_PAGE_ACCESS.find((entry) => entry.api === normalizedApiPath
+    && entry.path.test(normalizedRoutePath)
+    && (!entry.method || entry.method === normalizedMethod))?.pages || [];
+  if (normalizedApiPath === '/api/settings' && normalizedRoutePath === '/' && String(method).toUpperCase() === 'PUT') {
+    const bodyKeys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : [];
+    if (bodyKeys.length > 0 && bodyKeys.every((key) => ['custom_staff_roles', 'shift_types'].includes(key))) {
+      return [...pages, '/management/people'];
+    }
+  }
+  return pages;
+}
+
+export function hasDelegatedApiPageAccess(user, apiPath, routePath, method, body) {
+  if (!user || typeof user !== 'object') return false;
+  const pageAccess = expandImpliedPageAccess(normalizePageAccess(user.pageAccess ?? user.page_access ?? []));
+  return getApiPageAccess(apiPath, routePath, method, body)
+    .some((page) => pageAccess.includes(page));
+}
+
 export function expandImpliedPageAccess(paths) {
   const next = Array.isArray(paths) ? [...paths] : [];
   for (const [parent, implied] of Object.entries(IMPLIED_PAGE_ACCESS)) {

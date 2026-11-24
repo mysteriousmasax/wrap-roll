@@ -400,7 +400,9 @@ router.put('/:id', authMiddleware, requireRole('admin'), (req, res) => {
     db.prepare('UPDATE users SET name = ?, role = ?, avatar = ?, page_access = ? WHERE id = ?')
       .run(name ?? existing.name, resolvedRole.baseRole, avatar ?? existing.avatar, JSON.stringify(nextPageAccess), existing.user_id);
   }
-  res.json(mapStaff(db.prepare('SELECT staff.*, users.username, users.email, users.page_access FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.id = ?').get(req.params.id)));
+  const updatedStaff = mapStaff(db.prepare('SELECT staff.*, users.username, users.email, users.page_access FROM staff LEFT JOIN users ON users.id = staff.user_id WHERE staff.id = ?').get(req.params.id));
+  broadcast('staff:updated', { staffId: existing.id, userId: existing.user_id, action: 'staff_updated' });
+  res.json(updatedStaff);
 });
 
 router.delete('/:id', authMiddleware, requireRole('admin'), (req, res) => {
@@ -414,7 +416,7 @@ router.delete('/:id', authMiddleware, requireRole('admin'), (req, res) => {
     db.prepare('DELETE FROM notifications WHERE audience_user_id = ?').run(staff.user_id);
     db.prepare('DELETE FROM users WHERE id = ?').run(staff.user_id);
   }
-  broadcast('staff:updated', { staffId: staff.id, action: 'staff_removed' });
+  broadcast('staff:updated', { staffId: staff.id, userId: staff.user_id, action: 'staff_removed' });
   res.json({ ok: true });
 });
 

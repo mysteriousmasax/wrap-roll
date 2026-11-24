@@ -272,6 +272,7 @@ export async function initDatabase() {
       payment_method TEXT DEFAULT 'bank',
       status TEXT DEFAULT 'pending',
       receipt_ref TEXT,
+      receipt_image TEXT,
       created_by TEXT,
       created_at TEXT NOT NULL
     );
@@ -424,6 +425,28 @@ export async function initDatabase() {
       ON inventory_purchase_history(inventory_id, purchase_date DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_inventory_purchase_history_sku
       ON inventory_purchase_history(item_sku, purchase_date DESC);
+
+    CREATE TABLE IF NOT EXISTS inventory_movements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      inventory_id INTEGER,
+      item_name TEXT NOT NULL,
+      movement_type TEXT NOT NULL,
+      quantity_delta REAL NOT NULL,
+      quantity_before REAL NOT NULL,
+      quantity_after REAL NOT NULL,
+      unit_before TEXT,
+      unit_after TEXT,
+      reference_type TEXT,
+      reference_id TEXT,
+      note TEXT,
+      actor_user_id INTEGER,
+      actor_name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (inventory_id) REFERENCES inventory(id) ON DELETE SET NULL,
+      FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_inventory_movements_item ON inventory_movements(inventory_id, created_at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_inventory_movements_reference ON inventory_movements(reference_type, reference_id);
 
     CREATE TABLE IF NOT EXISTS orders (
       id TEXT PRIMARY KEY,
@@ -1227,6 +1250,8 @@ function migrateSchema(db) {
   const notificationCols = db.prepare('PRAGMA table_info(notifications)').all();
   if (!notificationCols.some((col) => col.name === 'audience_role')) db.exec('ALTER TABLE notifications ADD COLUMN audience_role TEXT');
   if (!notificationCols.some((col) => col.name === 'audience_user_id')) db.exec('ALTER TABLE notifications ADD COLUMN audience_user_id INTEGER');
+  const expenseCols = db.prepare('PRAGMA table_info(business_expenses)').all();
+  if (!expenseCols.some((col) => col.name === 'receipt_image')) db.exec('ALTER TABLE business_expenses ADD COLUMN receipt_image TEXT');
   db.exec(`
     CREATE TABLE IF NOT EXISTS order_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -7,8 +7,11 @@ import {
   getRolePageAccess,
   normalizeCustomRole,
   expandImpliedPageAccess,
+  getApiPageAccess,
+  hasDelegatedApiPageAccess,
 } from '../utils/roles.js';
 import { ROUTE_ACCESS as CLIENT_ROUTE_ACCESS, getUserPageAccess, isPageAllowedForUser, normalizeUserRole as normalizeClientRole } from '../../src/utils/roleAccess.js';
+import { requireRole } from '../middleware/auth.js';
 
 test('server and client role route access stay in sync', () => {
   assert.deepEqual(SERVER_ROUTE_ACCESS, CLIENT_ROUTE_ACCESS);
@@ -63,4 +66,56 @@ test('explicitly unselected pages stay hidden while admins retain full access', 
   const superAdmin = { role: 'Super Admin', pageAccess: ['/pos'] };
   assert.equal(isPageAllowedForUser(superAdmin, '/management/menu'), true);
   assert.ok(getUserPageAccess(superAdmin).includes('/management/menu'));
+});
+
+test('granted page access authorizes only its corresponding protected API features', () => {
+  const menuStaff = { role: 'foh', pageAccess: ['/management/menu'] };
+  assert.deepEqual(getApiPageAccess('/api/menu', '/categories'), ['/management/menu']);
+  assert.equal(hasDelegatedApiPageAccess(menuStaff, '/api/menu', '/categories'), true);
+  assert.equal(hasDelegatedApiPageAccess(menuStaff, '/api/staff', '/'), false);
+  const managerMenuStaff = { role: 'manager', pageAccess: ['/management/menu'] };
+  assert.equal(hasDelegatedApiPageAccess(managerMenuStaff, '/api/menu', '/menu-item-1', 'PUT'), true);
+
+  const peopleStaff = { role: 'kitchen', pageAccess: ['/management/people'] };
+  assert.equal(hasDelegatedApiPageAccess(peopleStaff, '/api/staff', '/roles'), true);
+  assert.equal(hasDelegatedApiPageAccess(peopleStaff, '/api/staff', '/17', 'PUT'), true);
+  assert.equal(hasDelegatedApiPageAccess(peopleStaff, '/api/settings', '/', 'PUT', { shift_types: '[]' }), true);
+  assert.equal(hasDelegatedApiPageAccess(peopleStaff, '/api/settings', '/', 'PUT', { tax_rate: '18' }), false);
+
+  const operationsStaff = { role: 'foh', pageAccess: ['/management/operations'] };
+  assert.equal(hasDelegatedApiPageAccess(operationsStaff, '/api/business', '/expenses/12'), true);
+  assert.equal(hasDelegatedApiPageAccess(operationsStaff, '/api/settings', '/'), false);
+});
+
+test('page grants preserve server-only refund approval restrictions', () => {
+  const frontOfHouse = { role: 'foh', pageAccess: ['/orders', '/pos'] };
+  assert.equal(hasDelegatedApiPageAccess(frontOfHouse, '/api/orders', '/order-1/refunds', 'POST'), true);
+  assert.equal(hasDelegatedApiPageAccess(frontOfHouse, '/api/orders', '/order-1/refunds/refund-1', 'PATCH'), false);
+  assert.equal(hasDelegatedApiPageAccess(frontOfHouse, '/api/orders', '/held', 'GET'), true);
+
+  const kitchenStaff = { role: 'kitchen', pageAccess: ['/management/menu'] };
+  assert.equal(hasDelegatedApiPageAccess(kitchenStaff, '/api/orders', '/order-1/refunds/refund-1', 'PATCH'), false);
+});
+
+test('requireRole accepts a delegated page grant and still rejects unrelated grants', () => {
+  const guard = requireRole('admin');
+  const runGuard = (apiPath, routePath) => {
+    let statusCode = 200;
+    let payload;
+    let passed = false;
+    guard({
+      user: { role: 'foh', pageAccess: ['/management/menu'] },
+      baseUrl: apiPath,
+      path: routePath,
+      method: 'POST',
+      body: {},
+    }, {
+      status(code) { statusCode = code; return this; },
+      json(value) { payload = value; return this; },
+    }, () => { passed = true; });
+    return { statusCode, payload, passed };
+  };
+
+  assert.deepEqual(runGuard('/api/menu', '/categories'), { statusCode: 200, payload: undefined, passed: true });
+  assert.equal(runGuard('/api/settings', '/').statusCode, 403);
 });

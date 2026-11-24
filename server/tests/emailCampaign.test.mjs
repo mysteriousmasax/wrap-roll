@@ -9,6 +9,7 @@ import {
   escapeEmailHtml,
   plainTextToHtml,
 } from '../utils/emailCampaigns.js';
+import { withCustomerNameFallback } from '../utils/emailCustomerNames.js';
 
 test('buildCampaignSubject uses the campaign type and brand name', () => {
   assert.equal(buildCampaignSubject('birthday'), 'Happy birthday from Wrap & Roll');
@@ -57,6 +58,23 @@ test('renderEmailTemplate replaces known customer fields and keeps unknown token
     renderEmailTemplate('Hi {{first_name}}. {{unknown}}', { firstName: 'Amina' }),
     'Hi Amina. {{unknown}}',
   );
+});
+
+test('customer-name fallback personalizes contacts while preserving names they already provided', () => {
+  assert.deepEqual(
+    withCustomerNameFallback({ email: 'amina@example.com', first_name: '', last_name: '' }, 'Amina Mushi'),
+    { email: 'amina@example.com', first_name: 'Amina', last_name: 'Mushi' },
+  );
+  assert.deepEqual(
+    withCustomerNameFallback({ email: 'amina@example.com', first_name: 'Amina', last_name: '' }, 'Amina Nyerere'),
+    { email: 'amina@example.com', first_name: 'Amina', last_name: 'Nyerere' },
+    'explicitly entered name fields are not replaced',
+  );
+  const resolvedName = withCustomerNameFallback({ first_name: '', last_name: '' }, 'Amina Mushi');
+  assert.equal(renderEmailTemplate('Hi {{first_name}} {{last_name}}', {
+    firstName: resolvedName.first_name,
+    lastName: resolvedName.last_name,
+  }), 'Hi Amina Mushi');
 });
 
 test('plainTextToHtml escapes untrusted content and preserves line breaks', () => {

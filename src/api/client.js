@@ -23,7 +23,7 @@ export async function request(path, options = {}) {
 
   let res;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    res = await fetch(`${API_BASE}${path}`, { cache: 'no-store', ...options, headers });
   } catch {
     throw new ApiError('Network error — is the server running?', 0);
   }
@@ -232,7 +232,13 @@ export const api = {
   updateKanbanTask: (id, data) => request(`/staff/kanban/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteKanbanTask: (id) => request(`/staff/kanban/${id}`, { method: 'DELETE' }),
 
-  getInventory: () => request('/inventory'),
+  getInventory: async () => {
+    const inventory = await request('/inventory');
+    if (!Array.isArray(inventory)) {
+      throw new ApiError('Inventory API returned an invalid response. Reload and try again.', 502);
+    }
+    return inventory;
+  },
   getInventoryCategories: () => request('/inventory/categories'),
   createInventoryCategory: (data) => request('/inventory/categories', { method: 'POST', body: JSON.stringify(data) }),
   updateInventoryCategory: (id, data) => request(`/inventory/categories/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -243,6 +249,7 @@ export const api = {
   deleteInventoryStorageLocation: (id) => request(`/inventory/storage-locations/${id}`, { method: 'DELETE' }),
   getInventoryAudit: (id) => request(`/inventory/${id}/audit`),
   getInventoryPurchaseHistory: (id) => request(`/inventory/${id}/purchase-history`),
+  getInventoryMovements: (id) => request(`/inventory/${id}/movements`),
   adjustInventory: (id, data) => request(`/inventory/${id}/adjust`, { method: 'POST', body: JSON.stringify(data) }),
   lookupTraReceipt: (url) => request('/inventory/receipt-qr', { method: 'POST', body: JSON.stringify({ url }) }),
   createInventory: (data) => request('/inventory', { method: 'POST', body: JSON.stringify(data) }),
@@ -269,6 +276,7 @@ export const api = {
   markAllNotificationsRead: () => request('/notifications/read-all', { method: 'PATCH' }),
 
   getSales: () => request('/analytics/sales'),
+  getAnalyticsRecentOrders: () => request('/analytics/recent-orders'),
   getAnalyticsSummary: (date) => request(`/analytics/summary${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   exportAnalytics: async (range, format = 'csv', date = '') => {
     const token = getToken();
@@ -320,6 +328,7 @@ export const api = {
   getAiActivity: () => request('/analytics/ai-activity'),
   getBusinessOverview: () => request('/business/overview'),
   getBusinessExpenses: () => request('/business/expenses'),
+  getBusinessExpenseReceiptImage: (id) => request(`/business/expenses/${encodeURIComponent(id)}/receipt-image`),
   createBusinessExpense: (data) => request('/business/expenses', { method: 'POST', body: JSON.stringify(data) }),
   updateBusinessExpense: (id, data) => request(`/business/expenses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteBusinessExpense: (id) => request(`/business/expenses/${id}`, { method: 'DELETE' }),

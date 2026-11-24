@@ -8,6 +8,8 @@ import { restaurantDateBounds, restaurantTime } from '../utils/localTime.js';
 import { getStorageAfterConsumption, inventoryStorageColumns } from '../utils/inventoryStorage.js';
 import { getStockUnitConversionFactor } from '../../src/utils/stockUnits.js';
 import { recordInventoryStockAlerts } from '../utils/inventoryStockAlerts.js';
+import { recordInventoryMovement } from '../utils/inventoryMovements.js';
+import { normalizeReceiptImage } from '../utils/receiptImage.js';
 
 const router = Router();
 
@@ -51,6 +53,7 @@ const operationalChecklists = [
 
 const checklistSettingsKey = 'operational_checklists';
 const paymentCountChannels = ['cashFloat', 'cashSales', 'mobileMoney', 'nfc'];
+const shiftStorageCountColumns = [...inventoryStorageColumns, 'unassigned'];
 
 function getOperationalChecklists() {
   const saved = db.prepare('SELECT value FROM settings WHERE key = ?').get(checklistSettingsKey)?.value;
@@ -99,9 +102,36 @@ function inventoryCountStatus(staffCounts = []) {
   const closingCounts = staffCounts.filter((count) => count.closing !== '' && count.closing != null);
   if (!closingCounts.length) return 'not-counted';
   if (closingCounts.length < 2) return 'pending-confirmation';
-  return closingCounts.every((count) => Number(count.closing) === Number(closingCounts[0].closing))
-    ? 'confirmed'
-    : 'mismatch';
+  const first = closingCounts[0];
+  const countsAgree = closingCounts.every((count) => Number(count.closing) === Number(first.closing)
+    && shiftStorageCountColumns.every((column) => {
+      const firstHasStorage = first.storageCounts && first.storageCounts[column] != null;
+      const countHasStorage = count.storageCounts && count.storageCounts[column] != null;
+      return firstHasStorage === countHasStorage
+        && (!firstHasStorage || Math.abs(Number(count.storageCounts[column]) - Number(first.storageCounts[column])) < 1e-9);
+    })
+    && (count.expectedQuantity == null || first.expectedQuantity == null
+      || Math.abs(Number(count.expectedQuantity) - Number(first.expectedQuantity)) < 1e-9));
+  if (!countsAgree) return 'mismatch';
+  return first.expectedQuantity != null && Math.abs(Number(first.closing) - Number(first.expectedQuantity)) >= 1e-9
+    ? 'confirmed-variance'
+    : 'confirmed';
+}
+
+function normalizeShiftStorageCounts(storageCounts, conversionFactor = 1) {
+  if (!storageCounts || typeof storageCounts !== 'object' || Array.isArray(storageCounts)) return null;
+  const hasAnyCount = shiftStorageCountColumns.some((column) => storageCounts[column] != null && String(storageCounts[column]).trim() !== '');
+  if (!hasAnyCount) return null;
+  if (shiftStorageCountColumns.some((column) => storageCounts[column] == null || String(storageCounts[column]).trim() === '')) {
+    throw new Error('Count every storage location, including Unassigned, or leave all storage counts blank.');
+  }
+  const normalized = {};
+  for (const column of shiftStorageCountColumns) {
+    const value = Number(storageCounts[column]) * conversionFactor;
+    if (!Number.isFinite(value) || value < 0) throw new Error('Storage counts need valid non-negative quantities.');
+    normalized[column] = value;
+  }
+  return normalized;
 }
 
 function decorateInventoryCounts(counts, userId) {
@@ -111,6 +141,11 @@ function decorateInventoryCounts(counts, userId) {
       ...row,
       staffCounts,
       currentStaffCount: staffCounts.find((count) => String(count.userId) === String(userId)) || null,
+      expectedQuantity: staffCounts.find((count) => count.closing !== '' && count.closing != null)?.expectedQuantity ?? null,
+      variance: (() => {
+        const firstCount = staffCounts.find((count) => count.closing !== '' && count.closing != null);
+        return firstCount?.expectedQuantity == null ? null : Number(firstCount.closing) - Number(firstCount.expectedQuantity);
+      })(),
       confirmationStatus: inventoryCountStatus(staffCounts),
     };
   });
@@ -405,6 +440,9 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
       added: normalizeQuantity(row?.added),
       closing: normalizeQuantity(row?.closing),
       status: ['ok', 'restock', 'prep'].includes(row?.status) ? row.status : 'ok',
+      storageCounts: row?.storageCounts && typeof row.storageCounts === 'object' && !Array.isArray(row.storageCounts)
+        ? row.storageCounts
+        : null,
     };
   });
   if (normalizedCounts.some((row) => [row.opening, row.added, row.closing].some((value) => value !== '' && (!Number.isFinite(value) || value < 0)))) {
@@ -459,58 +497,126 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
         for (const field of ['opening', 'added', 'closing']) {
           if (row[field] !== '') row[field] *= unitFactor;
         }
+        row.storageCounts = normalizeShiftStorageCounts(row.storageCounts, unitFactor);
+        if (row.storageCounts) {
+          const storageTotal = shiftStorageCountColumns.reduce((sum, column) => sum + row.storageCounts[column], 0);
+          if (row.closing === '') row.closing = storageTotal;
+          else if (Math.abs(row.closing - storageTotal) > 1e-9) {
+            throw new Error(`${row.item} closing stock must equal the total of its storage location counts.`);
+          }
+        }
         row.unit = item.unit || row.unit;
         if (seenInventoryIds.has(item.id)) throw new Error(`${row.item} appears more than once in this handover.`);
         seenInventoryIds.add(item.id);
         const savedItem = existing || {};
         const staffCounts = Array.isArray(savedItem.staffCounts) ? [...savedItem.staffCounts] : [];
-        const previousClosingCounts = staffCounts.filter((count) => count.closing !== '' && count.closing != null);
+        const staffCountIndex = staffCounts.findIndex((count) => String(count.userId) === String(req.user.id));
+        const previousStaffCount = staffCountIndex >= 0 ? staffCounts[staffCountIndex] : null;
+        const expectedStock = savedItem.expectedQuantity
+          ?? staffCounts.find((count) => count.expectedQuantity != null)?.expectedQuantity
+          ?? Number(item.quantity);
         const currentStaffCount = {
           userId: Number(req.user.id),
           staffName: req.user?.name || req.user?.username || 'Staff',
           opening: row.opening,
           added: row.added,
           closing: row.closing,
+          expectedQuantity: previousStaffCount?.expectedQuantity ?? expectedStock,
           status: row.status,
+          storageCounts: row.storageCounts,
           countedAt: now,
         };
-        const hasCount = [row.opening, row.added, row.closing].some((value) => value !== '');
-        const staffCountIndex = staffCounts.findIndex((count) => String(count.userId) === String(req.user.id));
-        const previousStaffCount = staffCountIndex >= 0 ? staffCounts[staffCountIndex] : null;
+        const hasCount = [row.opening, row.added, row.closing].some((value) => value !== '') || row.storageCounts !== null;
         if (hasCount) {
           if (staffCountIndex >= 0) staffCounts[staffCountIndex] = currentStaffCount;
           else staffCounts.push(currentStaffCount);
         }
         const confirmationStatus = inventoryCountStatus(staffCounts);
         const closingCounts = staffCounts.filter((count) => count.closing !== '' && count.closing != null);
-        const onlyCurrentStaffCounted = closingCounts.length === 1
-          && String(closingCounts[0].userId) === String(req.user.id);
-        const shouldApplyClosing = closingCounts.length > 0
-          && (confirmationStatus === 'confirmed'
-            || (confirmationStatus === 'pending-confirmation'
-              && onlyCurrentStaffCounted
-              && previousClosingCounts.length <= 1));
+        const previousConfirmationStatus = inventoryCountStatus(savedItem.staffCounts || []);
+        const shouldApplyClosing = confirmationStatus === 'confirmed' || confirmationStatus === 'confirmed-variance';
+        const expectedQuantity = closingCounts[0]?.expectedQuantity ?? expectedStock;
+        const variance = closingCounts.length ? Number(closingCounts[0].closing) - Number(expectedQuantity) : 0;
+        const notifyCountVariance = (title, message) => {
+          for (const audience of [
+            { audienceUserId: req.user.id, audienceRole: null },
+            { audienceUserId: null, audienceRole: 'manager' },
+          ]) {
+            const alreadyNotified = db.prepare(`SELECT id FROM notifications
+              WHERE title = ? AND message = ? AND read = 0 AND audience_user_id IS ?
+                AND audience_role IS ? LIMIT 1`)
+              .get(title, message, audience.audienceUserId, audience.audienceRole);
+            if (alreadyNotified) continue;
+            const result = db.prepare(`INSERT INTO notifications
+              (type, title, message, read, created_at, audience_user_id, audience_role)
+              VALUES ('warning', ?, ?, 0, ?, ?, ?)`)
+              .run(title, message, now, audience.audienceUserId, audience.audienceRole);
+            stockNotifications.push(db.prepare('SELECT * FROM notifications WHERE id = ?').get(result.lastInsertRowid));
+          }
+        };
+        if (hasCount && closingCounts.length && Math.abs(variance) >= 1e-9) {
+          notifyCountVariance(
+            `Stock count variance: ${item.name}`,
+            `${date} ${shift} shift: staff counted ${closingCounts[0].closing} ${item.unit}; system expected ${expectedQuantity} ${item.unit}. Verify stock before reconciling.`
+          );
+        }
+        if (hasCount && confirmationStatus === 'mismatch') {
+          const countedValues = closingCounts.map((count) => `${count.staffName}: ${count.closing} ${item.unit}`).join(' vs ');
+          notifyCountVariance(
+            `Stock count disagreement: ${item.name}`,
+            `${date} ${shift} shift: ${countedValues}. Recount together; system stock has not been changed.`
+          );
+        }
         const updatedRow = {
           ...savedItem,
           item: item.name,
           unit: item.unit || row.unit,
           inventoryId: item.id,
+          expectedQuantity,
           staffCounts,
         };
+        if (closingCounts.length) {
+          updatedRow.closing = Number(closingCounts[0].closing);
+          updatedRow.status = closingCounts[0].status;
+        }
         let confirmedStorage = null;
         if (shouldApplyClosing) {
-          const appliedClosing = Number(closingCounts[0].closing);
+          const appliedCount = closingCounts[0];
+          const appliedClosing = Number(appliedCount.closing);
           updatedRow.opening = row.opening;
           updatedRow.added = row.added;
           updatedRow.closing = appliedClosing;
           updatedRow.status = row.status;
-          confirmedStorage = getStorageAfterConsumption(item, Math.max(0, Number(item.quantity) - appliedClosing), appliedClosing);
+          confirmedStorage = appliedCount.storageCounts
+            ? Object.fromEntries(inventoryStorageColumns.map((column) => [column, Number(appliedCount.storageCounts[column])]))
+            : getStorageAfterConsumption(item, Math.max(0, Number(item.quantity) - appliedClosing), appliedClosing);
+          updatedRow.storageCounts = {
+            ...confirmedStorage,
+            unassigned: Math.max(0, appliedClosing - inventoryStorageColumns.reduce((sum, column) => sum + confirmedStorage[column], 0)),
+          };
           const storageChanged = inventoryStorageColumns.some((column) => Number(item[column] || 0) !== confirmedStorage[column]);
           const quantityChanged = Math.abs(Number(item.quantity) - appliedClosing) > 1e-9;
           if (quantityChanged || storageChanged) {
             db.prepare('UPDATE inventory SET quantity = ?, back_freezer_chiller = ?, refrigerator = ?, front_sandwich = ?, front_pizza = ?, front_burger = ? WHERE id = ?')
               .run(appliedClosing, confirmedStorage.back_freezer_chiller, confirmedStorage.refrigerator, confirmedStorage.front_sandwich, confirmedStorage.front_pizza, confirmedStorage.front_burger, item.id);
             if (quantityChanged || storageChanged) updatedInventoryIds.push(item.id);
+          }
+          if (previousConfirmationStatus !== 'confirmed' && previousConfirmationStatus !== 'confirmed-variance') {
+            recordInventoryMovement(db, {
+              inventoryId: item.id,
+              itemName: item.name,
+              movementType: 'shift_count',
+              quantityBefore: item.quantity,
+              quantityAfter: appliedClosing,
+              unitBefore: item.unit,
+              referenceType: 'shift_handover',
+              referenceId: `${date}:${shift}`,
+              note: Math.abs(variance) >= 1e-9
+                ? `Two staff counts confirmed; physical count variance ${variance > 0 ? '+' : ''}${variance} ${item.unit}`
+                : 'Two staff counts confirmed against expected stock',
+              actor: req.user,
+              createdAt: now,
+            });
           }
           stockNotifications.push(...recordInventoryStockAlerts(
             item,
@@ -520,12 +626,10 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
               : `after the first ${shift} shift count was recorded`,
             now
           ));
-        } else if (closingCounts.length) {
-          updatedRow.closing = Number(item.quantity);
         }
         if (hasCount) {
           const summarizeCount = (count) => count
-            ? `opening ${count.opening === '' ? '—' : count.opening}, added ${count.added === '' ? '—' : count.added}, closing ${count.closing === '' ? '—' : count.closing} ${item.unit || row.unit}`
+            ? `opening ${count.opening === '' ? '—' : count.opening}, added ${count.added === '' ? '—' : count.added}, closing ${count.closing === '' ? '—' : count.closing} ${item.unit || row.unit}${count.storageCounts ? `, storage ${shiftStorageCountColumns.map((column) => `${column} ${count.storageCounts[column]}`).join(', ')}` : ''}`
             : 'not recorded';
           const changes = {
             shiftCount: {
@@ -539,7 +643,9 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
               from: null,
               to: confirmationStatus === 'confirmed'
                 ? `${shift} shift count confirmed by multiple staff`
-                : `${shift} shift count recorded by first staff member`,
+                : confirmationStatus === 'confirmed-variance'
+                  ? `${shift} shift count confirmed by multiple staff with a variance of ${variance} ${item.unit}`
+                  : 'not reconciled until a second staff member confirms the count',
             };
           }
           if (confirmedStorage && inventoryStorageColumns.some((column) => Number(item[column] || 0) !== confirmedStorage[column])) {
@@ -580,7 +686,17 @@ router.put('/shift-handover', authMiddleware, (req, res) => {
 });
 
 router.get('/expenses', authMiddleware, (_req, res) => {
-  res.json(db.prepare('SELECT * FROM business_expenses ORDER BY expense_date DESC, id DESC LIMIT 100').all());
+  res.json(db.prepare(`SELECT id, expense_date, category, description, supplier, amount, payment_method, status, receipt_ref,
+    receipt_image IS NOT NULL AND receipt_image <> '' AS has_receipt_image, created_by, created_at
+    FROM business_expenses ORDER BY expense_date DESC, id DESC LIMIT 100`).all());
+});
+
+router.get('/expenses/:id/receipt-image', authMiddleware, (req, res) => {
+  const expense = db.prepare('SELECT receipt_image FROM business_expenses WHERE id = ?').get(req.params.id);
+  if (!expense) return res.status(404).json({ error: 'Expense not found.' });
+  if (!expense.receipt_image) return res.status(404).json({ error: 'No receipt photo is attached to this expense.' });
+  res.set('Cache-Control', 'private, no-store');
+  res.json({ receiptImage: expense.receipt_image });
 });
 
 router.get('/deletion-audit', authMiddleware, deletionViewer, (req, res) => {
@@ -589,34 +705,52 @@ router.get('/deletion-audit', authMiddleware, deletionViewer, (req, res) => {
 });
 
 router.post('/expenses', authMiddleware, (req, res) => {
-  const { expenseDate, category, description, supplier, amount, paymentMethod, receiptRef } = req.body || {};
+  const { expenseDate, category, description, supplier, amount, paymentMethod, receiptRef, receiptImage } = req.body || {};
   if (!expenseDate || !category || !description || !Number(amount) || Number(amount) < 0) {
     return res.status(400).json({ error: 'Date, category, description, and a positive amount are required.' });
   }
+  let normalizedReceiptImage;
+  try {
+    normalizedReceiptImage = normalizeReceiptImage(receiptImage);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
   const result = db.prepare(`INSERT INTO business_expenses
-    (expense_date, category, description, supplier, amount, payment_method, status, receipt_ref, created_by, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`).run(
+    (expense_date, category, description, supplier, amount, payment_method, status, receipt_ref, receipt_image, created_by, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`).run(
     expenseDate, category, description, supplier || null, Number(amount), paymentMethod || 'bank', receiptRef || null,
-    req.user?.name || 'Admin', new Date().toISOString()
+    normalizedReceiptImage, req.user?.name || 'Admin', new Date().toISOString()
   );
-  const expense = db.prepare('SELECT * FROM business_expenses WHERE id = ?').get(result.lastInsertRowid);
+  const expense = db.prepare(`SELECT id, expense_date, category, description, supplier, amount, payment_method, status, receipt_ref,
+    receipt_image IS NOT NULL AND receipt_image <> '' AS has_receipt_image, created_by, created_at
+    FROM business_expenses WHERE id = ?`).get(result.lastInsertRowid);
   broadcast('business:updated', { type: 'expense_created' });
   res.status(201).json(expense);
 });
 
 router.put('/expenses/:id', authMiddleware, requireRole('admin'), (req, res) => {
-  const { expenseDate, category, description, supplier, amount, paymentMethod, receiptRef } = req.body || {};
+  const { expenseDate, category, description, supplier, amount, paymentMethod, receiptRef, receiptImage } = req.body || {};
   if (!expenseDate || !category || !description || !Number(amount) || Number(amount) < 0) {
     return res.status(400).json({ error: 'Date, category, description, and a positive amount are required.' });
   }
+  let normalizedReceiptImage;
+  try {
+    normalizedReceiptImage = normalizeReceiptImage(receiptImage);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
   const result = db.prepare(`UPDATE business_expenses
-    SET expense_date = ?, category = ?, description = ?, supplier = ?, amount = ?, payment_method = ?, receipt_ref = ?
+    SET expense_date = ?, category = ?, description = ?, supplier = ?, amount = ?, payment_method = ?, receipt_ref = ?,
+      receipt_image = CASE WHEN ? THEN ? ELSE receipt_image END
     WHERE id = ?`).run(
-    expenseDate, category, description, supplier || null, Number(amount), paymentMethod || 'bank', receiptRef || null, req.params.id
+    expenseDate, category, description, supplier || null, Number(amount), paymentMethod || 'bank', receiptRef || null,
+    receiptImage !== undefined ? 1 : 0, normalizedReceiptImage, req.params.id
   );
   if (!result.changes) return res.status(404).json({ error: 'Expense not found.' });
   broadcast('business:updated', { type: 'expense_updated' });
-  res.json(db.prepare('SELECT * FROM business_expenses WHERE id = ?').get(req.params.id));
+  res.json(db.prepare(`SELECT id, expense_date, category, description, supplier, amount, payment_method, status, receipt_ref,
+    receipt_image IS NOT NULL AND receipt_image <> '' AS has_receipt_image, created_by, created_at
+    FROM business_expenses WHERE id = ?`).get(req.params.id));
 });
 
 router.delete('/expenses/:id', authMiddleware, deletionViewer, requireAdilaDeletion, (req, res) => {

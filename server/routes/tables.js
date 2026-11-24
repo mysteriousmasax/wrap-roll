@@ -22,6 +22,7 @@ function mapTable(row) {
     tabTotal: Number(row.tab_total || 0),
     paidAmount: Number(row.tab_paid || 0),
     balanceDue: Math.max(0, Number(row.tab_total || 0) - Number(row.tab_paid || 0)),
+    tickets: row.tickets || [],
     x: row.x,
     y: row.y,
     order: row.current_order_id,
@@ -44,9 +45,59 @@ function getTableRows() {
     ORDER BY t.number`).all();
 }
 
+function getTableRowsWithTickets() {
+  const rows = getTableRows();
+  const tabIds = rows.map((row) => row.open_tab_id).filter(Boolean);
+  if (!tabIds.length) return rows;
+  const placeholders = tabIds.map(() => '?').join(', ');
+  const tickets = db.prepare(`SELECT o.id, o.dine_in_tab_id, o.order_number, o.status, o.created_at,
+      ordered_by.name AS ordered_by,
+      (SELECT event.occurred_at FROM order_events event
+        WHERE event.order_id = o.id AND event.event_type = 'status_changed' AND event.status = 'completed'
+        ORDER BY event.occurred_at DESC, event.id DESC LIMIT 1) AS served_at,
+      (SELECT served_by.name FROM order_events event
+        LEFT JOIN users served_by ON served_by.id = event.actor_user_id
+        WHERE event.order_id = o.id AND event.event_type = 'status_changed' AND event.status = 'completed'
+        ORDER BY event.occurred_at DESC, event.id DESC LIMIT 1) AS served_by
+    FROM orders o
+    LEFT JOIN users ordered_by ON ordered_by.id = o.staff_id
+    WHERE o.dine_in_tab_id IN (${placeholders})
+    ORDER BY o.created_at, o.id`).all(...tabIds);
+  if (!tickets.length) return rows;
+  const orderIds = tickets.map((ticket) => ticket.id);
+  const orderPlaceholders = orderIds.map(() => '?').join(', ');
+  const items = db.prepare(`SELECT order_id, name, qty FROM order_items
+    WHERE order_id IN (${orderPlaceholders}) ORDER BY id`).all(...orderIds);
+  const itemsByOrder = new Map();
+  for (const item of items) {
+    const orderItems = itemsByOrder.get(item.order_id) || [];
+    orderItems.push({ name: item.name, quantity: Number(item.qty || 0) });
+    itemsByOrder.set(item.order_id, orderItems);
+  }
+  const ticketsByTab = new Map();
+  for (const ticket of tickets) {
+    const tabTickets = ticketsByTab.get(ticket.dine_in_tab_id) || [];
+    tabTickets.push({
+      id: ticket.id,
+      orderNumber: ticket.order_number || ticket.id,
+      status: ticket.status,
+      createdAt: ticket.created_at,
+      orderedBy: ticket.ordered_by || '',
+      servedAt: ticket.served_at,
+      servedBy: ticket.served_by || '',
+      items: itemsByOrder.get(ticket.id) || [],
+    });
+    ticketsByTab.set(ticket.dine_in_tab_id, tabTickets);
+  }
+  return rows.map((row) => ({
+    ...row,
+    tickets: row.open_tab_id ? ticketsByTab.get(row.open_tab_id) || [] : [],
+  }));
+}
+
 router.get('/', authMiddleware, (req, res) => {
   releaseExpiredCleaningTables(db).forEach((table) => broadcast('table:updated', mapTable(table)));
-  res.json(getTableRows().map(mapTable));
+  res.json(getTableRowsWithTickets().map(mapTable));
 });
 
 router.get('/public/:tagId', (req, res) => {
@@ -123,7 +174,7 @@ router.post('/:id/payments', authMiddleware, requireRole('admin', 'manager', 'fo
       receivedBy: req.user?.name || 'Staff',
       receivedByUserId: req.user?.id ?? null,
     });
-    const updatedTable = getTableRows().find((row) => row.id === table.id);
+    const updatedTable = getTableRowsWithTickets().find((row) => row.id === table.id);
     broadcast('table:updated', mapTable(updatedTable));
     summary.tickets.forEach((ticket) => {
       const order = getOrderById(ticket.id);

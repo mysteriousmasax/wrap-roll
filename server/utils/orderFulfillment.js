@@ -4,6 +4,7 @@ import { awardRollPoints } from './rollPoints.js';
 import { getStockUnitConversionFactor } from '../../src/utils/stockUnits.js';
 import { getStorageAfterConsumption, inventoryStorageColumns } from './inventoryStorage.js';
 import { recordInventoryStockAlerts } from './inventoryStockAlerts.js';
+import { recordInventoryMovement } from './inventoryMovements.js';
 
 function parseIngredients(value) {
   if (Array.isArray(value)) return value;
@@ -15,7 +16,7 @@ function parseIngredients(value) {
   }
 }
 
-function deductInventory(menuItemId, itemName, ingredients, qty, orderType, now, stockNotifications) {
+function deductInventory(orderId, menuItemId, itemName, ingredients, qty, orderType, now, stockNotifications) {
   if (!menuItemId) return;
   const menuItem = db.prepare('SELECT id, name FROM menu_items WHERE id = ?').get(menuItemId);
   if (!menuItem) return;
@@ -45,17 +46,31 @@ function deductInventory(menuItemId, itemName, ingredients, qty, orderType, now,
     }
     const deduction = amount * conversionFactor * qty;
     const nextQuantity = Math.max(0, Number(inventoryItem.quantity) - deduction);
-    if (nextQuantity === Number(inventoryItem.quantity)) continue;
+    if (deduction <= 0) continue;
     const nextStorage = getStorageAfterConsumption(inventoryItem, deduction, nextQuantity);
-    db.prepare(`UPDATE inventory SET quantity = ?, back_freezer_chiller = ?, refrigerator = ?, front_sandwich = ?, front_pizza = ?, front_burger = ? WHERE id = ?`)
-      .run(nextQuantity, nextStorage.back_freezer_chiller, nextStorage.refrigerator, nextStorage.front_sandwich, nextStorage.front_pizza, nextStorage.front_burger, inventoryItem.id);
-    db.prepare(`INSERT INTO inventory_audit (inventory_id, action, changed_by_id, changed_by_name, changed_by_role, changes, created_at)
-      VALUES (?, 'updated', NULL, 'System', 'system', ?, ?)`)
-      .run(inventoryItem.id, JSON.stringify({
-        quantity: { from: inventoryItem.quantity, to: nextQuantity },
-        storage: Object.fromEntries(inventoryStorageColumns.filter((column) => Number(inventoryItem[column] || 0) !== nextStorage[column]).map((column) => [column, { from: inventoryItem[column] || 0, to: nextStorage[column] }])),
-        reason: { from: null, to: `Order fulfillment for ${itemName || menuItem.name}` },
-      }), now);
+    if (nextQuantity !== Number(inventoryItem.quantity)) {
+      db.prepare(`UPDATE inventory SET quantity = ?, back_freezer_chiller = ?, refrigerator = ?, front_sandwich = ?, front_pizza = ?, front_burger = ? WHERE id = ?`)
+        .run(nextQuantity, nextStorage.back_freezer_chiller, nextStorage.refrigerator, nextStorage.front_sandwich, nextStorage.front_pizza, nextStorage.front_burger, inventoryItem.id);
+      db.prepare(`INSERT INTO inventory_audit (inventory_id, action, changed_by_id, changed_by_name, changed_by_role, changes, created_at)
+        VALUES (?, 'updated', NULL, 'System', 'system', ?, ?)`)
+        .run(inventoryItem.id, JSON.stringify({
+          quantity: { from: inventoryItem.quantity, to: nextQuantity },
+          storage: Object.fromEntries(inventoryStorageColumns.filter((column) => Number(inventoryItem[column] || 0) !== nextStorage[column]).map((column) => [column, { from: inventoryItem[column] || 0, to: nextStorage[column] }])),
+          reason: { from: null, to: `Order fulfillment for ${itemName || menuItem.name}` },
+        }), now);
+    }
+    recordInventoryMovement(db, {
+      inventoryId: inventoryItem.id,
+      itemName: inventoryItem.name,
+      movementType: 'sale_usage',
+      quantityBefore: inventoryItem.quantity,
+      quantityAfter: nextQuantity,
+      unitBefore: inventoryItem.unit,
+      referenceType: 'order',
+      referenceId: orderId,
+      note: `Recipe demand ${deduction} ${inventoryItem.unit}; deducted ${Number(inventoryItem.quantity) - nextQuantity}, unfilled ${Math.max(0, deduction - Number(inventoryItem.quantity))} for ${itemName || menuItem.name}`,
+      createdAt: now,
+    });
     stockNotifications.push(...recordInventoryStockAlerts(
       inventoryItem,
       { ...inventoryItem, quantity: nextQuantity },
@@ -80,7 +95,7 @@ export function applyOrderFulfillmentEffects(orderId, { allowInvoiceTerms = fals
 
     if (!order.fulfillment_effects_applied_at) {
       const items = db.prepare('SELECT menu_item_id, name, qty, ingredients FROM order_items WHERE order_id = ?').all(orderId);
-      for (const item of items) deductInventory(item.menu_item_id, item.name, item.ingredients, Number(item.qty), order.order_type, now, stockNotifications);
+      for (const item of items) deductInventory(orderId, item.menu_item_id, item.name, item.ingredients, Number(item.qty), order.order_type, now, stockNotifications);
 
       if (order.customer_id) {
         const favoriteItems = items.map((item) => item.name).filter(Boolean);

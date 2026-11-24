@@ -6,7 +6,7 @@ import path from 'node:path';
 import express from 'express';
 import test from 'node:test';
 
-test('handover counts update live stock immediately, confirm with a second staff count, and deduct packaging only for takeout and delivery', async () => {
+test('handover counts alert on stock variance, apply only verified counts, and track sales usage', async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'wrap-roll-inventory-workflows-'));
   const previousPath = process.env.DB_PATH;
   let setupDb;
@@ -73,6 +73,63 @@ test('handover counts update live stock immediately, confirm with a second staff
     assert.equal(deletedCategory.status, 200);
     assert.equal(db.prepare('SELECT category FROM inventory WHERE id = ?').get(boxId).category, 'Stock items');
 
+    const unitConversionId = db.prepare(`INSERT INTO inventory
+      (name, quantity, unit, threshold, unit_cost, purchase_unit, purchase_unit_factor, purchase_unit_cost,
+       back_freezer_chiller, refrigerator, front_sandwich, front_pizza, front_burger)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run('Unit Conversion Test', 10, 'kg', 2, 5, 'bag', 20, 100, 4, 2, 1, 1, 1).lastInsertRowid;
+    const convertBaseUnit = await fetch(`${base}/inventory/${unitConversionId}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ unit: 'g' }),
+    });
+    assert.equal(convertBaseUnit.status, 200);
+    const convertedUnitItem = await convertBaseUnit.json();
+    assert.equal(convertedUnitItem.quantity, 10000);
+    assert.equal(convertedUnitItem.threshold, 2000);
+    assert.equal(convertedUnitItem.unitCost, 0.005);
+    assert.equal(convertedUnitItem.purchaseUnitFactor, 20000);
+    assert.equal(convertedUnitItem.backFreezerChiller, 4000);
+    assert.equal(convertedUnitItem.refrigerator, 2000);
+    assert.equal(convertedUnitItem.unassigned, 1000);
+    const incompatibleBaseUnit = await fetch(`${base}/inventory/${unitConversionId}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ unit: 'bottle' }),
+    });
+    assert.equal(incompatibleBaseUnit.status, 400);
+    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(unitConversionId).quantity, 10000);
+    const reinterpretItemId = db.prepare(`INSERT INTO inventory
+      (name, quantity, unit, threshold, unit_cost, purchase_unit, purchase_unit_factor, purchase_unit_cost,
+       back_freezer_chiller, refrigerator)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run('Unit Label Correction Test', 6, 'pcs', 2, 4, 'case', 12, 48, 4, 2).lastInsertRowid;
+    const reinterpretUnit = await fetch(`${base}/inventory/${reinterpretItemId}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ unit: 'kg', reinterpretUnit: true }),
+    });
+    assert.equal(reinterpretUnit.status, 200);
+    const reinterpretedItem = await reinterpretUnit.json();
+    assert.deepEqual([
+      reinterpretedItem.quantity,
+      reinterpretedItem.threshold,
+      reinterpretedItem.unitCost,
+      reinterpretedItem.purchaseUnit,
+      reinterpretedItem.purchaseUnitFactor,
+      reinterpretedItem.purchaseUnitCost,
+      reinterpretedItem.backFreezerChiller,
+      reinterpretedItem.refrigerator,
+    ], [6, 2, 4, 'kg', 1, 4, 4, 2]);
+    const unitCorrectionMovement = db.prepare(`SELECT movement_type, quantity_delta, unit_before, unit_after
+      FROM inventory_movements WHERE inventory_id = ? ORDER BY id DESC LIMIT 1`).get(reinterpretItemId);
+    assert.deepEqual(unitCorrectionMovement, {
+      movement_type: 'unit_correction',
+      quantity_delta: 0,
+      unit_before: 'pcs',
+      unit_after: 'kg',
+    });
+
     const saveHandover = (inventoryCounts, requestHeaders = headers) => fetch(`${base}/business/shift-handover`, {
       method: 'PUT', headers: requestHeaders,
       body: JSON.stringify({ date: '2026-10-10', shift: 'morning', reconciliation: {}, inventoryCounts }),
@@ -80,27 +137,100 @@ test('handover counts update live stock immediately, confirm with a second staff
     const saved = await saveHandover([{ item: 'Test Mozzarella', unit: 'kg', closing: 4 }]);
     assert.equal(saved.status, 200);
     const savedBody = await saved.json();
-    assert.equal(savedBody.updatedInventoryItems, 1);
+    assert.equal(savedBody.updatedInventoryItems, 0);
     assert.equal(savedBody.inventoryCounts[0].confirmationStatus, 'pending-confirmation');
     assert.equal(savedBody.inventoryCounts[0].closing, 4);
-    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 4);
+    assert.equal(savedBody.inventoryCounts[0].expectedQuantity, 10);
+    assert.equal(savedBody.inventoryCounts[0].variance, -6);
+    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 10);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM inventory_audit WHERE inventory_id = ?').get(mozzarellaId).count, 1);
+    assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM notifications
+      WHERE title = 'Stock count variance: Test Mozzarella' AND audience_user_id = ?`).get(userId).count, 1);
+
+    const storageCountId = db.prepare(`INSERT INTO inventory
+      (name, quantity, unit, threshold, back_freezer_chiller, refrigerator, front_sandwich, front_pizza, front_burger)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run('Storage Count Test', 10, 'kg', 1, 5, 2, 1, 1, 1).lastInsertRowid;
+    const saveStorageCount = (storageCounts, requestHeaders = headers) => fetch(`${base}/business/shift-handover`, {
+      method: 'PUT',
+      headers: requestHeaders,
+      body: JSON.stringify({
+        date: '2026-10-11',
+        shift: 'morning',
+        reconciliation: {},
+        inventoryCounts: [{
+          inventoryId: storageCountId,
+          item: 'Storage Count Test',
+          unit: 'kg',
+          opening: '',
+          added: '',
+          closing: '4',
+          storageCounts,
+          status: 'ok',
+        }],
+      }),
+    });
+    const firstStorageCount = {
+      back_freezer_chiller: 1,
+      refrigerator: 1,
+      front_sandwich: 0.5,
+      front_pizza: 0.5,
+      front_burger: 0.5,
+      unassigned: 0.5,
+    };
+    const incompleteStorageCount = await saveStorageCount({ back_freezer_chiller: 4 });
+    assert.equal(incompleteStorageCount.status, 400);
+    const storageTotalMismatch = await saveStorageCount({ ...firstStorageCount, unassigned: 1 });
+    assert.equal(storageTotalMismatch.status, 400);
+    const firstStorageSave = await saveStorageCount(firstStorageCount);
+    assert.equal(firstStorageSave.status, 200);
+    assert.equal((await firstStorageSave.json()).inventoryCounts[0].currentStaffCount.storageCounts.front_sandwich, 0.5);
+    const storedLocations = db.prepare(`SELECT quantity, back_freezer_chiller, refrigerator, front_sandwich, front_pizza, front_burger
+      FROM inventory WHERE id = ?`).get(storageCountId);
+    assert.deepEqual([
+      storedLocations.quantity,
+      storedLocations.back_freezer_chiller,
+      storedLocations.refrigerator,
+      storedLocations.front_sandwich,
+      storedLocations.front_pizza,
+      storedLocations.front_burger,
+    ], [10, 5, 2, 1, 1, 1]);
+    const wrongLocationCount = await saveStorageCount({ ...firstStorageCount, front_pizza: 0.75, unassigned: 0.25 }, confirmingHeaders);
+    assert.equal((await wrongLocationCount.json()).inventoryCounts[0].confirmationStatus, 'mismatch');
+    const confirmedStorageCount = await saveStorageCount(firstStorageCount, confirmingHeaders);
+    const confirmedStorageBody = await confirmedStorageCount.json();
+    assert.equal(confirmedStorageBody.inventoryCounts[0].confirmationStatus, 'confirmed-variance');
+    assert.equal(confirmedStorageBody.updatedInventoryItems, 1);
+    const confirmedLocations = db.prepare(`SELECT quantity, back_freezer_chiller, refrigerator, front_sandwich, front_pizza, front_burger
+      FROM inventory WHERE id = ?`).get(storageCountId);
+    assert.deepEqual([
+      confirmedLocations.quantity,
+      confirmedLocations.back_freezer_chiller,
+      confirmedLocations.refrigerator,
+      confirmedLocations.front_sandwich,
+      confirmedLocations.front_pizza,
+      confirmedLocations.front_burger,
+    ], [4, 1, 1, 0.5, 0.5, 0.5]);
 
     const mismatched = await saveHandover([{ item: 'Test Mozzarella', unit: 'kg', closing: 3 }], confirmingHeaders);
     assert.equal(mismatched.status, 200);
     const mismatchedBody = await mismatched.json();
     assert.equal(mismatchedBody.inventoryCounts[0].confirmationStatus, 'mismatch');
-    assert.equal(mismatchedBody.inventoryCounts[0].closing, 4, 'the saved inventory total remains the first staff count while the discrepancy is reviewed');
+    assert.equal(mismatchedBody.inventoryCounts[0].closing, 4, 'the first physical count remains visible while staff counts disagree');
     assert.equal(mismatchedBody.inventoryCounts[0].currentStaffCount.closing, 3, 'the second staff member retains their independent count');
     assert.equal(mismatchedBody.updatedInventoryItems, 0);
-    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 4);
+    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 10);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM inventory_audit WHERE inventory_id = ?').get(mozzarellaId).count, 2);
 
     const confirmed = await saveHandover([{ item: 'Test Mozzarella', unit: 'kg', closing: 4 }], confirmingHeaders);
     const confirmedBody = await confirmed.json();
-    assert.equal(confirmedBody.inventoryCounts[0].confirmationStatus, 'confirmed');
-    assert.equal(confirmedBody.updatedInventoryItems, 0);
+    assert.equal(confirmedBody.inventoryCounts[0].confirmationStatus, 'confirmed-variance');
+    assert.equal(confirmedBody.updatedInventoryItems, 1);
     assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(mozzarellaId).quantity, 4);
+    assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM inventory_movements
+      WHERE inventory_id = ? AND movement_type = 'shift_count'`).get(mozzarellaId).count, 1);
+    assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM notifications
+      WHERE title = 'Stock count disagreement: Test Mozzarella'`).get().count, 2);
     const firstCountAudit = JSON.parse(db.prepare('SELECT changes FROM inventory_audit WHERE inventory_id = ? ORDER BY id LIMIT 1').get(mozzarellaId).changes);
     assert.match(firstCountAudit.shiftCount.to, /2026-10-10 morning:.*closing 4 kg.*pending-confirmation/);
 
@@ -124,7 +254,7 @@ test('handover counts update live stock immediately, confirm with a second staff
     ], requestHeaders);
     const firstPizzaPrepCount = await countPizzaPrep(headers);
     assert.equal(firstPizzaPrepCount.status, 200);
-    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(pizzaPrepId).quantity, 0);
+    assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(pizzaPrepId).quantity, 1);
     const secondPizzaPrepCount = await countPizzaPrep(confirmingHeaders);
     assert.equal(secondPizzaPrepCount.status, 200);
     assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(pizzaPrepId).quantity, 0);
@@ -169,6 +299,20 @@ test('handover counts update live stock immediately, confirm with a second staff
     addPaidOrder('TEST-DELIVERY', 'delivery');
     assert.equal(db.prepare('SELECT quantity FROM inventory WHERE id = ?').get(boxId).quantity, 8);
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM notifications WHERE title = 'Low stock: Test Pizza Box'").get().count, 1);
+    const flourMovementsResponse = await fetch(`${base}/inventory/${flourId}/movements`, { headers });
+    assert.equal(flourMovementsResponse.status, 200);
+    const flourMovements = await flourMovementsResponse.json();
+    assert.equal(flourMovements.filter((row) => row.movementType === 'sale_usage').length, 3);
+    assert.deepEqual(
+      flourMovements.filter((row) => row.movementType === 'sale_usage').map((row) => row.referenceId).sort(),
+      ['TEST-DELIVERY', 'TEST-DINE-IN', 'TEST-TAKEOUT'],
+    );
+    const boxMovementsResponse = await fetch(`${base}/inventory/${boxId}/movements`, { headers });
+    const boxMovements = await boxMovementsResponse.json();
+    assert.deepEqual(
+      boxMovements.filter((row) => row.movementType === 'sale_usage').map((row) => row.referenceId).sort(),
+      ['TEST-DELIVERY', 'TEST-TAKEOUT'],
+    );
 
     const flour = await (await fetch(`${base}/inventory`, { headers })).json();
     const flourItem = flour.find((item) => item.id === flourId);
@@ -218,6 +362,11 @@ test('handover counts update live stock immediately, confirm with a second staff
     assert.equal(receivedCoffee.quantity, 1000);
     assert.equal(receivedCoffee.unitCost, 12);
     assert.equal(receivedCoffee.unassigned, 1000);
+    const coffeeMovementsResponse = await fetch(`${base}/inventory/${coffee.id}/movements`, { headers });
+    const coffeeMovements = await coffeeMovementsResponse.json();
+    assert.equal(coffeeMovements.length, 1);
+    assert.equal(coffeeMovements[0].movementType, 'purchase_receipt');
+    assert.equal(coffeeMovements[0].quantityDelta, 1000);
 
     const assignedCoffee = await fetch(`${base}/inventory/${coffee.id}`, {
       method: 'PUT',

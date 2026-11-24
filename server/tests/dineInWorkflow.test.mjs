@@ -94,6 +94,15 @@ test('POS and table QR tickets share a kitchen-first tab that can only be releas
     assert.equal(qrOrder.paymentStatus, 'pending');
     assert.equal(qrOrder.customer, null);
 
+    const tableListResponse = await fetch(`${base}/tables`, { headers });
+    assert.equal(tableListResponse.status, 200);
+    const tableWithTickets = (await tableListResponse.json()).find((table) => table.id === tableId);
+    assert.equal(tableWithTickets.tickets.length, 2);
+    assert.deepEqual(tableWithTickets.tickets[0].items, [{ name: 'Dine-in workflow test item', quantity: 1 }]);
+    assert.equal(tableWithTickets.tickets[0].orderedBy, user.name);
+    assert.ok(tableWithTickets.tickets[0].createdAt);
+    assert.equal(tableWithTickets.tickets[1].orderedBy, '');
+
     const customerDetailsResponse = await fetch(`${base}/tables/${tableId}/tab/customer`, {
       method: 'PATCH',
       headers,
@@ -138,6 +147,11 @@ test('POS and table QR tickets share a kitchen-first tab that can only be releas
       });
       assert.equal(response.status, 200);
     }
+
+    const servedTablesResponse = await fetch(`${base}/tables`, { headers });
+    const servedTable = (await servedTablesResponse.json()).find((table) => table.id === tableId);
+    assert.equal(servedTable.tickets[0].servedBy, user.name);
+    assert.ok(servedTable.tickets[0].servedAt);
 
     const tabResponse = await fetch(`${base}/tables/${tableId}/tab`, { headers });
     const tab = await tabResponse.json();

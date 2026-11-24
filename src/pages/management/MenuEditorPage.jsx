@@ -481,21 +481,21 @@ export default function MenuEditorPage() {
       />
       <div className="grid gap-3 md:grid-cols-2">
         <div>
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <label className="block text-xs font-bold uppercase tracking-wider text-[#746e67]">Recipe ingredients & packaging</label>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <label className="block min-w-0 text-xs font-bold uppercase tracking-wider text-[#746e67]">Recipe ingredients & packaging</label>
             <button
               type="button"
               onClick={() => setForm((current) => ({ ...current, ingredients: [...(current.ingredients || [makeIngredientRow()]), makeIngredientRow({ quantity: 1 })] }))}
-              className="text-[10px] font-bold uppercase tracking-wide text-[#ae002a] hover:underline"
+              className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-3 text-[10px] font-bold uppercase tracking-wide text-[#ae002a] hover:bg-[#fff1e3] sm:min-h-0 sm:border-0 sm:bg-transparent sm:px-0 sm:hover:bg-transparent sm:hover:underline"
             >
               + Add ingredient
             </button>
           </div>
-          <p className="mb-2 text-[10px] text-[#8c8278]">Enter recipe usage in the unit shown here. When it differs from inventory, supported weight and volume units convert automatically (for example 18 g from stock measured in kg).</p>
+          <p className="mb-2 text-[10px] text-[#8c8278]">Enter recipe usage per serving in the unit shown here. Editing a menu recipe does not change stock; linked ingredients are deducted once when an order is fulfilled. Compatible weight and volume units convert automatically (for example, 18 g from stock measured in kg).</p>
           <div className="space-y-2">
             {(form.ingredients || [makeIngredientRow()]).map((ingredient, index) => (
-              <div key={index} className="grid grid-cols-[1.5fr_0.8fr_0.7fr_auto] gap-2 rounded-xl border border-[#ebdccb] bg-white p-2">
-                <div className="min-w-0 space-y-1">
+              <div key={index} className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 rounded-xl border border-[#ebdccb] bg-white p-2 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,0.8fr)_minmax(0,0.7fr)_auto]">
+                <div className="col-span-full min-w-0 space-y-1 sm:col-span-1">
                   <input
                     list="inventory-name-options"
                     value={ingredient.name}
@@ -508,9 +508,9 @@ export default function MenuEditorPage() {
                     placeholder="Inventory item"
                     className="w-full rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2 py-1.5 text-[11px] text-[#24211e] outline-none focus:border-[#ae002a]"
                   />
-                  <label className="flex items-center gap-1 text-[10px] font-semibold text-[#746e67]">
-                    <input type="checkbox" checked={ingredient.takeoutOnly} onChange={(event) => setForm((current) => ({ ...current, ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === index ? { ...entry, takeoutOnly: event.target.checked } : entry) }))} />
-                    Packaging for takeout / delivery
+                  <label className="flex min-w-0 items-start gap-1 text-[10px] font-semibold leading-tight text-[#746e67]">
+                    <input className="mt-0.5 shrink-0" type="checkbox" checked={ingredient.takeoutOnly} onChange={(event) => setForm((current) => ({ ...current, ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === index ? { ...entry, takeoutOnly: event.target.checked } : entry) }))} />
+                    <span>Packaging for takeout / delivery</span>
                   </label>
                 </div>
                 <input
@@ -520,19 +520,19 @@ export default function MenuEditorPage() {
                   value={ingredient.quantity}
                   onChange={(e) => setForm((current) => ({ ...current, ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantity: e.target.value } : entry) }))}
                   placeholder="Qty"
-                  className="w-full rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2 py-1.5 text-[11px] text-[#24211e] outline-none focus:border-[#ae002a]"
+                  className="min-w-0 w-full rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2 py-1.5 text-[11px] text-[#24211e] outline-none focus:border-[#ae002a]"
                 />
                 <input
                   list="ingredient-unit-options"
                   value={ingredient.unit}
                   onChange={(e) => setForm((current) => ({ ...current, ingredients: current.ingredients.map((entry, entryIndex) => entryIndex === index ? { ...entry, unit: e.target.value } : entry) }))}
                   placeholder="kg"
-                  className="w-full rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2 py-1.5 text-[11px] text-[#24211e] outline-none focus:border-[#ae002a]"
+                  className="min-w-0 w-full rounded-lg border border-[#ebdccb] bg-[#fffaf4] px-2 py-1.5 text-[11px] text-[#24211e] outline-none focus:border-[#ae002a]"
                 />
                 <button
                   type="button"
                   onClick={() => setForm((current) => ({ ...current, ingredients: (current.ingredients || [makeIngredientRow()]).filter((_, rowIndex) => rowIndex !== index) || [makeIngredientRow()] }))}
-                  className="rounded-lg border border-[#ebdccb] bg-[#fff5f5] px-2 py-1.5 text-[#ae002a] hover:bg-[#ffe5e5]"
+                  className="inline-flex min-h-10 min-w-10 items-center justify-center self-end rounded-lg border border-[#ebdccb] bg-[#fff5f5] p-2 text-[#ae002a] hover:bg-[#ffe5e5] sm:min-h-0 sm:min-w-0 sm:self-auto"
                   title="Remove ingredient"
                 >
                   <Trash2 size={12} />

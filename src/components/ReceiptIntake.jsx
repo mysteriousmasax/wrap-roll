@@ -5,6 +5,7 @@ import Modal from './ui/Modal';
 import { api } from '../api/client';
 import { parseReceiptText } from '../utils/receiptParser';
 import { parseTraReceiptHtml } from '../utils/traReceiptParser';
+import importPhoto from '../utils/importPhoto';
 
 const localDate = () => new Date().toLocaleDateString('en-CA');
 const emptyStockLine = () => ({ inventoryId: '', sku: '', name: '', quantity: '', unit: 'pcs', unitCost: '', threshold: '' });
@@ -33,6 +34,7 @@ export default function ReceiptIntake({ inventory = [], onClose, onComplete }) {
   const [expenseDate, setExpenseDate] = useState(localDate());
   const [supplier, setSupplier] = useState('');
   const [receiptRef, setReceiptRef] = useState('');
+  const [receiptImage, setReceiptImage] = useState('');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
@@ -199,6 +201,7 @@ export default function ReceiptIntake({ inventory = [], onClose, onComplete }) {
     setError('');
     setNotice('Reading receipt. Check the extracted values before saving.');
     try {
+      setReceiptImage(await importPhoto(file));
       const { createWorker } = await import('tesseract.js');
       const worker = await createWorker('eng');
       try {
@@ -248,7 +251,7 @@ export default function ReceiptIntake({ inventory = [], onClose, onComplete }) {
     try {
       if (destination === 'expense') {
         if (!Number(amount) || Number(amount) <= 0 || !description.trim()) throw new Error('Confirm a description and positive total before saving.');
-        await api.createBusinessExpense({ expenseDate, category: 'Food supplies', description: description.trim(), supplier: supplier.trim(), amount: Number(amount), paymentMethod, receiptRef: receiptRef.trim() });
+        await api.createBusinessExpense({ expenseDate, category: 'Food supplies', description: description.trim(), supplier: supplier.trim(), amount: Number(amount), paymentMethod, receiptRef: receiptRef.trim(), receiptImage });
         onComplete('Receipt saved as a pending expense for approval.');
       } else {
         const validLines = stockLines.filter((line) => line.name.trim() && Number(line.quantity) > 0).map((line) => ({
@@ -264,6 +267,7 @@ export default function ReceiptIntake({ inventory = [], onClose, onComplete }) {
           description: description.trim(),
           amount: Number(amount),
           paymentMethod,
+          receiptImage,
         } : undefined;
         if (destination === 'both' && (!expense.description || !expense.amount || expense.amount <= 0)) throw new Error('Confirm an expense description and positive total before saving.');
         await api.receiveInventoryReceipt({ receiptDate: expenseDate, supplier: supplier.trim(), receiptRef: receiptRef.trim(), items: validLines, expense });

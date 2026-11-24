@@ -7,16 +7,15 @@ import Input from '../../components/ui/Input';
 import { api } from '../../api/client';
 import { formatCurrency } from '../../utils/format';
 import { downloadAsset } from '../../utils/downloadAsset';
-import { getStockUnitConversionFactor } from '../../utils/stockUnits';
+import { getStockUnitConversionFactor, stockUnitGroups, stockUnitOptions } from '../../utils/stockUnits';
 import ReceiptIntake from '../../components/ReceiptIntake';
 import { Package, AlertTriangle, CalendarClock, Edit3, Search, Plus, MapPin, Truck, X, Upload, History, SlidersHorizontal, Download, Trash2, ScanLine } from 'lucide-react';
 import { useWebSocket } from '../../hooks/useWebSocket';
 
 const fallbackImage = 'https://images.unsplash.com/photo-1547592180-85f173990554?w=240&h=180&fit=crop';
-const inventoryUnitOptions = ['kg', 'g', 'litre', 'ml', 'pcs', 'bottle', 'can', 'box', 'cup', 'pack', 'loaves', 'units', 'cards', 'pieces (half)', 'pieces (full)'];
 const defaultInventoryCategories = ['Stock items', 'Fresh ingredients', 'Bakery', 'Cold storage', 'Packaging', 'Beverages'];
 const defaultStorageLocations = ['Stock sheet', 'Back freezer', 'Fridge', 'Sandwich shelf', 'Pizza shelf', 'Burger shelf'];
-const emptyForm = { name: '', quantity: '', unit: 'kg', threshold: '0', supplier: '', imageUrl: '', category: 'Stock items', sku: '', unitCost: '', purchaseUnit: 'kg', purchaseUnitFactor: '1', purchaseUnitCost: '', expiryDate: '', storageLocation: 'Stock sheet', deliveryDate: '', backFreezerChiller: '0', refrigerator: '0', frontSandwich: '0', frontPizza: '0', frontBurger: '0' };
+const emptyForm = { name: '', quantity: '', unit: 'kg', threshold: '0', supplier: '', imageUrl: '', category: 'Stock items', sku: '', unitCost: '', purchaseUnit: 'kg', purchaseUnitFactor: '1', purchaseUnitCost: '', expiryDate: '', storageLocation: 'Stock sheet', deliveryDate: '', backFreezerChiller: '0', refrigerator: '0', frontSandwich: '0', frontPizza: '0', frontBurger: '0', reinterpretUnit: false, confirmUnitReinterpretation: false };
 const normalizeOptionList = (items, fallback) => (Array.isArray(items) && items.length ? items.map((item) => typeof item === 'string' ? { id: null, name: item } : { id: item.id ?? null, name: item.name || item.value || '' }).filter((item) => item.name) : fallback.map((name) => ({ id: null, name })));
 
 function daysUntil(date) {
@@ -66,6 +65,7 @@ export default function InventoryPage({ embedded = false }) {
   const [auditItem, setAuditItem] = useState(null);
   const [auditRows, setAuditRows] = useState([]);
   const [purchaseRows, setPurchaseRows] = useState([]);
+  const [movementRows, setMovementRows] = useState([]);
   const [adjustItem, setAdjustItem] = useState(null);
   const [adjustment, setAdjustment] = useState({ amount: '', reason: 'Stock received' });
   const [inventoryCategories, setInventoryCategories] = useState(normalizeOptionList(defaultInventoryCategories, defaultInventoryCategories));
@@ -113,19 +113,28 @@ export default function InventoryPage({ embedded = false }) {
       setForm((current) => ({ ...current, unit: nextUnit, purchaseUnit: current.purchaseUnit === current.unit ? nextUnit : current.purchaseUnit }));
       return;
     }
-    const conversionFactor = getStockUnitConversionFactor(form.unit, nextUnit);
+    const sourceUnit = form.reinterpretUnit ? editingItem.unit : form.unit;
+    const conversionFactor = getStockUnitConversionFactor(sourceUnit, nextUnit);
     if (conversionFactor === null) {
-      setError(`Cannot convert ${form.unit} to ${nextUnit}. Use compatible units or create a separate item.`);
+      setError('');
+      setForm((current) => ({ ...current, unit: nextUnit, reinterpretUnit: true, confirmUnitReinterpretation: false }));
       return;
     }
     setError('');
     setForm((current) => ({
       ...current,
       unit: nextUnit,
+      reinterpretUnit: false,
+      confirmUnitReinterpretation: false,
+      quantity: String(Number(current.quantity || 0) * conversionFactor),
+      threshold: String(Number(current.threshold || 0) * conversionFactor),
+      backFreezerChiller: String(Number(current.backFreezerChiller || 0) * conversionFactor),
+      refrigerator: String(Number(current.refrigerator || 0) * conversionFactor),
+      frontSandwich: String(Number(current.frontSandwich || 0) * conversionFactor),
+      frontPizza: String(Number(current.frontPizza || 0) * conversionFactor),
+      frontBurger: String(Number(current.frontBurger || 0) * conversionFactor),
       purchaseUnitFactor: String(Number(current.purchaseUnitFactor || 1) * conversionFactor),
-      unitCost: Number(current.purchaseUnitCost) > 0
-        ? current.unitCost
-        : String(Number(current.unitCost || 0) / conversionFactor),
+      unitCost: String(Number(current.unitCost || 0) / conversionFactor),
     }));
   };
   const closeModal = () => { setShowModal(false); setEditingItem(null); setForm(emptyForm); };
@@ -143,12 +152,14 @@ export default function InventoryPage({ embedded = false }) {
   const openAudit = async (item) => {
     setAuditItem(item);
     try {
-      const [changes, purchases] = await Promise.all([
+      const [changes, purchases, movements] = await Promise.all([
         api.getInventoryAudit(item.id),
         api.getInventoryPurchaseHistory(item.id),
+        api.getInventoryMovements(item.id),
       ]);
       setAuditRows(changes);
       setPurchaseRows(purchases);
+      setMovementRows(movements);
     } catch (err) {
       setError(err.message || 'Unable to load inventory and purchase history.');
     }
@@ -166,6 +177,7 @@ export default function InventoryPage({ embedded = false }) {
     try {
       const payload = {
         ...form,
+        reinterpretUnit: Boolean(form.reinterpretUnit && form.confirmUnitReinterpretation),
         quantity: Number(form.quantity),
         threshold: Number(form.threshold),
         unitCost: Number(form.unitCost) || 0,
@@ -178,6 +190,10 @@ export default function InventoryPage({ embedded = false }) {
         frontBurger: Number(form.frontBurger) || 0,
         unit: String(form.unit || 'kg').trim() || 'kg',
       };
+      if (form.reinterpretUnit && !form.confirmUnitReinterpretation) {
+        setError(`Confirm that ${editingItem.unit} was the wrong unit label and that existing quantities should remain unchanged as ${form.unit}.`);
+        return;
+      }
       if (editingItem) await api.updateInventory(editingItem.id, payload);
       else await api.createInventory(payload);
       closeModal();
@@ -305,13 +321,14 @@ export default function InventoryPage({ embedded = false }) {
           const expiryDays = daysUntil(item.expiryDate);
           const isExpiring = expiryDays !== null && expiryDays <= 7;
           const stockPercent = Math.min(100, (item.quantity / Math.max(item.threshold * 2, 1)) * 100);
+          const itemStockValue = Number(item.quantity || 0) * Number(item.unitCost || 0);
           return <article key={item.id} className={'rounded-2xl border bg-white p-4 shadow-sm transition-shadow hover:shadow-md ' + (isLow ? 'border-error/25 bg-error/[0.02]' : 'border-outline-variant')}>
             <div className="flex items-start justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3"><img src={item.imageUrl || fallbackImage} alt={item.name} className="h-14 w-16 shrink-0 rounded-xl object-cover" onError={(event) => { event.currentTarget.src = fallbackImage; }} /><div className="min-w-0"><h3 className="truncate text-sm font-bold">{item.name}</h3><p className="mt-0.5 text-[10px] uppercase tracking-wide text-surface-on-variant">{item.sku || `INV-${String(item.id).padStart(3, '0')}`}</p><p className="text-xs capitalize text-surface-on-variant">{item.category || 'ingredients'}</p></div></div>
               <Badge variant={isLow ? 'red' : 'green'}>{isLow ? 'Low Stock' : 'In Stock'}</Badge>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-              <div><p className="text-surface-on-variant">Stock level</p><p className={'mt-1 text-lg font-bold ' + (isLow ? 'text-error' : '')}>{item.quantity} <span className="text-xs font-normal text-surface-on-variant">{item.unit}</span></p><div className="mt-1 h-1.5 rounded-full bg-surface-container"><div className={'h-1.5 rounded-full ' + (isLow ? 'bg-error' : 'bg-success')} style={{ width: `${stockPercent}%` }} /></div></div>
+              <div><p className="text-surface-on-variant">Stock level</p><p className={'mt-1 text-lg font-bold ' + (isLow ? 'text-error' : '')}>{item.quantity} <span className="text-xs font-normal text-surface-on-variant">{item.unit}</span></p><div className="mt-1 h-1.5 rounded-full bg-surface-container"><div className={'h-1.5 rounded-full ' + (isLow ? 'bg-error' : 'bg-success')} style={{ width: `${stockPercent}%` }} /></div><p className="mt-3 text-surface-on-variant">Available stock value</p><p className="mt-1 text-sm font-bold text-primary">{formatCurrency(itemStockValue)}</p></div>
               <div><p className="text-surface-on-variant">Threshold</p><p className="mt-1 font-semibold">{item.threshold} {item.unit}</p><p className="mt-3 text-surface-on-variant">Moving-average cost per {item.unit}</p><p className="mt-1 font-semibold">{formatCurrency(item.unitCost || 0)}</p></div>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3 border-t border-outline-variant/60 pt-3 text-xs"><div><p className="text-surface-on-variant">Supplier</p><p className="mt-1 font-semibold">{item.supplier || 'Not assigned'}</p><p className="mt-3 text-surface-on-variant">Location</p><p className="mt-1 inline-flex items-center gap-1 font-semibold"><MapPin size={12} />{item.storageLocation || 'Main store'}</p></div><div><p className="text-surface-on-variant">Expiry</p><p className={'mt-1 font-semibold ' + (isExpiring ? 'text-warning' : '')}>{item.expiryDate || 'No expiry'}</p>{isExpiring && <p className="mt-1 text-warning">{expiryDays < 0 ? 'Expired' : `${expiryDays} days left`}</p>}</div></div>
@@ -346,12 +363,20 @@ export default function InventoryPage({ embedded = false }) {
           <div className="grid grid-cols-2 gap-3">
             <Input label={`On-hand quantity (${form.unit})`} type="number" step="any" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} />
             <label className="block text-xs font-semibold uppercase tracking-wide text-surface-on-variant">Base stock unit
-              <select className="input-field mt-1 w-full" value={form.unit} disabled={Boolean(editingItem && Number(editingItem.quantity) > 0)} onChange={(e) => changeBaseUnit(e.target.value)}>
-                {inventoryUnitOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+              <select className="input-field mt-1 w-full" value={form.unit} onChange={(e) => changeBaseUnit(e.target.value)}>
+                {!stockUnitOptions.includes(form.unit) && <option value={form.unit}>{form.unit} (current)</option>}
+                {stockUnitGroups.map((group) => <optgroup key={group.label} label={group.label}>
+                  {group.units.map((option) => <option key={option} value={option}>{option}</option>)}
+                </optgroup>)}
               </select>
             </label>
           </div>
-          {editingItem && Number(editingItem.quantity) > 0 && <p className="text-[11px] text-surface-on-variant">To change the base stock unit, first count the item down to zero.</p>}
+          {editingItem && <p className="text-[11px] text-surface-on-variant">Compatible unit changes automatically convert stock, thresholds, storage counts, purchase quantities, and unit cost.</p>}
+          {editingItem && form.reinterpretUnit && <div className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs text-amber-950">
+            <p className="font-bold">You selected {form.unit}, which cannot be converted from {editingItem.unit}.</p>
+            <p className="mt-1">This correction will keep the current number of stock units, storage counts, threshold, and unit cost unchanged, and reset the purchase unit to {form.unit}. Only confirm if the old unit label was entered incorrectly.</p>
+            <label className="mt-2 flex items-start gap-2 font-semibold"><input type="checkbox" checked={form.confirmUnitReinterpretation} onChange={(event) => setForm((current) => ({ ...current, confirmUnitReinterpretation: event.target.checked }))} className="mt-0.5 accent-primary" />I confirm this is a unit-label correction, not a physical unit conversion.</label>
+          </div>}
           <div className="rounded-xl border border-outline-variant bg-surface-container-low p-3">
             <p className="text-xs font-bold uppercase tracking-wide text-surface-on">Purchase pack and cost</p>
             <p className="mt-1 text-[11px] text-surface-on-variant">Stock is tracked in the base unit; set how much one purchased pack adds. Example: one 1 kg bag = 1,000 g. For existing stock, record each delivery through receipt intake to update the moving average and keep supplier price history.</p>
@@ -420,6 +445,31 @@ export default function InventoryPage({ embedded = false }) {
       <Modal isOpen={adjustItem !== null} onClose={() => setAdjustItem(null)} title={adjustItem ? `Adjust ${adjustItem.name}` : 'Adjust stock'}><div className="space-y-4"><p className="text-sm text-surface-on-variant">Current stock: <strong>{adjustItem?.quantity} {adjustItem?.unit}</strong></p><Input label="Quantity change (+ receive, - remove)" type="number" step="any" value={adjustment.amount} onChange={(e) => setAdjustment({ ...adjustment, amount: e.target.value })} placeholder="e.g. 12 or -2" /><label className="block text-xs font-semibold uppercase tracking-wide text-surface-on-variant">Reason<select className="input-field mt-1" value={adjustment.reason} onChange={(e) => setAdjustment({ ...adjustment, reason: e.target.value })}><option>Stock received</option><option>Wastage</option><option>Damaged goods</option><option>Stock count correction</option><option>Transfer</option></select></label><div className="flex gap-3"><Button variant="secondary" onClick={() => setAdjustItem(null)} className="flex-1">Cancel</Button><Button onClick={saveAdjustment} className="flex-1">Record adjustment</Button></div></div></Modal>
       <Modal isOpen={auditItem !== null} onClose={() => setAuditItem(null)} title={auditItem ? `${auditItem.name} history` : 'Inventory history'}>
         <div className="space-y-5">
+          <section>
+            <h3 className="mb-2 text-sm font-bold">Stock movement ledger</h3>
+            <p className="mb-3 text-xs text-surface-on-variant">Sales usage, receipts, wastage, manual adjustments, unit corrections, and confirmed shift counts. Order IDs are shown for sales. Earlier activity remains in Inventory changes below.</p>
+            {movementRows.length === 0 ? <p className="text-sm text-surface-on-variant">No unified movements recorded yet. New activity will appear here.</p> : (
+              <div className="max-h-80 space-y-2 overflow-auto">
+                {movementRows.map((row) => <article key={row.id} className="rounded-xl border border-outline-variant/60 bg-surface-container-low p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold">{String(row.movementType).replace(/_/g, ' ')}</p>
+                      <p className="mt-1 break-words text-xs text-surface-on-variant">{row.note || 'No details recorded'}</p>
+                      {row.referenceId && <p className="mt-1 break-all text-[10px] text-surface-on-variant">{row.referenceType || 'Reference'}: {row.referenceId}</p>}
+                    </div>
+                    <p className={`shrink-0 text-right text-xs font-bold ${Number(row.quantityDelta) < 0 ? 'text-error' : 'text-success'}`}>
+                      {Number(row.quantityDelta) > 0 ? '+' : ''}{Number(row.quantityDelta)} {row.unitAfter || row.unitBefore}
+                    </p>
+                  </div>
+                  <div className="mt-2 flex flex-wrap justify-between gap-2 border-t border-outline-variant/60 pt-2 text-[10px] text-surface-on-variant">
+                    <span>{row.actorName}</span>
+                    <time>{new Date(row.createdAt).toLocaleString()}</time>
+                    <span>{row.quantityBefore} → {row.quantityAfter} {row.unitAfter || row.unitBefore}</span>
+                  </div>
+                </article>)}
+              </div>
+            )}
+          </section>
           <section>
             <h3 className="mb-2 text-sm font-bold">Purchase price history</h3>
             <p className="mb-3 text-xs text-surface-on-variant">Each receipt retains its supplier and purchase price. On-hand inventory is valued at the moving weighted-average cost.</p>

@@ -1,5 +1,6 @@
 import db from '../db/database.js';
 import { escapeEmailHtml, plainTextToHtml, renderEmailTemplate, selectAudience } from './emailCampaigns.js';
+import { getCustomerEmailNames, withCustomerNameFallback } from './emailCustomerNames.js';
 import { createEmailToken, createEmailTransport, getEmailProvider, isEmailDeliveryConfigured, publicEmailUrl, resolveEmailSender, sendEmail } from './emailDelivery.js';
 
 function campaignFooter(unsubscribeUrl) {
@@ -62,6 +63,7 @@ export async function processEmailCampaign(campaignId) {
   if (!campaign || !['queued', 'scheduled', 'sending'].includes(campaign.status)) return null;
 
   const subscribers = db.prepare('SELECT * FROM email_subscribers WHERE active = 1').all();
+  const customerNames = getCustomerEmailNames(db);
   const suppressions = new Set(db.prepare('SELECT email FROM email_suppressions').all().map((row) => row.email.toLowerCase()));
   const audience = selectAudience(subscribers, campaign.segment, campaign.channel, suppressions);
   const deliveredEmails = new Set(db.prepare("SELECT lower(email) AS email FROM email_campaign_events WHERE campaign_id = ? AND status = 'sent'").all(campaign.id).map((row) => row.email));
@@ -80,6 +82,10 @@ export async function processEmailCampaign(campaignId) {
   let sent = deliveredEmails.size;
   let failed = 0;
   for (const subscriber of pendingAudience) {
+    const personalizedSubscriber = withCustomerNameFallback(
+      subscriber,
+      customerNames.get(String(subscriber.email || '').trim().toLowerCase()),
+    );
     const unsubscribeToken = createEmailToken({
       purpose: 'email-unsubscribe',
       subscriberId: subscriber.id,
@@ -87,10 +93,10 @@ export async function processEmailCampaign(campaignId) {
     });
     const unsubscribeUrl = publicEmailUrl(`/api/email-marketing/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}`);
     const trackingToken = createEmailToken({ purpose: 'email-tracking', campaignId: campaign.id, email: subscriber.email });
-    const subject = personalize(campaign.subject, subscriber, campaign, unsubscribeUrl);
-    const text = `${personalize(campaign.body || '', subscriber, campaign, unsubscribeUrl)}\n\nUnsubscribe: ${unsubscribeUrl}`;
+    const subject = personalize(campaign.subject, personalizedSubscriber, campaign, unsubscribeUrl);
+    const text = `${personalize(campaign.body || '', personalizedSubscriber, campaign, unsubscribeUrl)}\n\nUnsubscribe: ${unsubscribeUrl}`;
     const sourceHtml = campaign.html_body || plainTextToHtml(campaign.body || '');
-    const html = addTracking(`${personalizeHtml(sourceHtml, subscriber, campaign, unsubscribeUrl)}${campaignFooter(unsubscribeUrl)}`, 0, trackingToken);
+    const html = addTracking(`${personalizeHtml(sourceHtml, personalizedSubscriber, campaign, unsubscribeUrl)}${campaignFooter(unsubscribeUrl)}`, 0, trackingToken);
     const createdAt = new Date().toISOString();
     const event = db.prepare('INSERT INTO email_campaign_events (campaign_id, subscriber_id, email, status, sent_at, metadata) VALUES (?, ?, ?, ?, ?, ?)')
       .run(campaign.id, subscriber.id, subscriber.email, 'sending', createdAt, JSON.stringify({ type: 'campaign' }));
