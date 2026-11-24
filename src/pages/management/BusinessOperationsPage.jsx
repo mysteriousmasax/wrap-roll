@@ -64,7 +64,9 @@ export default function BusinessOperationsPage({ embedded = false }) {
       setForm({ ...form, description: '', supplier: '', amount: '', receiptRef: '', receiptImage: '' });
       setEditingExpense(null);
       setShowForm(false);
-      setMessage(editingExpense ? 'Expense updated.' : 'Expense submitted for approval.');
+      setMessage(editingExpense?.status === 'rejected'
+        ? 'Expense updated and resubmitted for approval.'
+        : editingExpense ? 'Expense updated.' : 'Expense submitted for approval.');
       await loadData();
     } catch (error) {
       setMessage(error.message || 'Expense could not be saved.');

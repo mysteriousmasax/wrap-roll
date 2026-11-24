@@ -728,7 +728,7 @@ router.post('/expenses', authMiddleware, (req, res) => {
   res.status(201).json(expense);
 });
 
-router.put('/expenses/:id', authMiddleware, requireRole('admin'), (req, res) => {
+router.put('/expenses/:id', authMiddleware, requireRole('admin', 'manager', 'executive'), (req, res) => {
   const { expenseDate, category, description, supplier, amount, paymentMethod, receiptRef, receiptImage } = req.body || {};
   if (!expenseDate || !category || !description || !Number(amount) || Number(amount) < 0) {
     return res.status(400).json({ error: 'Date, category, description, and a positive amount are required.' });
@@ -741,6 +741,7 @@ router.put('/expenses/:id', authMiddleware, requireRole('admin'), (req, res) => 
   }
   const result = db.prepare(`UPDATE business_expenses
     SET expense_date = ?, category = ?, description = ?, supplier = ?, amount = ?, payment_method = ?, receipt_ref = ?,
+      status = CASE WHEN status = 'rejected' THEN 'pending' ELSE status END,
       receipt_image = CASE WHEN ? THEN ? ELSE receipt_image END
     WHERE id = ?`).run(
     expenseDate, category, description, supplier || null, Number(amount), paymentMethod || 'bank', receiptRef || null,
