@@ -21,6 +21,17 @@ import { getStockUnitConversionFactor } from '../../src/utils/stockUnits.js';
 
 const router = Router();
 const logoPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public/wrap-roll-logo-lockup-transparent.png');
+const settledSalesFilter = (alias = '') => {
+  const orderId = alias ? `${alias}id` : 'orders.id';
+  return `${alias}status != 'cancelled' AND (
+    ${alias}payment_status IN ('paid', 'completed')
+    OR EXISTS (
+      SELECT 1 FROM payments settled_payment
+      WHERE settled_payment.order_id = ${orderId}
+        AND settled_payment.status IN ('paid', 'completed')
+    )
+  )`;
+};
 
 function parseJson(value, fallback) {
   try { return JSON.parse(value || ''); } catch { return fallback; }
@@ -28,6 +39,40 @@ function parseJson(value, fallback) {
 
 router.get('/sales', authMiddleware, (req, res) => {
   res.json(getSeriesForRange('month'));
+});
+
+router.get('/recent-orders', authMiddleware, (req, res) => {
+  const orders = db.prepare(`SELECT id, customer_name, order_type, dine_in_tab_id, payment_method, payment_status, status, total, created_at
+    FROM orders
+    WHERE ${settledSalesFilter()}
+    ORDER BY created_at DESC LIMIT 5`).all();
+  if (!orders.length) return res.json([]);
+
+  const orderIds = orders.map((order) => order.id);
+  const placeholders = orderIds.map(() => '?').join(', ');
+  const items = db.prepare(`SELECT order_id, name, qty FROM order_items
+    WHERE order_id IN (${placeholders}) ORDER BY rowid`).all(...orderIds);
+  const payments = db.prepare(`SELECT DISTINCT order_id, payment_method FROM payments
+    WHERE order_id IN (${placeholders}) AND status IN ('paid', 'completed')
+      AND payment_method IS NOT NULL AND trim(payment_method) != ''
+    ORDER BY order_id, payment_method`).all(...orderIds);
+  const itemsByOrder = new Map(orderIds.map((id) => [id, []]));
+  const paymentMethodsByOrder = new Map(orderIds.map((id) => [id, []]));
+  for (const item of items) itemsByOrder.get(item.order_id).push({ name: item.name, qty: item.qty });
+  for (const payment of payments) paymentMethodsByOrder.get(payment.order_id).push(payment.payment_method);
+
+  res.json(orders.map((order) => ({
+    id: order.id,
+    customerName: order.customer_name,
+    type: order.order_type === 'dine-in-postpay' || order.dine_in_tab_id ? 'dine-in' : order.order_type,
+    paymentMethod: order.payment_method,
+    paymentMethods: paymentMethodsByOrder.get(order.id),
+    paymentStatus: order.payment_status,
+    status: order.status,
+    total: Number(order.total || 0),
+    createdAt: order.created_at,
+    items: itemsByOrder.get(order.id),
+  })));
 });
 
 function buildRangeSeries(rows, formatLabel) {
@@ -99,11 +144,35 @@ function getSeriesForRange(range) {
 }
 
 function getLiveOrders() {
-  return db.prepare("SELECT created_at, total, order_type, status FROM orders WHERE created_at IS NOT NULL AND status = 'completed' AND payment_status IN ('paid', 'completed')").all();
+  return db.prepare(`SELECT created_at, total,
+      CASE WHEN order_type = 'dine-in-postpay' OR dine_in_tab_id IS NOT NULL THEN 'dine-in' ELSE order_type END AS order_type,
+      status
+    FROM orders WHERE created_at IS NOT NULL AND ${settledSalesFilter()}`).all();
+}
+
+function getRecordedPaymentMethods(orderId, fallbackMethod, paymentStatus) {
+  const methods = db.prepare(`SELECT DISTINCT payment_method FROM payments
+    WHERE order_id = ? AND status IN ('paid', 'completed') AND payment_method IS NOT NULL AND trim(payment_method) != ''
+    ORDER BY payment_method`).all(orderId).map((row) => row.payment_method);
+  const paymentLabels = {
+    cash: 'Cash',
+    lipa_namba: 'Mobile money',
+    mobile_money: 'Mobile money',
+    mpesa: 'Mobile money',
+    'm-pesa': 'Mobile money',
+    card: 'Card',
+    bank_transfer: 'Bank transfer',
+    other: 'Other',
+  };
+  const formatMethod = (method) => paymentLabels[String(method).toLowerCase()] || String(method).replaceAll('_', ' ');
+  if (methods.length) return methods.map(formatMethod).join(', ');
+  if (fallbackMethod && String(fallbackMethod).toLowerCase() !== 'tab') return formatMethod(fallbackMethod);
+  return ['paid', 'completed', 'partially_paid'].includes(String(paymentStatus || '').toLowerCase()) ? 'Payment recorded' : 'Unpaid';
 }
 
 function getCurrentPeriodRevenue(start, end) {
-  return db.prepare("SELECT COALESCE(SUM(total), 0) AS revenue, COUNT(*) AS orders FROM orders WHERE created_at >= ? AND created_at < ? AND status = 'completed' AND payment_status IN ('paid', 'completed')").get(start, end);
+  return db.prepare(`SELECT COALESCE(SUM(total), 0) AS revenue, COUNT(*) AS orders FROM orders
+    WHERE created_at >= ? AND created_at < ? AND ${settledSalesFilter()}`).get(start, end);
 }
 
 function addBusinessDays(date, offset) {
@@ -166,7 +235,7 @@ function getIngredientUsage(reportDate) {
 
 function getOperationalSummaries(requestedDate = '') {
   const now = new Date();
-  const latestOrderDay = db.prepare("SELECT MAX(substr(created_at, 1, 10)) AS day FROM orders WHERE status = 'completed' AND payment_status IN ('paid', 'completed')").get()?.day;
+  const latestOrderDay = db.prepare(`SELECT MAX(substr(created_at, 1, 10)) AS day FROM orders WHERE ${settledSalesFilter()}`).get()?.day;
   const reportDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : (latestOrderDay || now.toISOString().slice(0, 10));
   const reportDateValue = new Date(`${reportDate}T00:00:00Z`);
   const weekStart = new Date(reportDateValue);
@@ -188,7 +257,7 @@ function getOperationalSummaries(requestedDate = '') {
     INNER JOIN orders o ON o.id = oi.order_id
     LEFT JOIN users u ON u.id = o.staff_id
     LEFT JOIN inventory i ON LOWER(TRIM(i.name)) = LOWER(TRIM(oi.name))
-    WHERE substr(o.created_at, 1, 10) = ? AND o.status = 'completed' AND o.payment_status IN ('paid', 'completed')
+    WHERE substr(o.created_at, 1, 10) = ? AND ${settledSalesFilter('o.')}
     GROUP BY oi.name, oi.price, oi.modifiers, i.quantity
     ORDER BY total DESC LIMIT 24
   `).all(reportDate);
@@ -340,7 +409,7 @@ router.get('/categories', authMiddleware, (req, res) => {
   const rows = db.prepare(`
     SELECT mi.category, SUM(oi.price * oi.qty) as revenue
     FROM order_items oi
-    INNER JOIN orders o ON o.id = oi.order_id AND o.status = 'completed' AND o.payment_status IN ('paid', 'completed')
+    INNER JOIN orders o ON o.id = oi.order_id AND ${settledSalesFilter('o.')}
     LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
     GROUP BY mi.category
     ORDER BY revenue DESC
@@ -363,7 +432,7 @@ router.get('/reports', authMiddleware, (req, res) => {
   const categoryRows = db.prepare(`
     SELECT mi.category, COALESCE(SUM(oi.price * oi.qty), 0) AS amount
     FROM order_items oi
-    INNER JOIN orders o ON o.id = oi.order_id AND o.status = 'completed' AND o.payment_status IN ('paid', 'completed')
+    INNER JOIN orders o ON o.id = oi.order_id AND ${settledSalesFilter('o.')}
     LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
     GROUP BY mi.category
   `).all();
@@ -396,7 +465,7 @@ router.get('/reports', authMiddleware, (req, res) => {
   const currentMonth = now.toISOString().slice(0, 7);
   const previousMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
   const previousMonth = previousMonthDate.toISOString().slice(0, 7);
-  const periodRevenue = (month) => Number(db.prepare("SELECT COALESCE(SUM(total), 0) AS amount FROM orders WHERE status = 'completed' AND payment_status IN ('paid', 'completed') AND substr(created_at, 1, 7) = ?").get(month).amount || 0);
+  const periodRevenue = (month) => Number(db.prepare(`SELECT COALESCE(SUM(total), 0) AS amount FROM orders WHERE ${settledSalesFilter()} AND substr(created_at, 1, 7) = ?`).get(month).amount || 0);
   const periodExpenses = (month) => Number(db.prepare("SELECT COALESCE(SUM(amount), 0) AS amount FROM business_expenses WHERE status != 'rejected' AND substr(expense_date, 1, 7) = ?").get(month).amount || 0);
   const periodPayroll = (month) => Number(db.prepare("SELECT COALESCE(SUM(net_pay), 0) AS amount FROM payroll_records WHERE substr(pay_period, 1, 7) = ?").get(month).amount || 0);
   const currentPeriodRevenue = periodRevenue(currentMonth);
@@ -404,7 +473,7 @@ router.get('/reports', authMiddleware, (req, res) => {
   const discountTotals = db.prepare(`SELECT COALESCE(SUM(subtotal), 0) AS gross_sales,
       COALESCE(SUM(manual_discount_amount), 0) AS manual_discounts,
       COALESCE(SUM(offer_discount_amount), 0) AS offer_discounts
-    FROM orders WHERE status = 'completed' AND payment_status IN ('paid', 'completed')
+    FROM orders WHERE ${settledSalesFilter()}
       AND substr(created_at, 1, 7) = ?`).get(currentMonth);
   const refundsTotal = Number(db.prepare(`SELECT COALESCE(SUM(r.amount), 0) AS amount FROM refunds r
     JOIN orders o ON o.id = r.order_id WHERE r.status = 'processed'
@@ -474,7 +543,7 @@ router.get('/reports', authMiddleware, (req, res) => {
 
 function getFinancialReport(type) {
   const sales = getSeriesForRange('month');
-  const orders = db.prepare("SELECT id, created_at, status, order_type, order_source, payment_method, payment_status, total FROM orders WHERE status = 'completed' AND payment_status IN ('paid', 'completed') ORDER BY created_at DESC").all();
+  const orders = db.prepare(`SELECT id, created_at, status, order_type, order_source, payment_method, payment_status, total FROM orders WHERE ${settledSalesFilter()} ORDER BY created_at DESC`).all();
   const revenue = orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
   const vatRate = Number(db.prepare("SELECT value FROM settings WHERE key = 'vat_rate'").get()?.value || 0);
   const tax = revenue * (vatRate / 100);
@@ -482,7 +551,12 @@ function getFinancialReport(type) {
   const payroll = db.prepare('SELECT pay_period, staff_name, basic_pay, overtime, allowances, deductions, net_pay, status FROM payroll_records ORDER BY pay_period DESC').all();
   const inventory = db.prepare('SELECT name, sku, category, quantity, unit, unit_cost, quantity * unit_cost AS value, supplier, expiry_date FROM inventory ORDER BY value DESC').all();
   const payments = getSettledPaymentTotals();
-  const orderPerformance = db.prepare("SELECT status, order_type, order_source, COUNT(*) AS orders, COALESCE(SUM(total), 0) AS revenue FROM orders GROUP BY status, order_type, order_source ORDER BY revenue DESC").all();
+  const orderPerformance = db.prepare(`SELECT status,
+      CASE WHEN order_type = 'dine-in-postpay' OR dine_in_tab_id IS NOT NULL THEN 'dine-in' ELSE order_type END AS order_type,
+      order_source, COUNT(*) AS orders, COALESCE(SUM(total), 0) AS revenue
+    FROM orders GROUP BY status,
+      CASE WHEN order_type = 'dine-in-postpay' OR dine_in_tab_id IS NOT NULL THEN 'dine-in' ELSE order_type END,
+      order_source ORDER BY revenue DESC`).all();
   const expenseTotal = expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const payrollTotal = payroll.reduce((sum, item) => sum + Number(item.net_pay || 0), 0);
 
@@ -513,7 +587,7 @@ function getFinancialReport(type) {
           manual_discount_amount AS manual_discount, offer_discount_amount AS offer_discount,
           manual_discount_amount + offer_discount_amount AS total_discount
         FROM orders
-        WHERE status = 'completed' AND payment_status IN ('paid', 'completed')
+        WHERE ${settledSalesFilter()}
           AND (manual_discount_amount > 0 OR offer_discount_amount > 0)
         ORDER BY created_at DESC`).all(),
     },
@@ -873,9 +947,9 @@ function buildAnalyticsExport(range, requestedDate) {
       end: restaurantDateBounds(endDate).start,
     };
     const orders = db.prepare(`
-      SELECT id, order_number, created_at, customer_name, order_type, order_source, payment_method, total, tax
+      SELECT id, order_number, created_at, customer_name, order_type, dine_in_tab_id, order_source, payment_method, payment_status, total, tax
       FROM orders
-      WHERE status = 'completed' AND payment_status IN ('paid', 'completed') AND created_at >= ? AND created_at < ?
+      WHERE ${settledSalesFilter()} AND created_at >= ? AND created_at < ?
       ORDER BY created_at ASC
     `).all(bounds.start, bounds.end);
 
@@ -885,9 +959,9 @@ function buildAnalyticsExport(range, requestedDate) {
       orderId: order.id,
       time: restaurantTime(new Date(order.created_at)).time,
       customer: order.customer_name || 'Walk-in guest',
-      type: order.order_type || '',
+      type: order.order_type === 'dine-in-postpay' || order.dine_in_tab_id ? 'dine-in' : order.order_type || '',
       source: order.order_source || '',
-      payment: order.payment_method || '',
+      payment: getRecordedPaymentMethods(order.id, order.payment_method, order.payment_status),
       total: Number(order.total || 0),
       orderTax: Number(order.tax || 0),
     }));
@@ -937,9 +1011,9 @@ router.get('/orders-by-day', authMiddleware, (req, res) => {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : restaurantTime().date;
   const bounds = restaurantDateBounds(date);
   const orders = db.prepare(`
-    SELECT id, created_at, order_type, order_source, payment_method, total, table_number, customer_name
+    SELECT id, created_at, order_type, dine_in_tab_id, order_source, payment_method, payment_status, total, table_number, customer_name
     FROM orders
-    WHERE status = 'completed' AND payment_status IN ('paid', 'completed') AND created_at >= ? AND created_at < ?
+    WHERE ${settledSalesFilter()} AND created_at >= ? AND created_at < ?
     ORDER BY created_at ASC
   `).all(bounds.start, bounds.end);
   res.json({
@@ -950,9 +1024,9 @@ router.get('/orders-by-day', authMiddleware, (req, res) => {
       id: order.id,
       time: restaurantTime(new Date(order.created_at)).time,
       createdAt: order.created_at,
-      type: order.order_type || '',
+      type: order.order_type === 'dine-in-postpay' || order.dine_in_tab_id ? 'dine-in' : order.order_type || '',
       source: order.order_source || '',
-      payment: order.payment_method || '',
+      payment: getRecordedPaymentMethods(order.id, order.payment_method, order.payment_status),
       total: Number(order.total || 0),
       table: order.table_number,
       customer: order.customer_name || 'Walk-in Guest',

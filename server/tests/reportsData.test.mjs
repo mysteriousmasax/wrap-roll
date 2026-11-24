@@ -33,6 +33,9 @@ test('compliance reports aggregate real paid orders and recorded audit activity'
     db.prepare(`INSERT INTO orders
       (id, order_number, order_type, subtotal, tax, total, payment_method, payment_status, status, created_at, updated_at)
       VALUES ('legacy-mobile-order', 'R-1004', 'takeaway', 50, 0, 50, 'lipa_namba_1', 'paid', 'completed', '2026-04-10T13:00:00.000Z', '2026-04-10T13:00:00.000Z')`).run();
+    db.prepare(`INSERT INTO orders
+      (id, order_number, order_type, subtotal, tax, total, payment_method, payment_status, status, created_at, updated_at)
+      VALUES ('table-dine-in-order', 'R-1005', 'dine-in-postpay', 300, 0, 300, 'tab', 'pending', 'ready', '2026-04-11T13:00:00.000Z', '2026-04-11T13:00:00.000Z')`).run();
     const addPayment = db.prepare(`INSERT INTO payments
       (id, order_id, payment_reference, provider, payment_method, amount, status, paid_at, created_at, updated_at)
       VALUES (?, ?, ?, 'test', ?, ?, ?, ?, ?, ?)`);
@@ -40,6 +43,8 @@ test('compliance reports aggregate real paid orders and recorded audit activity'
     addPayment.run('payment-cash-2', 'paid-order-2', 'REF-CASH-2', 'cash', 100, 'completed', '2026-03-09T11:00:00.000Z', '2026-03-09T11:00:00.000Z', '2026-03-09T11:00:00.000Z');
     addPayment.run('payment-lipa-2', 'paid-order-2', 'REF-LIPA-2', 'lipa_namba_2', 116, 'paid', '2026-03-09T11:00:00.000Z', '2026-03-09T11:00:00.000Z', '2026-03-09T11:00:00.000Z');
     addPayment.run('payment-unpaid', 'unpaid-order', 'REF-UNPAID', 'lipa_namba', 1080, 'pending', null, '2026-03-09T12:00:00.000Z', '2026-03-09T12:00:00.000Z');
+    addPayment.run('payment-table-cash', 'table-dine-in-order', 'REF-TABLE-CASH', 'cash', 100, 'paid', '2026-04-11T13:00:00.000Z', '2026-04-11T13:00:00.000Z', '2026-04-11T13:00:00.000Z');
+    addPayment.run('payment-table-card', 'table-dine-in-order', 'REF-TABLE-CARD', 'card', 200, 'paid', '2026-04-11T13:00:00.000Z', '2026-04-11T13:00:00.000Z', '2026-04-11T13:00:00.000Z');
     db.prepare('UPDATE orders SET manual_discount_amount = 10, offer_discount_amount = 5 WHERE id = ?').run('paid-order-1');
     db.prepare(`INSERT INTO refunds
       (id, payment_id, order_id, amount, reason, status, requested_at, processed_at)
@@ -91,7 +96,8 @@ test('compliance reports aggregate real paid orders and recorded audit activity'
     assert.equal(paymentReportResponse.status, 200);
     const paymentReport = await paymentReportResponse.json();
     assert.deepEqual(paymentReport.rows, [
-      { method: 'cash', orders: 2, paid_orders: 2, amount: 208 },
+      { method: 'cash', orders: 3, paid_orders: 3, amount: 308 },
+      { method: 'card', orders: 1, paid_orders: 1, amount: 200 },
       { method: 'lipa_namba', orders: 2, paid_orders: 2, amount: 166 },
     ], 'reconciliation groups settled tender records, including split and Lipa Namba payments, and ignores unpaid intents');
 
@@ -119,7 +125,8 @@ test('compliance reports aggregate real paid orders and recorded audit activity'
     assert.equal(analyticsSummaryResponse.status, 200);
     const analyticsSummary = await analyticsSummaryResponse.json();
     assert.deepEqual(analyticsSummary.paymentMethods.map(({ method, amount }) => ({ method, amount })), [
-      { method: 'cash', amount: 208 },
+      { method: 'cash', amount: 308 },
+      { method: 'card', amount: 200 },
       { method: 'lipa_namba', amount: 166 },
     ]);
 
@@ -127,11 +134,42 @@ test('compliance reports aggregate real paid orders and recorded audit activity'
     assert.equal(dashboardSummaryResponse.status, 200, 'dashboard analytics summary works with a migrated legacy refund table');
     const dashboardSummary = await dashboardSummaryResponse.json();
     assert.ok(Number.isFinite(dashboardSummary.todayRevenue));
+    assert.equal(dashboardSummary.channelMix['dine-in'], 1, 'table tickets count as dine-in orders in channel mix');
+
+    const salesResponse = await fetch(`${base}/sales`, { headers: authHeaders });
+    assert.equal(salesResponse.status, 200);
+    const sales = await salesResponse.json();
+    assert.ok(sales.some((row) => row.revenue === 350), 'settled table orders count as sales before ticket fulfillment status reaches completed');
 
     const recentOrdersResponse = await fetch(`${base.replace('/analytics', '')}/orders`, { headers: authHeaders });
     assert.equal(recentOrdersResponse.status, 200, 'recent orders endpoint works with a migrated legacy refund table');
     const recentOrders = await recentOrdersResponse.json();
-    assert.equal(recentOrders.length, 4);
+    assert.equal(recentOrders.length, 5);
+    const tableOrder = recentOrders.find((order) => order.id === 'table-dine-in-order');
+    assert.equal(tableOrder.type, 'dine-in');
+    assert.deepEqual(tableOrder.paymentMethods.sort(), ['card', 'cash']);
+
+    addOrder.run('old-paid-order-1', 'R-1006', 'Older Customer', 70, 0, 70, 'paid', 'completed', '2025-01-02T10:00:00.000Z', '2025-01-02T10:00:00.000Z');
+    addOrder.run('old-paid-order-2', 'R-1007', 'Oldest Customer', 60, 0, 60, 'paid', 'completed', '2025-01-01T10:00:00.000Z', '2025-01-01T10:00:00.000Z');
+    const analyticsRecentOrdersResponse = await fetch(`${base}/recent-orders`, { headers: authHeaders });
+    assert.equal(analyticsRecentOrdersResponse.status, 200);
+    const analyticsRecentOrders = await analyticsRecentOrdersResponse.json();
+    assert.equal(analyticsRecentOrders.length, 5, 'analytics recent orders are capped at five settled orders');
+    assert.equal(analyticsRecentOrders[0].id, 'table-dine-in-order');
+    assert.equal(analyticsRecentOrders[0].type, 'dine-in');
+    assert.deepEqual(analyticsRecentOrders[0].paymentMethods, ['card', 'cash']);
+    assert.ok(!analyticsRecentOrders.some((order) => order.id === 'unpaid-order' || order.id === 'old-paid-order-2'));
+
+    const tableDayResponse = await fetch(`${base}/orders-by-day?date=2026-04-11`, { headers: authHeaders });
+    assert.equal(tableDayResponse.status, 200);
+    const tableDay = await tableDayResponse.json();
+    assert.equal(tableDay.orders[0].type, 'dine-in');
+    assert.equal(tableDay.orders[0].payment, 'Card, Cash', 'analytics reports actual split tender methods instead of the tab placeholder');
+
+    const orderPerformanceResponse = await fetch(`${base}/reports/data?type=orders`, { headers: authHeaders });
+    assert.equal(orderPerformanceResponse.status, 200);
+    const orderPerformance = await orderPerformanceResponse.json();
+    assert.ok(orderPerformance.rows.some((row) => row.order_type === 'dine-in' && row.orders === 1));
 
     const dailyPreviewResponse = await fetch(`${base}/export/preview?range=day&date=2026-03-09`, { headers: authHeaders });
     assert.equal(dailyPreviewResponse.status, 200);
