@@ -487,6 +487,25 @@ test('handover counts alert on stock variance, apply only verified counts, and t
     const variableCostItemId = db.prepare(`INSERT INTO inventory
       (name, quantity, unit, threshold, supplier, unit_cost, purchase_unit, purchase_unit_factor, purchase_unit_cost)
       VALUES ('Test Variable Cost Item', 0, 'pcs', 0, '', 0, 'pcs', 1, 0)`).run().lastInsertRowid;
+    const gramsItemId = db.prepare(`INSERT INTO inventory
+      (name, quantity, unit, threshold, unit_cost, purchase_unit, purchase_unit_factor, purchase_unit_cost)
+      VALUES ('Test Receipt Unit Conversion', 0, 'g', 0, 0, 'kg', 1000, 10000)`).run().lastInsertRowid;
+    const kilogramReceipt = await fetch(`${base}/inventory/receive-receipt`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        receiptDate: '2026-10-11',
+        receiptRef: 'KG-TO-G-RECEIPT',
+        supplier: 'Unit Conversion Supplier',
+        items: [{ inventoryId: gramsItemId, name: 'Test Receipt Unit Conversion', quantity: 2.5, unit: 'kg', unitCost: 10000 }],
+      }),
+    });
+    assert.equal(kilogramReceipt.status, 201);
+    const convertedReceiptStock = db.prepare('SELECT quantity, unit_cost FROM inventory WHERE id = ?').get(gramsItemId);
+    assert.equal(convertedReceiptStock.quantity, 2500);
+    assert.equal(convertedReceiptStock.unit_cost, 10);
+    assert.equal(convertedReceiptStock.quantity * convertedReceiptStock.unit_cost, 25000);
+
     const receiveVariableCost = (supplier, unitCost) => fetch(`${base}/inventory/receive-receipt`, {
       method: 'POST',
       headers,

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseReceiptText } from '../../src/utils/receiptParser.js';
+import { createReceiptStockLine } from '../../src/utils/receiptIntake.js';
 
 test('receipt OCR parser extracts reviewable supplier, date, reference, total, and lines', () => {
   const parsed = parseReceiptText(`Mikocheni Produce Market
@@ -28,4 +29,22 @@ test('receipt OCR parser leaves uncertain fields blank for manual review', () =>
   assert.equal(parsed.receiptRef, '');
   assert.equal(parsed.expenseDate, '');
   assert.deepEqual(parsed.items, []);
+});
+
+test('matched OCR lines retain receipt units and per-unit costs for server conversion', () => {
+  const line = createReceiptStockLine(
+    { name: 'Sausages', quantity: 2.5, unit: 'kg', unitCost: 10000 },
+    { id: 12, name: 'Sausages', unit: 'g', purchaseUnit: 'kg', sku: 'SAUS-12', threshold: 500 },
+    { inventoryId: '', sku: '', name: '', quantity: '', unit: 'pcs', unitCost: '', threshold: '' },
+  );
+
+  assert.deepEqual(line, {
+    inventoryId: '12',
+    sku: 'SAUS-12',
+    name: 'Sausages',
+    quantity: '2.5',
+    unit: 'kg',
+    unitCost: '10000',
+    threshold: '500',
+  });
 });

@@ -6,6 +6,7 @@ import { api } from '../api/client';
 import { parseReceiptText } from '../utils/receiptParser';
 import { parseTraReceiptHtml } from '../utils/traReceiptParser';
 import importPhoto from '../utils/importPhoto';
+import { createReceiptStockLine } from '../utils/receiptIntake';
 
 const localDate = () => new Date().toLocaleDateString('en-CA');
 const emptyStockLine = () => ({ inventoryId: '', sku: '', name: '', quantity: '', unit: 'pcs', unitCost: '', threshold: '' });
@@ -76,16 +77,7 @@ export default function ReceiptIntake({ inventory = [], onClose, onComplete }) {
       if (parsed.description) setDescription(parsed.description);
       const parsedLines = parsed.items.map((item) => {
         const matchedItem = matchInventoryItem(item.name, item.unit);
-        return {
-          ...emptyStockLine(),
-          ...item,
-          inventoryId: matchedItem ? String(matchedItem.id) : '',
-          sku: matchedItem?.sku || '',
-          unit: item.unit || matchedItem?.purchaseUnit || matchedItem?.unit,
-          threshold: matchedItem ? String(matchedItem.threshold ?? 0) : '',
-          quantity: String(item.quantity),
-          unitCost: String(item.unitCost),
-        };
+        return createReceiptStockLine(item, matchedItem, emptyStockLine());
       });
       setStockLines(parsedLines.length ? parsedLines : [emptyStockLine()]);
       setActiveStockLine(0);
@@ -122,7 +114,10 @@ export default function ReceiptIntake({ inventory = [], onClose, onComplete }) {
       inventoryId: matchedItem ? String(matchedItem.id) : '',
       sku: scannedValue,
       name: matchedItem?.name || line.name,
-      unit: matchedItem?.unit || line.unit,
+      unit: matchedItem?.purchaseUnit || matchedItem?.unit || line.unit,
+      unitCost: matchedItem
+        ? String(matchedItem.purchaseUnitCost || Number(matchedItem.unitCost || 0) * (Number(matchedItem.purchaseUnitFactor) || 1))
+        : line.unitCost,
       threshold: matchedItem ? String(matchedItem.threshold ?? 0) : line.threshold,
     } : line));
     setNotice(matchedItem ? `Matched ${matchedItem.name}. Enter the received quantity.` : 'Barcode captured. Enter the new item name and received quantity.');
@@ -216,16 +211,7 @@ export default function ReceiptIntake({ inventory = [], onClose, onComplete }) {
         if (parsed.items.length) {
             setStockLines(parsed.items.map((item) => {
               const matchedItem = matchInventoryItem(item.name, item.unit);
-            return {
-              ...emptyStockLine(),
-              ...item,
-              inventoryId: matchedItem ? String(matchedItem.id) : '',
-              sku: matchedItem?.sku || '',
-              unit: matchedItem?.unit || item.unit,
-              threshold: matchedItem ? String(matchedItem.threshold ?? 0) : '',
-              quantity: String(item.quantity),
-              unitCost: String(item.unitCost),
-            };
+              return createReceiptStockLine(item, matchedItem, emptyStockLine());
           }));
           setActiveStockLine(0);
           setDestination('both');

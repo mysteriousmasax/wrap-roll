@@ -8,6 +8,7 @@ import { api } from '../../api/client';
 import { formatCurrency } from '../../utils/format';
 import { downloadAsset } from '../../utils/downloadAsset';
 import { getStockUnitConversionFactor, stockUnitGroups, stockUnitOptions } from '../../utils/stockUnits';
+import { convertInventoryFormBaseUnit } from '../../utils/inventoryFormUnits';
 import ReceiptIntake from '../../components/ReceiptIntake';
 import { Package, AlertTriangle, CalendarClock, Edit3, Search, Plus, MapPin, Truck, X, Upload, History, SlidersHorizontal, Download, Trash2, ScanLine } from 'lucide-react';
 import { useWebSocket } from '../../hooks/useWebSocket';
@@ -110,7 +111,17 @@ export default function InventoryPage({ embedded = false }) {
   const openEdit = (item) => { setEditingItem(item); setForm({ ...emptyForm, ...item, quantity: String(item.quantity), threshold: String(item.threshold), unitCost: String(item.unitCost ?? ''), purchaseUnit: item.purchaseUnit || item.unit, purchaseUnitFactor: String(item.purchaseUnitFactor || 1), purchaseUnitCost: String(item.purchaseUnitCost || 0), backFreezerChiller: String(item.backFreezerChiller || 0), refrigerator: String(item.refrigerator || 0), frontSandwich: String(item.frontSandwich || 0), frontPizza: String(item.frontPizza || 0), frontBurger: String(item.frontBurger || 0) }); setShowModal(true); };
   const changeBaseUnit = (nextUnit) => {
     if (!editingItem) {
-      setForm((current) => ({ ...current, unit: nextUnit, purchaseUnit: current.purchaseUnit === current.unit ? nextUnit : current.purchaseUnit }));
+      const converted = convertInventoryFormBaseUnit(form, nextUnit);
+      if (converted) {
+        setForm(converted);
+      } else {
+        setForm((current) => ({
+          ...current,
+          unit: nextUnit,
+          purchaseUnit: current.purchaseUnit === current.unit ? nextUnit : current.purchaseUnit,
+          purchaseUnitFactor: current.purchaseUnit === current.unit ? '1' : current.purchaseUnitFactor,
+        }));
+      }
       return;
     }
     const sourceUnit = form.reinterpretUnit ? editingItem.unit : form.unit;
@@ -121,21 +132,10 @@ export default function InventoryPage({ embedded = false }) {
       return;
     }
     setError('');
-    setForm((current) => ({
-      ...current,
-      unit: nextUnit,
-      reinterpretUnit: false,
-      confirmUnitReinterpretation: false,
-      quantity: String(Number(current.quantity || 0) * conversionFactor),
-      threshold: String(Number(current.threshold || 0) * conversionFactor),
-      backFreezerChiller: String(Number(current.backFreezerChiller || 0) * conversionFactor),
-      refrigerator: String(Number(current.refrigerator || 0) * conversionFactor),
-      frontSandwich: String(Number(current.frontSandwich || 0) * conversionFactor),
-      frontPizza: String(Number(current.frontPizza || 0) * conversionFactor),
-      frontBurger: String(Number(current.frontBurger || 0) * conversionFactor),
-      purchaseUnitFactor: String(Number(current.purchaseUnitFactor || 1) * conversionFactor),
-      unitCost: String(Number(current.unitCost || 0) / conversionFactor),
-    }));
+    setForm((current) => convertInventoryFormBaseUnit(
+      current.reinterpretUnit ? { ...current, unit: editingItem.unit } : current,
+      nextUnit,
+    ));
   };
   const closeModal = () => { setShowModal(false); setEditingItem(null); setForm(emptyForm); };
   const handlePhotoChange = async (event) => {
@@ -371,7 +371,7 @@ export default function InventoryPage({ embedded = false }) {
               </select>
             </label>
           </div>
-          {editingItem && <p className="text-[11px] text-surface-on-variant">Compatible unit changes automatically convert stock, thresholds, storage counts, purchase quantities, and unit cost.</p>}
+          <p className="text-[11px] text-surface-on-variant">Compatible unit changes convert stock quantities, thresholds, storage counts, purchase-pack conversion, and cost per base unit. For example, a 1 kg pack is 1,000 g when stock is tracked in grams.</p>
           {editingItem && form.reinterpretUnit && <div className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs text-amber-950">
             <p className="font-bold">You selected {form.unit}, which cannot be converted from {editingItem.unit}.</p>
             <p className="mt-1">This correction will keep the current number of stock units, storage counts, threshold, and unit cost unchanged, and reset the purchase unit to {form.unit}. Only confirm if the old unit label was entered incorrectly.</p>
